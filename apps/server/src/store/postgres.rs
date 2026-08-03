@@ -202,6 +202,18 @@ impl GameStore for PostgresRedisStore {
         Ok(room)
     }
 
+    async fn active_rooms(&self) -> Result<Vec<GameRoom>, GameError> {
+        let snapshots: Vec<serde_json::Value> = sqlx::query_scalar(
+            "SELECT snapshot FROM game_rooms WHERE status NOT IN ('FINISHED', 'CANCELLED')",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        snapshots
+            .into_iter()
+            .map(|value| serde_json::from_value(value).map_err(|_| GameError::Internal))
+            .collect()
+    }
+
     async fn list_public_rooms(&self) -> Result<Vec<RoomSummary>, GameError> {
         let snapshots: Vec<serde_json::Value> = sqlx::query_scalar(
             "SELECT snapshot FROM game_rooms WHERE visibility='PUBLIC' AND status='WAITING' ORDER BY created_at DESC LIMIT 100"

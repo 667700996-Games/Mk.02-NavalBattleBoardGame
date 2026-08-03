@@ -70,6 +70,10 @@ async fn handle_socket(socket: WebSocket, state: AppState, session: crate::domai
 }
 
 async fn handle_event(state: &AppState, session: &crate::domain::UserSession, event: ClientEvent) {
+    let is_placement_event = matches!(
+        &event,
+        ClientEvent::ShipsPlace(_) | ClientEvent::ShipsConfirm(_)
+    );
     let result = match event {
         ClientEvent::RoomCreate(input) => {
             async {
@@ -243,12 +247,24 @@ async fn handle_event(state: &AppState, session: &crate::domain::UserSession, ev
         }
     };
     if let Err(error) = result {
-        state.hub.send(session.id, error_event(error));
+        let protocol_error = protocol_error(error);
+        state.hub.send(
+            session.id,
+            if is_placement_event {
+                ServerEvent::PlacementRejected(protocol_error)
+            } else {
+                ServerEvent::Error(protocol_error)
+            },
+        );
     }
 }
 
 fn error_event(error: GameError) -> ServerEvent {
-    ServerEvent::Error(ProtocolError {
+    ServerEvent::Error(protocol_error(error))
+}
+
+fn protocol_error(error: GameError) -> ProtocolError {
+    ProtocolError {
         code: error.code().to_string(),
         message: error.to_string(),
         retryable: matches!(
@@ -256,5 +272,5 @@ fn error_event(error: GameError) -> ServerEvent {
             GameError::VersionConflict | GameError::TurnConflict | GameError::StorageUnavailable
         ),
         request_id: Uuid::new_v4(),
-    })
+    }
 }

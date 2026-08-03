@@ -75,13 +75,15 @@ impl AppState {
                 PostgresRedisStore::connect(&settings.database_url, &settings.redis_url).await?,
             ),
         };
-        Ok(Self {
+        let state = Self {
             settings: Arc::new(settings),
             store,
             rooms: Arc::new(DashMap::new()),
             hub: ConnectionHub::default(),
             matchmaking: Arc::new(Mutex::new(VecDeque::new())),
-        })
+        };
+        state.restore_active_rooms().await?;
+        Ok(state)
     }
 
     pub fn with_store(settings: Settings, store: Arc<dyn GameStore>) -> Self {
@@ -151,8 +153,16 @@ impl AppState {
             .room_by_id(id)
             .await?
             .ok_or(GameError::RoomNotFound)?;
+        let deadlines: Vec<_> = room
+            .disconnected_deadlines
+            .iter()
+            .map(|(player_id, deadline)| (*player_id, *deadline))
+            .collect();
         let room = Arc::new(Mutex::new(room));
         self.rooms.insert(id, room.clone());
+        for (player_id, deadline) in deadlines {
+            self.schedule_disconnect_expiry(id, player_id, deadline);
+        }
         Ok(room)
     }
 
@@ -319,25 +329,55 @@ impl AppState {
                 .await;
             drop(room);
 
-            let state = self.clone();
-            tokio::spawn(async move {
-                tokio::time::sleep(state.settings.reconnect_grace).await;
-                let Ok(room_ref) = state.room(room_id).await else {
-                    return;
-                };
-                let mut room = room_ref.lock().await;
-                if room
-                    .expire_disconnect(player_id, Utc::now())
-                    .unwrap_or(false)
-                {
-                    let _ = state.store.save_room(&room).await;
-                    state
-                        .broadcast_snapshots(&room, SnapshotEvent::GameFinished)
-                        .await;
-                }
-            });
+            self.schedule_disconnect_expiry(
+                room_id,
+                player_id,
+                Utc::now() + chrono::Duration::seconds(grace),
+            );
             break;
         }
+    }
+
+    async fn restore_active_rooms(&self) -> Result<(), GameError> {
+        for room in self.store.active_rooms().await? {
+            let room_id = room.id;
+            let deadlines: Vec<_> = room
+                .disconnected_deadlines
+                .iter()
+                .map(|(player_id, deadline)| (*player_id, *deadline))
+                .collect();
+            self.rooms.insert(room_id, Arc::new(Mutex::new(room)));
+            for (player_id, deadline) in deadlines {
+                self.schedule_disconnect_expiry(room_id, player_id, deadline);
+            }
+        }
+        Ok(())
+    }
+
+    fn schedule_disconnect_expiry(
+        &self,
+        room_id: Uuid,
+        player_id: Uuid,
+        deadline: chrono::DateTime<Utc>,
+    ) {
+        let state = self.clone();
+        tokio::spawn(async move {
+            let delay = (deadline - Utc::now()).to_std().unwrap_or_default();
+            tokio::time::sleep(delay).await;
+            let Ok(room_ref) = state.room(room_id).await else {
+                return;
+            };
+            let mut room = room_ref.lock().await;
+            if room
+                .expire_disconnect(player_id, Utc::now())
+                .unwrap_or(false)
+            {
+                let _ = state.store.save_room(&room).await;
+                state
+                    .broadcast_snapshots(&room, SnapshotEvent::GameFinished)
+                    .await;
+            }
+        });
     }
 
     pub async fn enqueue_matchmaking(

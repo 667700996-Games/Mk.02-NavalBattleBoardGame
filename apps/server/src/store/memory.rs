@@ -72,6 +72,17 @@ impl GameStore for MemoryStore {
             .map(|entry| entry.clone()))
     }
 
+    async fn active_rooms(&self) -> Result<Vec<GameRoom>, GameError> {
+        Ok(self
+            .rooms
+            .iter()
+            .filter(|entry| {
+                !matches!(entry.status, RoomStatus::Finished | RoomStatus::Cancelled)
+            })
+            .map(|entry| entry.clone())
+            .collect())
+    }
+
     async fn list_public_rooms(&self) -> Result<Vec<RoomSummary>, GameError> {
         let mut rooms: Vec<_> = self
             .rooms
