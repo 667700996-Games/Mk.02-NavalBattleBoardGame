@@ -1,0 +1,14 @@
+[workspace]
+members = ["apps/server"]
+resolver = "2"
+
+[workspace.package]
+edition = "2024"
+license = "MIT"
+rust-version = "1.87"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
+
