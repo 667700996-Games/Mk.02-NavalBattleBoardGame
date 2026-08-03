@@ -1,9 +1,21 @@
 import { expect, test, type BrowserContext, type Page } from '@playwright/test';
 
 async function register(page: Page, nickname: string) {
+  const sessionProbe = page.waitForResponse(
+    (response) =>
+      new URL(response.url()).pathname === '/api/sessions/current' &&
+      response.request().method() === 'GET'
+  );
   await page.goto('/');
+  await sessionProbe;
   await page.locator('#nickname').fill(nickname);
+  const sessionCreated = page.waitForResponse(
+    (response) =>
+      new URL(response.url()).pathname === '/api/sessions' && response.request().method() === 'POST'
+  );
   await page.getByRole('button', { name: '작전 로비 입장' }).click();
+  expect((await sessionCreated).status()).toBe(201);
+  await expect(page).toHaveURL(/\/lobby$/);
   await expect(page.getByRole('heading', { name: '작전 로비' })).toBeVisible();
 }
 
