@@ -1,12 +1,6 @@
 import { browser } from '$app/environment';
 import { get } from 'svelte/store';
-import {
-  gameError,
-  gameSnapshot,
-  lastAttack,
-  socketStatus,
-  type SocketStatus
-} from '$lib/stores';
+import { gameError, gameSnapshot, lastAttack, socketStatus, type SocketStatus } from '$lib/stores';
 import type { ClientEvent, ServerEvent } from '$lib/types';
 
 class RealtimeClient {
@@ -115,4 +109,3 @@ class RealtimeClient {
 }
 
 export const realtime = new RealtimeClient();
-

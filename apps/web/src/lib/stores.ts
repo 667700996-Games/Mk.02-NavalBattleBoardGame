@@ -40,4 +40,3 @@ if (browser) {
     document.documentElement.dataset.contrast = value.highContrast ? 'high' : 'normal';
   });
 }
-

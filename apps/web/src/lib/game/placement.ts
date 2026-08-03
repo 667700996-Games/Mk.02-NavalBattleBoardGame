@@ -1,4 +1,11 @@
-import { FLEET, coordinateKey, type Coordinate, type Orientation, type ShipKind, type ShipPlacement } from '$lib/types';
+import {
+  FLEET,
+  coordinateKey,
+  type Coordinate,
+  type Orientation,
+  type ShipKind,
+  type ShipPlacement
+} from '$lib/types';
 
 export interface PlacementValidation {
   valid: boolean;
@@ -91,4 +98,3 @@ export function placementAt(placements: ShipPlacement[], coordinate: Coordinate)
     )?.kind ?? null
   );
 }
-

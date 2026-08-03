@@ -1,11 +1,5 @@
 export type RoomStatus =
-  | 'WAITING'
-  | 'PLACEMENT'
-  | 'READY'
-  | 'PLAYING'
-  | 'DISCONNECTED'
-  | 'FINISHED'
-  | 'CANCELLED';
+  'WAITING' | 'PLACEMENT' | 'READY' | 'PLAYING' | 'DISCONNECTED' | 'FINISHED' | 'CANCELLED';
 
 export type RoomVisibility = 'PUBLIC' | 'PRIVATE';
 export type ConnectionState = 'ONLINE' | 'RECONNECTING' | 'OFFLINE';

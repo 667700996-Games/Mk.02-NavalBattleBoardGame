@@ -72,4 +72,3 @@ export const api = {
     ),
   cancelMatchmaking: () => request<void>('/matchmaking', { method: 'DELETE' })
 };
-

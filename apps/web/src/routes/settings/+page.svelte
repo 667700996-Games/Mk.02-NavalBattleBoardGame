@@ -3,6 +3,197 @@
   import { preferences } from '$lib/stores';
   import { sounds } from '$lib/sound';
 </script>
+
 <svelte:head><title>환경 설정 · Mk.01</title></svelte:head>
-<div class="settings-page shell"><header><p class="eyebrow">SYSTEM PREFERENCES</p><h1 class="page-title">환경 설정</h1><p>이 장치에만 적용되는 표시와 사운드 옵션입니다.</p></header><section class="settings-panel panel"><div class="setting-row"><span class="setting-icon"><Volume2 size={20}/></span><div><strong>작전 사운드</strong><p>좌표 선택, 명중, 격침, 승리 신호음을 재생합니다.</p></div><label class="switch"><input type="checkbox" bind:checked={$preferences.sound} onchange={()=>$preferences.sound&&sounds.select()}/><span></span><em>{$preferences.sound?'켜짐':'꺼짐'}</em></label></div><div class="setting-row"><span class="setting-icon"><Gauge size={20}/></span><div><strong>동작 줄이기</strong><p>레이더 회전과 전투 효과 등 비필수 애니메이션을 최소화합니다.</p></div><label class="switch"><input type="checkbox" bind:checked={$preferences.reducedMotion}/><span></span><em>{$preferences.reducedMotion?'켜짐':'꺼짐'}</em></label></div><div class="setting-row"><span class="setting-icon"><Contrast size={20}/></span><div><strong>고대비 모드</strong><p>격자선과 텍스트의 대비를 높여 전장 정보를 더 명확하게 표시합니다.</p></div><label class="switch"><input type="checkbox" bind:checked={$preferences.highContrast}/><span></span><em>{$preferences.highContrast?'켜짐':'꺼짐'}</em></label></div></section><aside class="security-note"><ShieldCheck size={18}/><div><strong>공정한 전장을 위한 서버 검증</strong><p>표시 설정은 게임 판정에 영향을 주지 않습니다. 함선 위치, 공격, 턴, 승패는 서버에서만 검증됩니다.</p></div></aside></div>
-<style>.settings-page{width:min(820px,calc(100% - 40px));padding:64px 0 100px}.settings-page header{margin-bottom:28px}.settings-page header h1{margin-bottom:7px}.settings-page header>p:last-child{color:var(--steel-300)}.settings-panel{overflow:hidden}.setting-row{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:16px;min-height:105px;padding:20px 24px;border-bottom:1px solid var(--line)}.setting-row:last-child{border:0}.setting-icon{display:grid;width:42px;height:42px;place-items:center;border:1px solid var(--line);border-radius:10px;color:var(--cyan-400);background:rgba(22,199,217,.06)}.setting-row>div{display:grid;gap:5px}.setting-row strong{font-size:13px}.setting-row p{margin:0;color:#7894a4;font-size:11px}.switch{display:grid;grid-template-columns:auto auto;align-items:center;gap:8px;cursor:pointer}.switch input{position:absolute;opacity:0}.switch span{position:relative;width:44px;height:24px;border:1px solid #375367;border-radius:99px;background:#142b3a;transition:.2s}.switch span::after{position:absolute;top:3px;left:3px;width:16px;height:16px;content:'';border-radius:50%;background:#718e9e;transition:.2s}.switch input:checked+span{border-color:var(--cyan-400);background:rgba(22,199,217,.25)}.switch input:checked+span::after{left:23px;background:var(--cyan-200);box-shadow:0 0 8px var(--cyan-400)}.switch em{min-width:25px;color:#6d8a9a;font-size:9px;font-style:normal}.security-note{display:flex;gap:12px;margin-top:18px;padding:17px;color:#7895a5}.security-note :global(svg){flex:none;color:var(--green-500)}.security-note strong{color:#adcad5;font-size:11px}.security-note p{margin:4px 0 0;font-size:10px;line-height:1.6}@media(max-width:600px){.settings-page{width:calc(100% - 24px);padding-top:40px}.setting-row{grid-template-columns:auto 1fr;padding:17px 14px}.switch{grid-column:2}.setting-row p{line-height:1.6}}</style>
+<div class="settings-page shell">
+  <header>
+    <p class="eyebrow">SYSTEM PREFERENCES</p>
+    <h1 class="page-title">환경 설정</h1>
+    <p>이 장치에만 적용되는 표시와 사운드 옵션입니다.</p>
+  </header>
+  <section class="settings-panel panel">
+    <div class="setting-row">
+      <span class="setting-icon"><Volume2 size={20} /></span>
+      <div>
+        <strong>작전 사운드</strong>
+        <p>좌표 선택, 명중, 격침, 승리 신호음을 재생합니다.</p>
+      </div>
+      <label class="switch"
+        ><input
+          type="checkbox"
+          bind:checked={$preferences.sound}
+          onchange={() => $preferences.sound && sounds.select()}
+        /><span></span><em>{$preferences.sound ? '켜짐' : '꺼짐'}</em></label
+      >
+    </div>
+    <div class="setting-row">
+      <span class="setting-icon"><Gauge size={20} /></span>
+      <div>
+        <strong>동작 줄이기</strong>
+        <p>레이더 회전과 전투 효과 등 비필수 애니메이션을 최소화합니다.</p>
+      </div>
+      <label class="switch"
+        ><input type="checkbox" bind:checked={$preferences.reducedMotion} /><span></span><em
+          >{$preferences.reducedMotion ? '켜짐' : '꺼짐'}</em
+        ></label
+      >
+    </div>
+    <div class="setting-row">
+      <span class="setting-icon"><Contrast size={20} /></span>
+      <div>
+        <strong>고대비 모드</strong>
+        <p>격자선과 텍스트의 대비를 높여 전장 정보를 더 명확하게 표시합니다.</p>
+      </div>
+      <label class="switch"
+        ><input type="checkbox" bind:checked={$preferences.highContrast} /><span></span><em
+          >{$preferences.highContrast ? '켜짐' : '꺼짐'}</em
+        ></label
+      >
+    </div>
+  </section>
+  <aside class="security-note">
+    <ShieldCheck size={18} />
+    <div>
+      <strong>공정한 전장을 위한 서버 검증</strong>
+      <p>
+        표시 설정은 게임 판정에 영향을 주지 않습니다. 함선 위치, 공격, 턴, 승패는 서버에서만
+        검증됩니다.
+      </p>
+    </div>
+  </aside>
+</div>
+
+<style>
+  .settings-page {
+    width: min(820px, calc(100% - 40px));
+    padding: 64px 0 100px;
+  }
+  .settings-page header {
+    margin-bottom: 28px;
+  }
+  .settings-page header h1 {
+    margin-bottom: 7px;
+  }
+  .settings-page header > p:last-child {
+    color: var(--steel-300);
+  }
+  .settings-panel {
+    overflow: hidden;
+  }
+  .setting-row {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
+    gap: 16px;
+    min-height: 105px;
+    padding: 20px 24px;
+    border-bottom: 1px solid var(--line);
+  }
+  .setting-row:last-child {
+    border: 0;
+  }
+  .setting-icon {
+    display: grid;
+    width: 42px;
+    height: 42px;
+    place-items: center;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    color: var(--cyan-400);
+    background: rgba(22, 199, 217, 0.06);
+  }
+  .setting-row > div {
+    display: grid;
+    gap: 5px;
+  }
+  .setting-row strong {
+    font-size: 13px;
+  }
+  .setting-row p {
+    margin: 0;
+    color: #7894a4;
+    font-size: 11px;
+  }
+  .switch {
+    display: grid;
+    grid-template-columns: auto auto;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+  }
+  .switch input {
+    position: absolute;
+    opacity: 0;
+  }
+  .switch span {
+    position: relative;
+    width: 44px;
+    height: 24px;
+    border: 1px solid #375367;
+    border-radius: 99px;
+    background: #142b3a;
+    transition: 0.2s;
+  }
+  .switch span::after {
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 16px;
+    height: 16px;
+    content: '';
+    border-radius: 50%;
+    background: #718e9e;
+    transition: 0.2s;
+  }
+  .switch input:checked + span {
+    border-color: var(--cyan-400);
+    background: rgba(22, 199, 217, 0.25);
+  }
+  .switch input:checked + span::after {
+    left: 23px;
+    background: var(--cyan-200);
+    box-shadow: 0 0 8px var(--cyan-400);
+  }
+  .switch em {
+    min-width: 25px;
+    color: #6d8a9a;
+    font-size: 9px;
+    font-style: normal;
+  }
+  .security-note {
+    display: flex;
+    gap: 12px;
+    margin-top: 18px;
+    padding: 17px;
+    color: #7895a5;
+  }
+  .security-note :global(svg) {
+    flex: none;
+    color: var(--green-500);
+  }
+  .security-note strong {
+    color: #adcad5;
+    font-size: 11px;
+  }
+  .security-note p {
+    margin: 4px 0 0;
+    font-size: 10px;
+    line-height: 1.6;
+  }
+  @media (max-width: 600px) {
+    .settings-page {
+      width: calc(100% - 24px);
+      padding-top: 40px;
+    }
+    .setting-row {
+      grid-template-columns: auto 1fr;
+      padding: 17px 14px;
+    }
+    .switch {
+      grid-column: 2;
+    }
+    .setting-row p {
+      line-height: 1.6;
+    }
+  }
+</style>

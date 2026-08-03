@@ -1,4 +1,11 @@
 <script lang="ts">
+  import '@fontsource/ibm-plex-sans-kr/400.css';
+  import '@fontsource/ibm-plex-sans-kr/500.css';
+  import '@fontsource/ibm-plex-sans-kr/600.css';
+  import '@fontsource/ibm-plex-sans-kr/700.css';
+  import '@fontsource/rajdhani/500.css';
+  import '@fontsource/rajdhani/600.css';
+  import '@fontsource/rajdhani/700.css';
   import { onMount } from 'svelte';
   import { Crosshair, History, Radio, Settings, UserRound, X } from '@lucide/svelte';
   import { api } from '$lib/api';
@@ -15,9 +22,12 @@
   });
 
   const connectionText = (status: string) =>
-    ({ online: '실시간 연결', connecting: '연결 중', reconnecting: '재연결 중', offline: '연결 끊김' })[
-      status
-    ] ?? '대기';
+    ({
+      online: '실시간 연결',
+      connecting: '연결 중',
+      reconnecting: '재연결 중',
+      offline: '연결 끊김'
+    })[status] ?? '대기';
 </script>
 
 <svelte:head>
@@ -48,7 +58,8 @@
 
     {#if $session}
       <span class="user-chip" title={`${$session.nickname} · ${connectionText($socketStatus)}`}>
-        <UserRound size={14} /> {$session.nickname}
+        <UserRound size={14} />
+        {$session.nickname}
       </span>
     {/if}
   </div>
