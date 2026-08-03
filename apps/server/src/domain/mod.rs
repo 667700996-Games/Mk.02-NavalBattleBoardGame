@@ -31,4 +31,3 @@ impl Coordinate {
         format!("{}{}", (b'A' + self.row) as char, self.col + 1)
     }
 }
-

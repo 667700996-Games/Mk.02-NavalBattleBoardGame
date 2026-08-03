@@ -35,7 +35,10 @@ pub fn router() -> Router<AppState> {
         .route("/rooms/{room_id}/leave", post(leave_room))
         .route("/games/recover", get(recover_game))
         .route("/games/history", get(game_history))
-        .route("/matchmaking", post(enqueue_matchmaking).delete(cancel_matchmaking))
+        .route(
+            "/matchmaking",
+            post(enqueue_matchmaking).delete(cancel_matchmaking),
+        )
 }
 
 async fn health(State(state): State<AppState>) -> Json<HealthResponse> {
@@ -60,13 +63,20 @@ async fn create_session(
         .secure(state.settings.secure_cookies)
         .max_age(max_age)
         .build();
-    let expires_at = Utc::now() + ChronoDuration::seconds(state.settings.session_ttl.as_secs() as i64);
-    Ok((jar.add(cookie), (StatusCode::CREATED, Json(SessionResponse {
-        id: session.id,
-        nickname: session.nickname,
-        current_room_id: session.current_room_id,
-        expires_at,
-    }))))
+    let expires_at =
+        Utc::now() + ChronoDuration::seconds(state.settings.session_ttl.as_secs() as i64);
+    Ok((
+        jar.add(cookie),
+        (
+            StatusCode::CREATED,
+            Json(SessionResponse {
+                id: session.id,
+                nickname: session.nickname,
+                current_room_id: session.current_room_id,
+                expires_at,
+            }),
+        ),
+    ))
 }
 
 async fn current_session(
@@ -79,7 +89,8 @@ async fn current_session(
         id: session.id,
         nickname: session.nickname,
         current_room_id: session.current_room_id,
-        expires_at: session.last_seen_at + ChronoDuration::seconds(state.settings.session_ttl.as_secs() as i64),
+        expires_at: session.last_seen_at
+            + ChronoDuration::seconds(state.settings.session_ttl.as_secs() as i64),
     }))
 }
 
@@ -115,7 +126,9 @@ async fn join_room(
     let session = authenticate(&state, &jar, &headers).await?;
     let room = state.join_room(&session, &input.code).await?;
     let snapshot = room.snapshot_for(session.id)?;
-    state.broadcast_snapshots(&room, SnapshotEvent::PlayerJoined).await;
+    state
+        .broadcast_snapshots(&room, SnapshotEvent::PlayerJoined)
+        .await;
     Ok(Json(snapshot))
 }
 
@@ -139,7 +152,9 @@ async fn leave_room(
 ) -> Result<StatusCode, GameError> {
     let session = authenticate(&state, &jar, &headers).await?;
     let room = state.leave_room(&session, room_id).await?;
-    state.broadcast_snapshots(&room, SnapshotEvent::PlayerLeft).await;
+    state
+        .broadcast_snapshots(&room, SnapshotEvent::PlayerLeft)
+        .await;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -149,7 +164,9 @@ async fn recover_game(
     headers: HeaderMap,
 ) -> Result<Json<Option<GameSnapshot>>, GameError> {
     let session = authenticate(&state, &jar, &headers).await?;
-    let Some(room_id) = session.current_room_id else { return Ok(Json(None)); };
+    let Some(room_id) = session.current_room_id else {
+        return Ok(Json(None));
+    };
     let room = match state.room(room_id).await {
         Ok(room) => room,
         Err(GameError::RoomNotFound) => {
@@ -168,7 +185,9 @@ async fn game_history(
     headers: HeaderMap,
 ) -> Result<Json<HistoryResponse>, GameError> {
     let session = authenticate(&state, &jar, &headers).await?;
-    Ok(Json(HistoryResponse { games: state.store.history_for_session(session.id).await? }))
+    Ok(Json(HistoryResponse {
+        games: state.store.history_for_session(session.id).await?,
+    }))
 }
 
 async fn enqueue_matchmaking(
@@ -178,9 +197,20 @@ async fn enqueue_matchmaking(
 ) -> Result<Json<MatchmakingResponse>, GameError> {
     let session = authenticate(&state, &jar, &headers).await?;
     let result = state.enqueue_matchmaking(session.clone()).await?;
-    let snapshot = result.as_ref().map(|room| room.snapshot_for(session.id)).transpose()?;
-    let queued_at = if snapshot.is_none() { state.matchmaking_time(session.id).await } else { None };
-    Ok(Json(MatchmakingResponse { queued: snapshot.is_none(), queued_at, snapshot }))
+    let snapshot = result
+        .as_ref()
+        .map(|room| room.snapshot_for(session.id))
+        .transpose()?;
+    let queued_at = if snapshot.is_none() {
+        state.matchmaking_time(session.id).await
+    } else {
+        None
+    };
+    Ok(Json(MatchmakingResponse {
+        queued: snapshot.is_none(),
+        queued_at,
+        snapshot,
+    }))
 }
 
 async fn cancel_matchmaking(
@@ -199,8 +229,13 @@ struct HistoryResponse {
     games: Vec<GameHistoryItem>,
 }
 
-pub async fn authenticate(state: &AppState, jar: &CookieJar, headers: &HeaderMap) -> Result<crate::domain::UserSession, GameError> {
-    let authorization = headers.get(AUTHORIZATION).and_then(|value| value.to_str().ok());
+pub async fn authenticate(
+    state: &AppState,
+    jar: &CookieJar,
+    headers: &HeaderMap,
+) -> Result<crate::domain::UserSession, GameError> {
+    let authorization = headers
+        .get(AUTHORIZATION)
+        .and_then(|value| value.to_str().ok());
     state.authenticate(jar, authorization).await
 }
-

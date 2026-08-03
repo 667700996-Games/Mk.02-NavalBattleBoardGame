@@ -144,7 +144,11 @@ impl Board {
 
         let mut outcome = AttackOutcome::Miss;
         let mut sunk_ship = None;
-        if let Some(ship) = self.ships.iter_mut().find(|ship| ship.cells.contains(&coordinate)) {
+        if let Some(ship) = self
+            .ships
+            .iter_mut()
+            .find(|ship| ship.cells.contains(&coordinate))
+        {
             ship.hits.insert(coordinate);
             if ship.is_sunk() {
                 outcome = AttackOutcome::Sunk;
@@ -177,11 +181,31 @@ mod tests {
 
     fn fleet() -> Vec<ShipPlacement> {
         vec![
-            ShipPlacement { kind: ShipKind::Carrier, origin: Coordinate { row: 0, col: 0 }, orientation: Orientation::Horizontal },
-            ShipPlacement { kind: ShipKind::Battleship, origin: Coordinate { row: 2, col: 0 }, orientation: Orientation::Horizontal },
-            ShipPlacement { kind: ShipKind::Cruiser, origin: Coordinate { row: 4, col: 0 }, orientation: Orientation::Horizontal },
-            ShipPlacement { kind: ShipKind::Submarine, origin: Coordinate { row: 6, col: 0 }, orientation: Orientation::Horizontal },
-            ShipPlacement { kind: ShipKind::Destroyer, origin: Coordinate { row: 8, col: 0 }, orientation: Orientation::Horizontal },
+            ShipPlacement {
+                kind: ShipKind::Carrier,
+                origin: Coordinate { row: 0, col: 0 },
+                orientation: Orientation::Horizontal,
+            },
+            ShipPlacement {
+                kind: ShipKind::Battleship,
+                origin: Coordinate { row: 2, col: 0 },
+                orientation: Orientation::Horizontal,
+            },
+            ShipPlacement {
+                kind: ShipKind::Cruiser,
+                origin: Coordinate { row: 4, col: 0 },
+                orientation: Orientation::Horizontal,
+            },
+            ShipPlacement {
+                kind: ShipKind::Submarine,
+                origin: Coordinate { row: 6, col: 0 },
+                orientation: Orientation::Horizontal,
+            },
+            ShipPlacement {
+                kind: ShipKind::Destroyer,
+                origin: Coordinate { row: 8, col: 0 },
+                orientation: Orientation::Horizontal,
+            },
         ]
     }
 
@@ -189,29 +213,55 @@ mod tests {
     fn creates_a_valid_fleet() {
         let board = Board::from_placements(&fleet()).unwrap();
         assert_eq!(board.ships().len(), 5);
-        assert_eq!(board.ships().iter().map(|s| s.cells.len()).sum::<usize>(), 17);
+        assert_eq!(
+            board.ships().iter().map(|s| s.cells.len()).sum::<usize>(),
+            17
+        );
     }
 
     #[test]
     fn rejects_overlap() {
         let mut placements = fleet();
         placements[1].origin = Coordinate { row: 0, col: 2 };
-        assert_eq!(Board::from_placements(&placements).unwrap_err(), GameError::ShipsOverlap);
+        assert_eq!(
+            Board::from_placements(&placements).unwrap_err(),
+            GameError::ShipsOverlap
+        );
     }
 
     #[test]
     fn rejects_out_of_bounds_in_both_directions() {
-        let horizontal = ShipPlacement { kind: ShipKind::Carrier, origin: Coordinate { row: 0, col: 6 }, orientation: Orientation::Horizontal };
-        let vertical = ShipPlacement { kind: ShipKind::Carrier, origin: Coordinate { row: 6, col: 0 }, orientation: Orientation::Vertical };
-        assert_eq!(horizontal.cells().unwrap_err(), GameError::PlacementOutOfBounds);
-        assert_eq!(vertical.cells().unwrap_err(), GameError::PlacementOutOfBounds);
+        let horizontal = ShipPlacement {
+            kind: ShipKind::Carrier,
+            origin: Coordinate { row: 0, col: 6 },
+            orientation: Orientation::Horizontal,
+        };
+        let vertical = ShipPlacement {
+            kind: ShipKind::Carrier,
+            origin: Coordinate { row: 6, col: 0 },
+            orientation: Orientation::Vertical,
+        };
+        assert_eq!(
+            horizontal.cells().unwrap_err(),
+            GameError::PlacementOutOfBounds
+        );
+        assert_eq!(
+            vertical.cells().unwrap_err(),
+            GameError::PlacementOutOfBounds
+        );
     }
 
     #[test]
     fn calculates_hit_sink_and_win() {
         let mut board = Board::from_placements(&fleet()).unwrap();
-        assert_eq!(board.attack(Coordinate { row: 9, col: 9 }).unwrap().outcome, AttackOutcome::Miss);
-        assert_eq!(board.attack(Coordinate { row: 8, col: 0 }).unwrap().outcome, AttackOutcome::Hit);
+        assert_eq!(
+            board.attack(Coordinate { row: 9, col: 9 }).unwrap().outcome,
+            AttackOutcome::Miss
+        );
+        assert_eq!(
+            board.attack(Coordinate { row: 8, col: 0 }).unwrap().outcome,
+            AttackOutcome::Hit
+        );
         let sunk = board.attack(Coordinate { row: 8, col: 1 }).unwrap();
         assert_eq!(sunk.outcome, AttackOutcome::Sunk);
         assert_eq!(sunk.sunk_ship, Some(ShipKind::Destroyer));
@@ -222,6 +272,9 @@ mod tests {
     fn rejects_duplicate_attack() {
         let mut board = Board::from_placements(&fleet()).unwrap();
         board.attack(Coordinate { row: 9, col: 9 }).unwrap();
-        assert_eq!(board.attack(Coordinate { row: 9, col: 9 }).unwrap_err(), GameError::CoordinateAlreadyAttacked);
+        assert_eq!(
+            board.attack(Coordinate { row: 9, col: 9 }).unwrap_err(),
+            GameError::CoordinateAlreadyAttacked
+        );
     }
 }

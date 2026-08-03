@@ -1,5 +1,8 @@
 use axum::{
-    extract::{State, WebSocketUpgrade, ws::{Message, WebSocket}},
+    extract::{
+        State, WebSocketUpgrade,
+        ws::{Message, WebSocket},
+    },
     http::HeaderMap,
     response::Response,
 };
@@ -13,9 +16,7 @@ use crate::{
     api::authenticate,
     app::{AppState, SnapshotEvent},
     error::GameError,
-    protocol::{
-        ClientEvent, HeartbeatResponse, ProtocolError, RoomCreatedResponse, ServerEvent,
-    },
+    protocol::{ClientEvent, HeartbeatResponse, ProtocolError, RoomCreatedResponse, ServerEvent},
 };
 
 pub async fn websocket_handler(
@@ -70,95 +71,174 @@ async fn handle_socket(socket: WebSocket, state: AppState, session: crate::domai
 
 async fn handle_event(state: &AppState, session: &crate::domain::UserSession, event: ClientEvent) {
     let result = match event {
-        ClientEvent::RoomCreate(input) => async {
-            let room = state.create_room(session, input).await?;
-            let response = RoomCreatedResponse {
-                invite_url: state.invite_url(&room.code),
-                snapshot: room.snapshot_for(session.id)?,
-            };
-            state.hub.send(session.id, ServerEvent::RoomCreated(response));
-            Ok(())
-        }.await,
-        ClientEvent::RoomJoin(input) => async {
-            let room = state.join_room(session, &input.code).await?;
-            state.broadcast_snapshots(&room, SnapshotEvent::PlayerJoined).await;
-            Ok(())
-        }.await,
-        ClientEvent::RoomLeave(input) => async {
-            let room = state.leave_room(session, input.room_id).await?;
-            state.broadcast_snapshots(&room, SnapshotEvent::PlayerLeft).await;
-            Ok(())
-        }.await,
-        ClientEvent::PlayerReady(input) => async {
-            let room_ref = state.room(input.room_id).await?;
-            let mut room = room_ref.lock().await;
-            room.set_ready(session.id, input.player_id, input.ready)?;
-            state.save_room(&room).await?;
-            state.broadcast_snapshots(&room, SnapshotEvent::RoomUpdated).await;
-            Ok(())
-        }.await,
-        ClientEvent::ShipsPlace(input) => async {
-            let room_ref = state.room(input.room_id).await?;
-            let mut room = room_ref.lock().await;
-            if room.player_for_session(session.id)?.id != input.player_id { return Err(GameError::Unauthorized); }
-            room.place_ships(session.id, input.placements)?;
-            state.save_room(&room).await?;
-            state.broadcast_snapshots(&room, SnapshotEvent::PlacementAccepted).await;
-            Ok(())
-        }.await,
-        ClientEvent::ShipsConfirm(input) => async {
-            let room_ref = state.room(input.room_id).await?;
-            let mut room = room_ref.lock().await;
-            if room.player_for_session(session.id)?.id != input.player_id { return Err(GameError::Unauthorized); }
-            let started = room.confirm_placement(session.id)?;
-            state.save_room(&room).await?;
-            state.broadcast_snapshots(&room, if started { SnapshotEvent::GameStarted } else { SnapshotEvent::PlacementAccepted }).await;
-            Ok(())
-        }.await,
-        ClientEvent::AttackFire(input) => async {
-            let room_ref = state.room(input.room_id).await?;
-            let mut room = room_ref.lock().await;
-            let (record, duplicate) = room.fire(
-                session.id,
-                input.request_id,
-                input.player_id,
-                input.coordinate,
-                input.expected_version,
-                input.turn_number,
-            )?;
-            if !duplicate { state.save_room(&room).await?; }
-            if duplicate {
-                state.hub.send(session.id, ServerEvent::AttackResult(record));
-                if let Ok(snapshot) = room.snapshot_for(session.id) {
-                    state.hub.send(session.id, ServerEvent::GameSnapshot(snapshot));
-                }
-            } else {
-                for player in &room.players {
-                    state.hub.send(player.session_id, ServerEvent::AttackResult(record.clone()));
-                    if record.sunk_ship.is_some() {
-                        state.hub.send(player.session_id, ServerEvent::ShipSunk(record.clone()));
-                    }
-                }
-                state.broadcast_snapshots(&room, if record.winner_id.is_some() { SnapshotEvent::GameFinished } else { SnapshotEvent::TurnChanged }).await;
+        ClientEvent::RoomCreate(input) => {
+            async {
+                let room = state.create_room(session, input).await?;
+                let response = RoomCreatedResponse {
+                    invite_url: state.invite_url(&room.code),
+                    snapshot: room.snapshot_for(session.id)?,
+                };
+                state
+                    .hub
+                    .send(session.id, ServerEvent::RoomCreated(response));
+                Ok(())
             }
-            Ok(())
-        }.await,
-        ClientEvent::GameRematch(input) => async {
-            let room_ref = state.room(input.room_id).await?;
-            let mut room = room_ref.lock().await;
-            room.request_rematch(session.id)?;
-            state.save_room(&room).await?;
-            state.broadcast_snapshots(&room, SnapshotEvent::RoomUpdated).await;
-            Ok(())
-        }.await,
-        ClientEvent::GameSync(input) => async {
-            let room_ref = state.room(input.room_id).await?;
-            let room = room_ref.lock().await;
-            state.hub.send(session.id, ServerEvent::GameSnapshot(room.snapshot_for(session.id)?));
-            Ok(())
-        }.await,
+            .await
+        }
+        ClientEvent::RoomJoin(input) => {
+            async {
+                let room = state.join_room(session, &input.code).await?;
+                state
+                    .broadcast_snapshots(&room, SnapshotEvent::PlayerJoined)
+                    .await;
+                Ok(())
+            }
+            .await
+        }
+        ClientEvent::RoomLeave(input) => {
+            async {
+                let room = state.leave_room(session, input.room_id).await?;
+                state
+                    .broadcast_snapshots(&room, SnapshotEvent::PlayerLeft)
+                    .await;
+                Ok(())
+            }
+            .await
+        }
+        ClientEvent::PlayerReady(input) => {
+            async {
+                let room_ref = state.room(input.room_id).await?;
+                let mut room = room_ref.lock().await;
+                room.set_ready(session.id, input.player_id, input.ready)?;
+                state.save_room(&room).await?;
+                state
+                    .broadcast_snapshots(&room, SnapshotEvent::RoomUpdated)
+                    .await;
+                Ok(())
+            }
+            .await
+        }
+        ClientEvent::ShipsPlace(input) => {
+            async {
+                let room_ref = state.room(input.room_id).await?;
+                let mut room = room_ref.lock().await;
+                if room.player_for_session(session.id)?.id != input.player_id {
+                    return Err(GameError::Unauthorized);
+                }
+                room.place_ships(session.id, input.placements)?;
+                state.save_room(&room).await?;
+                state
+                    .broadcast_snapshots(&room, SnapshotEvent::PlacementAccepted)
+                    .await;
+                Ok(())
+            }
+            .await
+        }
+        ClientEvent::ShipsConfirm(input) => {
+            async {
+                let room_ref = state.room(input.room_id).await?;
+                let mut room = room_ref.lock().await;
+                if room.player_for_session(session.id)?.id != input.player_id {
+                    return Err(GameError::Unauthorized);
+                }
+                let started = room.confirm_placement(session.id)?;
+                state.save_room(&room).await?;
+                state
+                    .broadcast_snapshots(
+                        &room,
+                        if started {
+                            SnapshotEvent::GameStarted
+                        } else {
+                            SnapshotEvent::PlacementAccepted
+                        },
+                    )
+                    .await;
+                Ok(())
+            }
+            .await
+        }
+        ClientEvent::AttackFire(input) => {
+            async {
+                let room_ref = state.room(input.room_id).await?;
+                let mut room = room_ref.lock().await;
+                let (record, duplicate) = room.fire(
+                    session.id,
+                    input.request_id,
+                    input.player_id,
+                    input.coordinate,
+                    input.expected_version,
+                    input.turn_number,
+                )?;
+                if !duplicate {
+                    state.save_room(&room).await?;
+                }
+                if duplicate {
+                    state
+                        .hub
+                        .send(session.id, ServerEvent::AttackResult(record));
+                    if let Ok(snapshot) = room.snapshot_for(session.id) {
+                        state
+                            .hub
+                            .send(session.id, ServerEvent::GameSnapshot(snapshot));
+                    }
+                } else {
+                    for player in &room.players {
+                        state
+                            .hub
+                            .send(player.session_id, ServerEvent::AttackResult(record.clone()));
+                        if record.sunk_ship.is_some() {
+                            state
+                                .hub
+                                .send(player.session_id, ServerEvent::ShipSunk(record.clone()));
+                        }
+                    }
+                    state
+                        .broadcast_snapshots(
+                            &room,
+                            if record.winner_id.is_some() {
+                                SnapshotEvent::GameFinished
+                            } else {
+                                SnapshotEvent::TurnChanged
+                            },
+                        )
+                        .await;
+                }
+                Ok(())
+            }
+            .await
+        }
+        ClientEvent::GameRematch(input) => {
+            async {
+                let room_ref = state.room(input.room_id).await?;
+                let mut room = room_ref.lock().await;
+                room.request_rematch(session.id)?;
+                state.save_room(&room).await?;
+                state
+                    .broadcast_snapshots(&room, SnapshotEvent::RoomUpdated)
+                    .await;
+                Ok(())
+            }
+            .await
+        }
+        ClientEvent::GameSync(input) => {
+            async {
+                let room_ref = state.room(input.room_id).await?;
+                let room = room_ref.lock().await;
+                state.hub.send(
+                    session.id,
+                    ServerEvent::GameSnapshot(room.snapshot_for(session.id)?),
+                );
+                Ok(())
+            }
+            .await
+        }
         ClientEvent::Heartbeat(_) => {
-            state.hub.send(session.id, ServerEvent::Heartbeat(HeartbeatResponse { server_time: Utc::now() }));
+            state.hub.send(
+                session.id,
+                ServerEvent::Heartbeat(HeartbeatResponse {
+                    server_time: Utc::now(),
+                }),
+            );
             Ok(())
         }
     };
@@ -171,8 +251,10 @@ fn error_event(error: GameError) -> ServerEvent {
     ServerEvent::Error(ProtocolError {
         code: error.code().to_string(),
         message: error.to_string(),
-        retryable: matches!(error, GameError::VersionConflict | GameError::TurnConflict | GameError::StorageUnavailable),
+        retryable: matches!(
+            error,
+            GameError::VersionConflict | GameError::TurnConflict | GameError::StorageUnavailable
+        ),
         request_id: Uuid::new_v4(),
     })
 }
-

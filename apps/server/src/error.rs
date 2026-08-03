@@ -1,4 +1,8 @@
-use axum::{Json, http::StatusCode, response::{IntoResponse, Response}};
+use axum::{
+    Json,
+    http::StatusCode,
+    response::{IntoResponse, Response},
+};
 use serde::Serialize;
 use thiserror::Error;
 use tracing::error;
@@ -93,9 +97,14 @@ impl GameError {
         match self {
             Self::Unauthorized => StatusCode::UNAUTHORIZED,
             Self::RoomNotFound => StatusCode::NOT_FOUND,
-            Self::RoomFull | Self::RoomAlreadyStarted | Self::AlreadyJoined |
-            Self::DuplicateNickname | Self::CoordinateAlreadyAttacked |
-            Self::VersionConflict | Self::TurnConflict | Self::PlacementLocked => StatusCode::CONFLICT,
+            Self::RoomFull
+            | Self::RoomAlreadyStarted
+            | Self::AlreadyJoined
+            | Self::DuplicateNickname
+            | Self::CoordinateAlreadyAttacked
+            | Self::VersionConflict
+            | Self::TurnConflict
+            | Self::PlacementLocked => StatusCode::CONFLICT,
             Self::RateLimited => StatusCode::TOO_MANY_REQUESTS,
             Self::StorageUnavailable => StatusCode::SERVICE_UNAVAILABLE,
             Self::Internal => StatusCode::INTERNAL_SERVER_ERROR,

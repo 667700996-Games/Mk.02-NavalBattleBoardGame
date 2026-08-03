@@ -1,8 +1,4 @@
-use std::{
-    collections::VecDeque,
-    sync::Arc,
-    time::Duration,
-};
+use std::{collections::VecDeque, sync::Arc, time::Duration};
 
 use axum::{
     Router,
@@ -17,11 +13,8 @@ use rand::RngCore;
 use sha2::{Digest, Sha256};
 use tokio::sync::{Mutex, mpsc};
 use tower_http::{
-    catch_panic::CatchPanicLayer,
-    compression::CompressionLayer,
-    cors::CorsLayer,
-    timeout::TimeoutLayer,
-    trace::TraceLayer,
+    catch_panic::CatchPanicLayer, compression::CompressionLayer, cors::CorsLayer,
+    timeout::TimeoutLayer, trace::TraceLayer,
 };
 use uuid::Uuid;
 
@@ -101,7 +94,10 @@ impl AppState {
         }
     }
 
-    pub async fn create_session(&self, nickname: String) -> Result<(UserSession, String), GameError> {
+    pub async fn create_session(
+        &self,
+        nickname: String,
+    ) -> Result<(UserSession, String), GameError> {
         let nickname = nickname.trim().to_string();
         validate_nickname(&nickname)?;
         let mut bytes = [0_u8; 32];
@@ -121,13 +117,24 @@ impl AppState {
         Ok((session, token))
     }
 
-    pub async fn authenticate(&self, jar: &CookieJar, authorization: Option<&str>) -> Result<UserSession, GameError> {
+    pub async fn authenticate(
+        &self,
+        jar: &CookieJar,
+        authorization: Option<&str>,
+    ) -> Result<UserSession, GameError> {
         let token = authorization
             .and_then(|value| value.strip_prefix("Bearer "))
             .map(ToOwned::to_owned)
-            .or_else(|| jar.get("mk01_session").map(|cookie| cookie.value().to_string()))
+            .or_else(|| {
+                jar.get("mk01_session")
+                    .map(|cookie| cookie.value().to_string())
+            })
             .ok_or(GameError::Unauthorized)?;
-        let session = self.store.session_by_token_hash(&hash_token(&token)).await?.ok_or(GameError::Unauthorized)?;
+        let session = self
+            .store
+            .session_by_token_hash(&hash_token(&token))
+            .await?
+            .ok_or(GameError::Unauthorized)?;
         let age = Utc::now().signed_duration_since(session.last_seen_at);
         if age.num_seconds() > self.settings.session_ttl.as_secs() as i64 {
             return Err(GameError::Unauthorized);
@@ -139,7 +146,11 @@ impl AppState {
         if let Some(room) = self.rooms.get(&id) {
             return Ok(room.clone());
         }
-        let room = self.store.room_by_id(id).await?.ok_or(GameError::RoomNotFound)?;
+        let room = self
+            .store
+            .room_by_id(id)
+            .await?
+            .ok_or(GameError::RoomNotFound)?;
         let room = Arc::new(Mutex::new(room));
         self.rooms.insert(id, room.clone());
         Ok(room)
@@ -152,30 +163,54 @@ impl AppState {
                 return Ok(room.value().clone());
             }
         }
-        let room = self.store.room_by_code(&normalized).await?.ok_or(GameError::RoomNotFound)?;
+        let room = self
+            .store
+            .room_by_code(&normalized)
+            .await?
+            .ok_or(GameError::RoomNotFound)?;
         let id = room.id;
         let room = Arc::new(Mutex::new(room));
         self.rooms.insert(id, room.clone());
         Ok(room)
     }
 
-    pub async fn create_room(&self, session: &UserSession, input: CreateRoomInput) -> Result<GameRoom, GameError> {
+    pub async fn create_room(
+        &self,
+        session: &UserSession,
+        input: CreateRoomInput,
+    ) -> Result<GameRoom, GameError> {
         if session.current_room_id.is_some() {
             return Err(GameError::AlreadyJoined);
         }
         let code = self.unique_room_code().await?;
-        let room = GameRoom::new(code, input.name.trim().to_string(), input.visibility, session)?;
+        let room = GameRoom::new(
+            code,
+            input.name.trim().to_string(),
+            input.visibility,
+            session,
+        )?;
         self.store.save_room(&room).await?;
-        self.store.update_session_room(session.id, Some(room.id)).await?;
-        self.rooms.insert(room.id, Arc::new(Mutex::new(room.clone())));
+        self.store
+            .update_session_room(session.id, Some(room.id))
+            .await?;
+        self.rooms
+            .insert(room.id, Arc::new(Mutex::new(room.clone())));
         Ok(room)
     }
 
-    pub async fn join_room(&self, session: &UserSession, code: &str) -> Result<GameRoom, GameError> {
+    pub async fn join_room(
+        &self,
+        session: &UserSession,
+        code: &str,
+    ) -> Result<GameRoom, GameError> {
         if let Some(current) = session.current_room_id {
             let current_room = self.room(current).await?;
             let room = current_room.lock().await;
-            if room.players.iter().any(|player| player.session_id == session.id) {
+            if room
+                .players
+                .iter()
+                .any(|player| player.session_id == session.id)
+            {
                 return Ok(room.clone());
             }
             return Err(GameError::AlreadyJoined);
@@ -184,11 +219,17 @@ impl AppState {
         let mut room = room.lock().await;
         room.join(session)?;
         self.store.save_room(&room).await?;
-        self.store.update_session_room(session.id, Some(room.id)).await?;
+        self.store
+            .update_session_room(session.id, Some(room.id))
+            .await?;
         Ok(room.clone())
     }
 
-    pub async fn leave_room(&self, session: &UserSession, room_id: Uuid) -> Result<GameRoom, GameError> {
+    pub async fn leave_room(
+        &self,
+        session: &UserSession,
+        room_id: Uuid,
+    ) -> Result<GameRoom, GameError> {
         let room = self.room(room_id).await?;
         let mut room = room.lock().await;
         room.leave(session.id)?;
@@ -202,7 +243,11 @@ impl AppState {
     }
 
     pub fn invite_url(&self, code: &str) -> String {
-        format!("{}/join/{}", self.settings.public_base_url.trim_end_matches('/'), code)
+        format!(
+            "{}/join/{}",
+            self.settings.public_base_url.trim_end_matches('/'),
+            code
+        )
     }
 
     pub async fn broadcast_snapshots(&self, room: &GameRoom, kind: SnapshotEvent) {
@@ -226,66 +271,108 @@ impl AppState {
     }
 
     pub async fn restore_connection(&self, session: &UserSession) {
-        let Some(room_id) = session.current_room_id else { return };
-        let Ok(room) = self.room(room_id).await else { return };
+        let Some(room_id) = session.current_room_id else {
+            return;
+        };
+        let Ok(room) = self.room(room_id).await else {
+            return;
+        };
         let mut room = room.lock().await;
         if room.reconnect(session.id).is_ok() {
             let _ = self.store.save_room(&room).await;
-            self.broadcast_snapshots(&room, SnapshotEvent::PlayerReconnected).await;
+            self.broadcast_snapshots(&room, SnapshotEvent::PlayerReconnected)
+                .await;
         }
     }
 
     pub async fn disconnect_session(&self, session_id: Uuid) {
-        let room_refs: Vec<_> = self.rooms.iter().map(|entry| entry.value().clone()).collect();
+        let room_refs: Vec<_> = self
+            .rooms
+            .iter()
+            .map(|entry| entry.value().clone())
+            .collect();
         for room_ref in room_refs {
             let mut room = room_ref.lock().await;
-            if !room.players.iter().any(|player| player.session_id == session_id) {
+            if !room
+                .players
+                .iter()
+                .any(|player| player.session_id == session_id)
+            {
                 continue;
             }
             let grace = self.settings.reconnect_grace.as_secs() as i64;
-            let Ok(_) = room.disconnect(session_id, grace) else { continue };
+            let Ok(_) = room.disconnect(session_id, grace) else {
+                continue;
+            };
             let room_id = room.id;
-            let player_id = match room.player_for_session(session_id) { Ok(player) => player.id, Err(_) => continue };
+            let player_id = match room.player_for_session(session_id) {
+                Ok(player) => player.id,
+                Err(_) => continue,
+            };
             let _ = self.store.save_room(&room).await;
-            self.broadcast_snapshots(&room, SnapshotEvent::PlayerDisconnected).await;
+            self.broadcast_snapshots(&room, SnapshotEvent::PlayerDisconnected)
+                .await;
             drop(room);
 
             let state = self.clone();
             tokio::spawn(async move {
                 tokio::time::sleep(state.settings.reconnect_grace).await;
-                let Ok(room_ref) = state.room(room_id).await else { return };
+                let Ok(room_ref) = state.room(room_id).await else {
+                    return;
+                };
                 let mut room = room_ref.lock().await;
-                if room.expire_disconnect(player_id, Utc::now()).unwrap_or(false) {
+                if room
+                    .expire_disconnect(player_id, Utc::now())
+                    .unwrap_or(false)
+                {
                     let _ = state.store.save_room(&room).await;
-                    state.broadcast_snapshots(&room, SnapshotEvent::GameFinished).await;
+                    state
+                        .broadcast_snapshots(&room, SnapshotEvent::GameFinished)
+                        .await;
                 }
             });
             break;
         }
     }
 
-    pub async fn enqueue_matchmaking(&self, session: UserSession) -> Result<Option<GameRoom>, GameError> {
-        if session.current_room_id.is_some() { return Err(GameError::AlreadyJoined); }
+    pub async fn enqueue_matchmaking(
+        &self,
+        session: UserSession,
+    ) -> Result<Option<GameRoom>, GameError> {
+        if session.current_room_id.is_some() {
+            return Err(GameError::AlreadyJoined);
+        }
         let mut queue = self.matchmaking.lock().await;
         queue.retain(|entry| entry.session.id != session.id);
         if let Some(opponent) = queue.pop_front() {
             drop(queue);
-            let mut room = self.create_room(&opponent.session, CreateRoomInput {
-                name: "신속 교전".to_string(),
-                visibility: RoomVisibility::Private,
-            }).await?;
+            let mut room = self
+                .create_room(
+                    &opponent.session,
+                    CreateRoomInput {
+                        name: "신속 교전".to_string(),
+                        visibility: RoomVisibility::Private,
+                    },
+                )
+                .await?;
             let room_ref = self.room(room.id).await?;
             {
                 let mut locked = room_ref.lock().await;
                 locked.join(&session)?;
                 self.store.save_room(&locked).await?;
-                self.store.update_session_room(session.id, Some(locked.id)).await?;
+                self.store
+                    .update_session_room(session.id, Some(locked.id))
+                    .await?;
                 room = locked.clone();
             }
-            self.broadcast_snapshots(&room, SnapshotEvent::PlayerJoined).await;
+            self.broadcast_snapshots(&room, SnapshotEvent::PlayerJoined)
+                .await;
             Ok(Some(room))
         } else {
-            queue.push_back(QueuedSession { session, queued_at: Utc::now() });
+            queue.push_back(QueuedSession {
+                session,
+                queued_at: Utc::now(),
+            });
             Ok(None)
         }
     }
@@ -298,7 +385,12 @@ impl AppState {
     }
 
     pub async fn matchmaking_time(&self, session_id: Uuid) -> Option<chrono::DateTime<Utc>> {
-        self.matchmaking.lock().await.iter().find(|entry| entry.session.id == session_id).map(|entry| entry.queued_at)
+        self.matchmaking
+            .lock()
+            .await
+            .iter()
+            .find(|entry| entry.session.id == session_id)
+            .map(|entry| entry.queued_at)
     }
 
     async fn unique_room_code(&self) -> Result<String, GameError> {
@@ -324,7 +416,11 @@ fn validate_nickname(nickname: &str) -> Result<(), GameError> {
         && nickname.chars().all(|character| {
             character.is_alphanumeric() || character == ' ' || character == '_' || character == '-'
         });
-    if valid { Ok(()) } else { Err(GameError::InvalidNickname) }
+    if valid {
+        Ok(())
+    } else {
+        Err(GameError::InvalidNickname)
+    }
 }
 
 pub fn hash_token(token: &str) -> String {
@@ -346,13 +442,25 @@ pub struct ConnectionHub {
 impl ConnectionHub {
     pub fn connect(&self, session_id: Uuid, sender: mpsc::UnboundedSender<ServerEvent>) -> Uuid {
         let connection_id = Uuid::new_v4();
-        self.connections.insert(session_id, ConnectionEntry { connection_id, sender });
+        self.connections.insert(
+            session_id,
+            ConnectionEntry {
+                connection_id,
+                sender,
+            },
+        );
         connection_id
     }
 
     pub fn disconnect_if_current(&self, session_id: Uuid, connection_id: Uuid) -> bool {
-        let is_current = self.connections.get(&session_id).map(|entry| entry.connection_id == connection_id).unwrap_or(false);
-        if is_current { self.connections.remove(&session_id); }
+        let is_current = self
+            .connections
+            .get(&session_id)
+            .map(|entry| entry.connection_id == connection_id)
+            .unwrap_or(false);
+        if is_current {
+            self.connections.remove(&session_id);
+        }
         is_current
     }
 
@@ -364,11 +472,20 @@ impl ConnectionHub {
 }
 
 pub fn build_router(state: AppState) -> Router {
-    let origins: Vec<HeaderValue> = state.settings.allowed_origins.iter().filter_map(|origin| origin.parse().ok()).collect();
+    let origins: Vec<HeaderValue> = state
+        .settings
+        .allowed_origins
+        .iter()
+        .filter_map(|origin| origin.parse().ok())
+        .collect();
     let cors = CorsLayer::new()
         .allow_origin(origins)
         .allow_credentials(true)
-        .allow_headers([http::header::CONTENT_TYPE, http::header::AUTHORIZATION, http::header::ACCEPT])
+        .allow_headers([
+            http::header::CONTENT_TYPE,
+            http::header::AUTHORIZATION,
+            http::header::ACCEPT,
+        ])
         .allow_methods([Method::GET, Method::POST, Method::DELETE, Method::OPTIONS]);
 
     Router::new()

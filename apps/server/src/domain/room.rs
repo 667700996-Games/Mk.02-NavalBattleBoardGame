@@ -78,15 +78,27 @@ impl GameRoom {
 
     pub fn join(&mut self, session: &UserSession) -> Result<Uuid, GameError> {
         if !matches!(self.status, RoomStatus::Waiting) {
-            return Err(if self.players.len() >= 2 { GameError::RoomFull } else { GameError::RoomAlreadyStarted });
+            return Err(if self.players.len() >= 2 {
+                GameError::RoomFull
+            } else {
+                GameError::RoomAlreadyStarted
+            });
         }
         if self.players.len() >= 2 {
             return Err(GameError::RoomFull);
         }
-        if self.players.iter().any(|player| player.session_id == session.id) {
+        if self
+            .players
+            .iter()
+            .any(|player| player.session_id == session.id)
+        {
             return Err(GameError::AlreadyJoined);
         }
-        if self.players.iter().any(|player| player.nickname.eq_ignore_ascii_case(&session.nickname)) {
+        if self
+            .players
+            .iter()
+            .any(|player| player.nickname.eq_ignore_ascii_case(&session.nickname))
+        {
             return Err(GameError::DuplicateNickname);
         }
         let player = Player::new(session, false);
@@ -135,7 +147,11 @@ impl GameRoom {
         if player_id != claimed_player_id {
             return Err(GameError::Unauthorized);
         }
-        if let Some(player) = self.players.iter_mut().find(|player| player.id == player_id) {
+        if let Some(player) = self
+            .players
+            .iter_mut()
+            .find(|player| player.id == player_id)
+        {
             player.is_ready = ready;
         }
         self.bump();
@@ -144,7 +160,11 @@ impl GameRoom {
 
     pub fn leave(&mut self, session_id: Uuid) -> Result<(), GameError> {
         let player_id = self.player_for_session(session_id)?.id;
-        let opponent_id = self.players.iter().find(|player| player.id != player_id).map(|player| player.id);
+        let opponent_id = self
+            .players
+            .iter()
+            .find(|player| player.id != player_id)
+            .map(|player| player.id);
         if self.status == RoomStatus::Playing {
             if let (Some(game), Some(winner_id)) = (self.game.as_mut(), opponent_id) {
                 game.forfeit(winner_id, FinishReason::PlayerLeft)?;
@@ -155,7 +175,11 @@ impl GameRoom {
         } else if !matches!(self.status, RoomStatus::Finished | RoomStatus::Cancelled) {
             self.status = RoomStatus::Cancelled;
         }
-        if let Some(player) = self.players.iter_mut().find(|player| player.id == player_id) {
+        if let Some(player) = self
+            .players
+            .iter_mut()
+            .find(|player| player.id == player_id)
+        {
             player.connection_state = ConnectionState::Offline;
         }
         self.bump();
@@ -170,18 +194,26 @@ impl GameRoom {
         if !self.pending_placements.contains_key(&player_id) {
             return Err(GameError::IncompleteFleet);
         }
-        if let Some(player) = self.players.iter_mut().find(|player| player.id == player_id) {
+        if let Some(player) = self
+            .players
+            .iter_mut()
+            .find(|player| player.id == player_id)
+        {
             player.placement_confirmed = true;
             player.is_ready = true;
         }
         self.bump();
 
-        let all_ready = self.players.len() == 2 && self.players.iter().all(|player| player.placement_confirmed);
+        let all_ready =
+            self.players.len() == 2 && self.players.iter().all(|player| player.placement_confirmed);
         if all_ready {
             self.status = RoomStatus::Ready;
             let mut boards = HashMap::new();
             for player in &self.players {
-                let placements = self.pending_placements.get(&player.id).ok_or(GameError::IncompleteFleet)?;
+                let placements = self
+                    .pending_placements
+                    .get(&player.id)
+                    .ok_or(GameError::IncompleteFleet)?;
                 boards.insert(player.id, Board::from_placements(placements)?);
             }
             self.game = Some(Game::new(boards)?);
@@ -205,7 +237,11 @@ impl GameRoom {
         if player_id != claimed_player_id {
             return Err(GameError::Unauthorized);
         }
-        if let Some(previous) = self.game.as_ref().and_then(|game| game.previous_resolution(request_id, player_id)) {
+        if let Some(previous) = self
+            .game
+            .as_ref()
+            .and_then(|game| game.previous_resolution(request_id, player_id))
+        {
             return Ok((previous, true));
         }
         if self.status != RoomStatus::Playing {
@@ -230,14 +266,25 @@ impl GameRoom {
         Ok((record, false))
     }
 
-    pub fn disconnect(&mut self, session_id: Uuid, grace_seconds: i64) -> Result<DateTime<Utc>, GameError> {
+    pub fn disconnect(
+        &mut self,
+        session_id: Uuid,
+        grace_seconds: i64,
+    ) -> Result<DateTime<Utc>, GameError> {
         let player_id = self.player_for_session(session_id)?.id;
-        if let Some(player) = self.players.iter_mut().find(|player| player.id == player_id) {
+        if let Some(player) = self
+            .players
+            .iter_mut()
+            .find(|player| player.id == player_id)
+        {
             player.connection_state = ConnectionState::Reconnecting;
         }
         let deadline = Utc::now() + Duration::seconds(grace_seconds);
         self.disconnected_deadlines.insert(player_id, deadline);
-        if !matches!(self.status, RoomStatus::Finished | RoomStatus::Cancelled | RoomStatus::Disconnected) {
+        if !matches!(
+            self.status,
+            RoomStatus::Finished | RoomStatus::Cancelled | RoomStatus::Disconnected
+        ) {
             self.resume_status = Some(self.status);
             self.status = RoomStatus::Disconnected;
         }
@@ -247,12 +294,19 @@ impl GameRoom {
 
     pub fn reconnect(&mut self, session_id: Uuid) -> Result<(), GameError> {
         let player_id = self.player_for_session(session_id)?.id;
-        if let Some(player) = self.players.iter_mut().find(|player| player.id == player_id) {
+        if let Some(player) = self
+            .players
+            .iter_mut()
+            .find(|player| player.id == player_id)
+        {
             player.connection_state = ConnectionState::Online;
         }
         self.disconnected_deadlines.remove(&player_id);
         if self.status == RoomStatus::Disconnected
-            && self.players.iter().all(|player| player.connection_state == ConnectionState::Online)
+            && self
+                .players
+                .iter()
+                .all(|player| player.connection_state == ConnectionState::Online)
         {
             self.status = self.resume_status.take().unwrap_or(RoomStatus::Waiting);
         }
@@ -260,17 +314,29 @@ impl GameRoom {
         Ok(())
     }
 
-    pub fn expire_disconnect(&mut self, player_id: Uuid, now: DateTime<Utc>) -> Result<bool, GameError> {
+    pub fn expire_disconnect(
+        &mut self,
+        player_id: Uuid,
+        now: DateTime<Utc>,
+    ) -> Result<bool, GameError> {
         let Some(deadline) = self.disconnected_deadlines.get(&player_id).copied() else {
             return Ok(false);
         };
         if deadline > now {
             return Ok(false);
         }
-        if let Some(player) = self.players.iter_mut().find(|player| player.id == player_id) {
+        if let Some(player) = self
+            .players
+            .iter_mut()
+            .find(|player| player.id == player_id)
+        {
             player.connection_state = ConnectionState::Offline;
         }
-        let opponent_id = self.players.iter().find(|player| player.id != player_id).map(|player| player.id);
+        let opponent_id = self
+            .players
+            .iter()
+            .find(|player| player.id != player_id)
+            .map(|player| player.id);
         if let (Some(game), Some(winner_id)) = (self.game.as_mut(), opponent_id) {
             game.forfeit(winner_id, FinishReason::DisconnectTimeout)?;
             self.status = RoomStatus::Finished;
@@ -324,28 +390,51 @@ impl GameRoom {
     pub fn snapshot_for(&self, session_id: Uuid) -> Result<GameSnapshot, GameError> {
         let me = self.player_for_session(session_id)?;
         let players = self.players.iter().map(PlayerPublic::from).collect();
-        let (own_board, target_board, turn_number, current_player_id, result) = if let Some(game) = &self.game {
-            let board = game.boards.get(&me.id).ok_or(GameError::InvalidState)?;
-            let own = OwnBoardSnapshot {
-                ships: board.ships().iter().map(|ship| OwnShipSnapshot {
-                    kind: ship.kind,
-                    cells: ship.cells.clone(),
-                    hits: ship.hits.iter().copied().collect(),
-                    sunk: ship.is_sunk(),
-                }).collect(),
-                attacks_received: board.attacks_received().iter().map(|(coordinate, outcome)| CellAttackSnapshot { coordinate: *coordinate, outcome: *outcome }).collect(),
+        let (own_board, target_board, turn_number, current_player_id, result) =
+            if let Some(game) = &self.game {
+                let board = game.boards.get(&me.id).ok_or(GameError::InvalidState)?;
+                let own = OwnBoardSnapshot {
+                    ships: board
+                        .ships()
+                        .iter()
+                        .map(|ship| OwnShipSnapshot {
+                            kind: ship.kind,
+                            cells: ship.cells.clone(),
+                            hits: ship.hits.iter().copied().collect(),
+                            sunk: ship.is_sunk(),
+                        })
+                        .collect(),
+                    attacks_received: board
+                        .attacks_received()
+                        .iter()
+                        .map(|(coordinate, outcome)| CellAttackSnapshot {
+                            coordinate: *coordinate,
+                            outcome: *outcome,
+                        })
+                        .collect(),
+                };
+                let target = TargetBoardSnapshot {
+                    attacks: game
+                        .attacks
+                        .iter()
+                        .filter(|attack| attack.attacker_id == me.id)
+                        .map(|attack| TargetAttackSnapshot {
+                            coordinate: attack.coordinate,
+                            outcome: attack.outcome,
+                            sunk_ship: attack.sunk_ship,
+                        })
+                        .collect(),
+                };
+                (
+                    Some(own),
+                    Some(target),
+                    Some(game.turn_number),
+                    Some(game.current_player_id),
+                    game.result.clone(),
+                )
+            } else {
+                (None, None, None, None, None)
             };
-            let target = TargetBoardSnapshot {
-                attacks: game.attacks.iter().filter(|attack| attack.attacker_id == me.id).map(|attack| TargetAttackSnapshot {
-                    coordinate: attack.coordinate,
-                    outcome: attack.outcome,
-                    sunk_ship: attack.sunk_ship,
-                }).collect(),
-            };
-            (Some(own), Some(target), Some(game.turn_number), Some(game.current_player_id), game.result.clone())
-        } else {
-            (None, None, None, None, None)
-        };
 
         Ok(GameSnapshot {
             room: self.summary(),

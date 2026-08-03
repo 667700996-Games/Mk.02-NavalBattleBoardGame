@@ -140,7 +140,11 @@ impl Game {
             .attack(coordinate)?;
 
         let winner_id = result.all_sunk.then_some(attacker_id);
-        let next_player_id = if winner_id.is_some() { None } else { Some(target_id) };
+        let next_player_id = if winner_id.is_some() {
+            None
+        } else {
+            Some(target_id)
+        };
         let record = AttackRecord {
             request_id,
             attacker_id,
@@ -196,8 +200,15 @@ impl Game {
                     player_id: *player_id,
                     shots,
                     hits,
-                    ships_sunk: attacks.iter().filter(|attack| attack.sunk_ship.is_some()).count() as u8,
-                    accuracy: if shots == 0 { 0.0 } else { hits as f32 / shots as f32 },
+                    ships_sunk: attacks
+                        .iter()
+                        .filter(|attack| attack.sunk_ship.is_some())
+                        .count() as u8,
+                    accuracy: if shots == 0 {
+                        0.0
+                    } else {
+                        hits as f32 / shots as f32
+                    },
                 }
             })
             .collect();
@@ -220,23 +231,67 @@ mod tests {
 
     fn board_at(row_offset: u8) -> Board {
         Board::from_placements(&[
-            ShipPlacement { kind: ShipKind::Carrier, origin: Coordinate { row: row_offset, col: 0 }, orientation: Orientation::Horizontal },
-            ShipPlacement { kind: ShipKind::Battleship, origin: Coordinate { row: row_offset + 1, col: 0 }, orientation: Orientation::Horizontal },
-            ShipPlacement { kind: ShipKind::Cruiser, origin: Coordinate { row: row_offset + 2, col: 0 }, orientation: Orientation::Horizontal },
-            ShipPlacement { kind: ShipKind::Submarine, origin: Coordinate { row: row_offset + 3, col: 0 }, orientation: Orientation::Horizontal },
-            ShipPlacement { kind: ShipKind::Destroyer, origin: Coordinate { row: row_offset + 4, col: 0 }, orientation: Orientation::Horizontal },
-        ]).unwrap()
+            ShipPlacement {
+                kind: ShipKind::Carrier,
+                origin: Coordinate {
+                    row: row_offset,
+                    col: 0,
+                },
+                orientation: Orientation::Horizontal,
+            },
+            ShipPlacement {
+                kind: ShipKind::Battleship,
+                origin: Coordinate {
+                    row: row_offset + 1,
+                    col: 0,
+                },
+                orientation: Orientation::Horizontal,
+            },
+            ShipPlacement {
+                kind: ShipKind::Cruiser,
+                origin: Coordinate {
+                    row: row_offset + 2,
+                    col: 0,
+                },
+                orientation: Orientation::Horizontal,
+            },
+            ShipPlacement {
+                kind: ShipKind::Submarine,
+                origin: Coordinate {
+                    row: row_offset + 3,
+                    col: 0,
+                },
+                orientation: Orientation::Horizontal,
+            },
+            ShipPlacement {
+                kind: ShipKind::Destroyer,
+                origin: Coordinate {
+                    row: row_offset + 4,
+                    col: 0,
+                },
+                orientation: Orientation::Horizontal,
+            },
+        ])
+        .unwrap()
     }
 
     #[test]
     fn enforces_turn_and_switches_after_one_shot() {
         let first = Uuid::new_v4();
         let second = Uuid::new_v4();
-        let mut game = Game::new_with_first_player(HashMap::from([(first, board_at(0)), (second, board_at(5))]), first).unwrap();
-        assert_eq!(game.fire(Uuid::new_v4(), second, Coordinate { row: 9, col: 9 }, 1, 1).unwrap_err(), GameError::NotYourTurn);
-        game.fire(Uuid::new_v4(), first, Coordinate { row: 0, col: 9 }, 1, 1).unwrap();
+        let mut game = Game::new_with_first_player(
+            HashMap::from([(first, board_at(0)), (second, board_at(5))]),
+            first,
+        )
+        .unwrap();
+        assert_eq!(
+            game.fire(Uuid::new_v4(), second, Coordinate { row: 9, col: 9 }, 1, 1)
+                .unwrap_err(),
+            GameError::NotYourTurn
+        );
+        game.fire(Uuid::new_v4(), first, Coordinate { row: 0, col: 9 }, 1, 1)
+            .unwrap();
         assert_eq!(game.current_player_id, second);
         assert_eq!(game.turn_number, 2);
     }
 }
-
