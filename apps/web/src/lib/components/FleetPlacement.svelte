@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import { Check, Dices, Grip, RotateCw, Trash2 } from '@lucide/svelte';
   import GridBoard from './GridBoard.svelte';
   import {
@@ -19,7 +20,9 @@
   }
   let { initialPlacement = null, confirmed = false, submitting = false, onconfirm }: Props = $props();
 
-  let placements = $state<ShipPlacement[]>(initialPlacement ? structuredClone(initialPlacement) : []);
+  let placements = $state<ShipPlacement[]>(
+    untrack(() => (initialPlacement ? structuredClone(initialPlacement) : []))
+  );
   let selectedKind = $state<ShipKind | null>(
     FLEET.find((ship) => !placements.some((placement) => placement.kind === ship.kind))?.kind ?? 'CARRIER'
   );
@@ -96,7 +99,7 @@
   }
 </script>
 
-<section class="placement" aria-labelledby="placement-title" onkeydown={handleKeydown}>
+<section class="placement" aria-labelledby="placement-title" tabindex="0" onkeydown={handleKeydown}>
   <header class="placement__heading">
     <div><p class="eyebrow">FLEET DEPLOYMENT</p><h2 id="placement-title">함대 배치</h2><p>상대 지휘관에게 함선 좌표는 공개되지 않습니다.</p></div>
     <span class:success={fleet.valid} class="status-pill"><span class="status-dot"></span>{placements.length}/5 함선 배치</span>
@@ -138,7 +141,7 @@
           >
             <span class="fleet-item__meta"><strong>{ship.name}</strong><small>{ship.size} CELLS</small></span>
             <span class="ship-shape" aria-hidden="true">{#each Array.from({length:ship.size}) as _}<i></i>{/each}</span>
-            {#if placed}<Check class="placed-check" size={15} />{/if}
+            {#if placed}<span class="placed-check"><Check size={15} /></span>{/if}
           </button>
         {/each}
       </div>

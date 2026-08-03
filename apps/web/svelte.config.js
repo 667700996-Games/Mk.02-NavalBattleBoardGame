@@ -5,10 +5,8 @@ import { vitePreprocess } from '@sveltejs/vite-plugin-svelte';
 const config = {
   preprocess: vitePreprocess(),
   kit: {
-    adapter: adapter({ out: 'build' }),
-    csrf: { checkOrigin: true }
+    adapter: adapter({ out: 'build' })
   }
 };
 
 export default config;
-

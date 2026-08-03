@@ -197,7 +197,7 @@
 
 {#if showCreate}
   <div class="modal-backdrop" role="presentation" onclick={(event) => event.currentTarget === event.target && (showCreate = false)}>
-    <section class="modal panel" role="dialog" aria-modal="true" aria-labelledby="create-title">
+    <div class="modal panel" role="dialog" aria-modal="true" aria-labelledby="create-title">
       <button class="icon-button modal__close" onclick={() => (showCreate = false)} aria-label="닫기"><X size={16} /></button>
       <p class="eyebrow">NEW OPERATION</p><h2 id="create-title">새 작전실 생성</h2>
       <form onsubmit={(event) => { event.preventDefault(); createRoom(); }}>
@@ -205,20 +205,20 @@
         <fieldset><legend>공개 범위</legend><label class="choice"><input type="radio" bind:group={visibility} value="PUBLIC" /><span><Radio size={17} /><strong>공개</strong><small>로비 목록에서 누구나 참가</small></span></label><label class="choice"><input type="radio" bind:group={visibility} value="PRIVATE" /><span><LockKeyhole size={17} /><strong>비공개</strong><small>초대 링크와 코드로만 참가</small></span></label></fieldset>
         <button class="button button--primary button--wide" type="submit" disabled={submitting}>{submitting ? '편성 중…' : '작전실 편성'} <ArrowRight size={17} /></button>
       </form>
-    </section>
+    </div>
   </div>
 {/if}
 
 {#if showJoin}
   <div class="modal-backdrop" role="presentation" onclick={(event) => event.currentTarget === event.target && (showJoin = false)}>
-    <section class="modal panel" role="dialog" aria-modal="true" aria-labelledby="join-title">
+    <div class="modal panel" role="dialog" aria-modal="true" aria-labelledby="join-title">
       <button class="icon-button modal__close" onclick={() => (showJoin = false)} aria-label="닫기"><X size={16} /></button>
       <p class="eyebrow">SECURE CHANNEL</p><h2 id="join-title">코드로 참가</h2><p class="muted">초대받은 6자리 작전 코드를 입력하십시오.</p>
       <form onsubmit={(event) => { event.preventDefault(); joinRoom(); }}>
         <div class="field"><label for="room-code">작전 코드</label><input id="room-code" class="input input-code" bind:value={roomCode} minlength="6" maxlength="6" placeholder="ABC123" autocomplete="off" required /></div>
         <button class="button button--primary button--wide" type="submit" disabled={submitting || roomCode.length !== 6}>채널 접속 <ArrowRight size={17} /></button>
       </form>
-    </section>
+    </div>
   </div>
 {/if}
 
@@ -234,4 +234,3 @@
   .modal-backdrop { position:fixed; z-index:80; inset:0; display:grid; place-items:center; padding:20px; background:rgba(0,6,10,.76); backdrop-filter:blur(8px); }.modal { position:relative; width:min(500px,100%); padding:30px; }.modal h2 { margin-bottom:12px; font-size:26px; }.modal__close { position:absolute; top:18px; right:18px; }.modal form { display:grid; gap:20px; margin-top:24px; }.modal fieldset { display:grid; grid-template-columns:1fr 1fr; gap:10px; padding:0; border:0; }.modal legend { margin-bottom:8px; color:#c9dce6; font-size:13px; font-weight:650; }.choice { position:relative; }.choice input { position:absolute; opacity:0; }.choice span { display:grid; grid-template-columns:auto 1fr; gap:3px 8px; min-height:88px; align-content:center; padding:14px; border:1px solid var(--line); border-radius:10px; cursor:pointer; }.choice svg { grid-row:1/3; color:var(--cyan-400); }.choice small { color:#708c9c; font-size:10px; }.choice input:checked + span { border-color:var(--cyan-400); background:rgba(22,199,217,.1); box-shadow:0 0 0 2px rgba(22,199,217,.08); }
   @media(max-width:720px){.lobby{padding-top:40px}.lobby-heading{display:block}.lobby-heading__actions{margin-top:22px}.lobby-heading__actions .button{flex:1;padding-inline:10px}.quick-match{grid-template-columns:auto 1fr}.quick-match>.button{grid-column:1/-1;width:100%}.room-list__head{display:none}.room-row{grid-template-columns:1fr auto; gap:10px; padding:16px}.room-row>span{display:none}.modal{padding:25px 20px}.modal fieldset{grid-template-columns:1fr}}
 </style>
-

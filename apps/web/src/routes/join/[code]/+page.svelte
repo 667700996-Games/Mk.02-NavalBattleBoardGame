@@ -6,7 +6,7 @@
   import { api, ApiError } from '$lib/api';
   import { gameSnapshot, session } from '$lib/stores';
 
-  const code = page.params.code.toUpperCase();
+  const code = (page.params.code ?? '').toUpperCase();
   let nickname = '';
   let needsSession = true;
   let loading = true;

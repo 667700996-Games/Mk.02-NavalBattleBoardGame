@@ -115,7 +115,7 @@
 </script>
 
 <div class:board-disabled={disabled} class="board-wrap">
-  <div class="board-grid" role="grid" aria-label={label} onmouseleave={() => onhover?.(null)}>
+  <div class="board-grid" role="grid" tabindex="0" aria-label={label} onmouseleave={() => onhover?.(null)}>
     <span class="axis axis--corner" aria-hidden="true"><Crosshair size={10} /></span>
     {#each Array.from({ length: 10 }) as _, col}
       <span class="axis axis--col" aria-hidden="true">{col + 1}</span>
@@ -167,4 +167,3 @@
   .cell--ship { background:rgba(40,107,131,.36); }.ship-segment { position:absolute; inset:18%; border:1px solid rgba(144,214,227,.45); border-radius:3px; background:linear-gradient(145deg,rgba(124,175,189,.65),rgba(42,82,99,.72)); box-shadow:inset 0 1px rgba(255,255,255,.22),0 2px 6px rgba(0,0,0,.25); }.cell--preview { z-index:2; background:rgba(32,211,194,.25); box-shadow:inset 0 0 0 1px var(--green-500); }.cell--invalid { z-index:2; background:rgba(255,72,88,.25); box-shadow:inset 0 0 0 1px var(--red-500); }.cell--selected { z-index:2; box-shadow:inset 0 0 0 2px var(--amber-500),0 0 15px rgba(255,180,60,.2); }.miss-marker,.hit-marker { position:absolute;z-index:4;inset:0;display:grid;place-items:center }.miss-marker { color:#83cce0;background:radial-gradient(circle,rgba(96,184,207,.18),transparent 65%)}.hit-marker { color:#fff0d8;background:radial-gradient(circle,rgba(255,79,56,.72),rgba(255,99,48,.2) 38%,transparent 70%);filter:drop-shadow(0 0 5px #ff5e3b)}.cell--sunk .ship-segment{background:#492832;border-color:#ff7584}.cell--sunk{background:rgba(111,23,38,.4)}.board-disabled{filter:saturate(.72);opacity:.86}
   @container(max-width:430px){.board-grid{grid-template-columns:22px repeat(10,1fr);grid-template-rows:22px repeat(10,1fr);padding:3px;border-radius:9px}.ship-segment{inset:14%}}
 </style>
-

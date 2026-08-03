@@ -431,6 +431,14 @@ p {
 @keyframes impact { 0% { transform: scale(0.3); opacity: 1; } 100% { transform: scale(1.5); opacity: 0; } }
 
 [data-motion='reduced'] *,
+[data-motion='reduced'] *::before,
+[data-motion='reduced'] *::after {
+  scroll-behavior: auto !important;
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     scroll-behavior: auto !important;
@@ -455,4 +463,3 @@ p {
   .user-chip { max-width: 118px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
   .main-content { min-height: calc(100vh - 60px); }
 }
-
