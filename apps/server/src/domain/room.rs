@@ -122,6 +122,46 @@ impl GameRoom {
         Ok(())
     }
 
+    pub fn set_ready(
+        &mut self,
+        session_id: Uuid,
+        claimed_player_id: Uuid,
+        ready: bool,
+    ) -> Result<(), GameError> {
+        if !matches!(self.status, RoomStatus::Waiting | RoomStatus::Placement) {
+            return Err(GameError::InvalidState);
+        }
+        let player_id = self.player_for_session(session_id)?.id;
+        if player_id != claimed_player_id {
+            return Err(GameError::Unauthorized);
+        }
+        if let Some(player) = self.players.iter_mut().find(|player| player.id == player_id) {
+            player.is_ready = ready;
+        }
+        self.bump();
+        Ok(())
+    }
+
+    pub fn leave(&mut self, session_id: Uuid) -> Result<(), GameError> {
+        let player_id = self.player_for_session(session_id)?.id;
+        let opponent_id = self.players.iter().find(|player| player.id != player_id).map(|player| player.id);
+        if self.status == RoomStatus::Playing {
+            if let (Some(game), Some(winner_id)) = (self.game.as_mut(), opponent_id) {
+                game.forfeit(winner_id, FinishReason::PlayerLeft)?;
+                self.status = RoomStatus::Finished;
+            } else {
+                self.status = RoomStatus::Cancelled;
+            }
+        } else if !matches!(self.status, RoomStatus::Finished | RoomStatus::Cancelled) {
+            self.status = RoomStatus::Cancelled;
+        }
+        if let Some(player) = self.players.iter_mut().find(|player| player.id == player_id) {
+            player.connection_state = ConnectionState::Offline;
+        }
+        self.bump();
+        Ok(())
+    }
+
     pub fn confirm_placement(&mut self, session_id: Uuid) -> Result<bool, GameError> {
         if self.status != RoomStatus::Placement {
             return Err(GameError::InvalidState);
@@ -419,4 +459,3 @@ pub struct TargetAttackSnapshot {
     pub outcome: AttackOutcome,
     pub sunk_ship: Option<ShipKind>,
 }
-
