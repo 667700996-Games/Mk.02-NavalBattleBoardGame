@@ -1,5 +1,6 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
+  import { resolve } from '$app/paths';
   import { onMount } from 'svelte';
   import { Crosshair, History, Medal, Target, Timer, Trophy } from '@lucide/svelte';
   import { api } from '$lib/api';
@@ -14,7 +15,7 @@
       session.set(current);
       games = (await api.history()).games;
     } catch {
-      await goto('/');
+      await goto(resolve('/'));
     } finally {
       loading = false;
     }
@@ -38,10 +39,10 @@
         <History size={34} class="muted" />
         <h2>아직 완료된 전투가 없습니다</h2>
         <p class="muted">첫 작전을 완료하면 기록이 이곳에 보존됩니다.</p>
-        <a class="button button--primary" href="/lobby">작전 로비로 이동</a>
+        <a class="button button--primary" href={resolve('/lobby')}>작전 로비로 이동</a>
       </div>
     </section>{:else}<div class="history-list">
-      {#each games as game}<article class="history-row panel">
+      {#each games as game (game.roomId)}<article class="history-row panel">
           <span class:loss={!won(game)} class="result-mark"
             >{#if won(game)}<Trophy size={20} />{:else}<Medal size={20} />{/if}</span
           >

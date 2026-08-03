@@ -1,5 +1,6 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
+  import { resolve } from '$app/paths';
   import { onMount } from 'svelte';
   import {
     ArrowRight,
@@ -32,14 +33,14 @@
   async function enterLobby() {
     error = '';
     if (existingSession) {
-      await goto('/lobby');
+      await goto(resolve('/lobby'));
       return;
     }
     submitting = true;
     try {
       const created = await api.createSession(nickname);
       session.set(created);
-      await goto('/lobby');
+      await goto(resolve('/lobby'));
     } catch (caught) {
       error = caught instanceof ApiError ? caught.message : '지휘관 등록에 실패했습니다.';
     } finally {

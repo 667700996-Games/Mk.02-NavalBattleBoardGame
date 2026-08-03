@@ -1,11 +1,10 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
+  import { resolve } from '$app/paths';
   import { onMount } from 'svelte';
-  import { get } from 'svelte/store';
   import {
     ArrowRight,
     Clock3,
-    Copy,
     DoorOpen,
     LockKeyhole,
     Plus,
@@ -44,7 +43,7 @@
         const recovered = await api.recover();
         if (recovered && recovered.room.status !== 'CANCELLED') {
           gameSnapshot.set(recovered);
-          await goto(`/room/${recovered.room.code}`);
+          await goto(resolve('/room/[code]', { code: recovered.room.code }));
           return;
         }
         if (recovered?.room.status === 'CANCELLED') {
@@ -55,14 +54,14 @@
         refreshTimer = setInterval(loadRooms, 7_500);
         unsubscribe = gameSnapshot.subscribe((snapshot) => {
           if (matching && snapshot?.room.status === 'PLACEMENT') {
-            goto(`/room/${snapshot.room.code}`);
+            goto(resolve('/room/[code]', { code: snapshot.room.code }));
           }
         });
         queueTimer = setInterval(() => {
           elapsed = queuedAt ? Math.floor((Date.now() - queuedAt.getTime()) / 1000) : 0;
         }, 1_000);
       } catch {
-        await goto('/');
+        await goto(resolve('/'));
       }
     })();
     return () => {
@@ -89,7 +88,7 @@
     try {
       const response = await api.createRoom(roomName, visibility);
       gameSnapshot.set(response.snapshot);
-      await goto(`/room/${response.snapshot.room.code}`);
+      await goto(resolve('/room/[code]', { code: response.snapshot.room.code }));
     } catch (caught) {
       error = caught instanceof ApiError ? caught.message : '작전실을 만들지 못했습니다.';
     } finally {
@@ -103,7 +102,7 @@
     try {
       const snapshot = await api.joinRoom(code);
       gameSnapshot.set(snapshot);
-      await goto(`/room/${snapshot.room.code}`);
+      await goto(resolve('/room/[code]', { code: snapshot.room.code }));
     } catch (caught) {
       error = caught instanceof ApiError ? caught.message : '작전실에 참가하지 못했습니다.';
     } finally {
@@ -122,7 +121,7 @@
       const response = await api.enqueueMatchmaking();
       if (response.snapshot) {
         gameSnapshot.set(response.snapshot);
-        await goto(`/room/${response.snapshot.room.code}`);
+        await goto(resolve('/room/[code]', { code: response.snapshot.room.code }));
       } else {
         matching = true;
         queuedAt = new Date(response.queuedAt ?? Date.now());

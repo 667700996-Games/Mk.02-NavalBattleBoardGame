@@ -1,6 +1,7 @@
 <script lang="ts">
   import { page } from '$app/state';
   import { goto } from '$app/navigation';
+  import { resolve } from '$app/paths';
   import { onMount } from 'svelte';
   import { ArrowRight, KeyRound, Radio } from '@lucide/svelte';
   import { api, ApiError } from '$lib/api';
@@ -35,7 +36,7 @@
       }
       const snapshot = await api.joinRoom(code);
       gameSnapshot.set(snapshot);
-      await goto(`/room/${snapshot.room.code}`);
+      await goto(resolve('/room/[code]', { code: snapshot.room.code }));
     } catch (caught) {
       error = caught instanceof ApiError ? caught.message : '초대 채널에 접속하지 못했습니다.';
     } finally {

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Check, Crosshair, Flame, Radio, Shield, Waves, X } from '@lucide/svelte';
+  import { Check, Crosshair, Radio, Shield, X } from '@lucide/svelte';
   import GridBoard from './GridBoard.svelte';
   import { sounds } from '$lib/sound';
   import {
@@ -129,7 +129,7 @@
         disabled={true}
       />
       <div class="fleet-health">
-        {#each snapshot.ownBoard?.ships ?? [] as ship}
+        {#each snapshot.ownBoard?.ships ?? [] as ship (ship.kind)}
           <span
             class:sunk={ship.sunk}
             title={`${shipName(ship.kind)} ${ship.hits.length}/${ship.cells.length}`}
@@ -161,11 +161,11 @@
           ><X size={13} /> 선택 취소</button
         >{/if}
       <div class="enemy-fleet">
-        <small>ENEMY FLEET STATUS</small>{#each FLEET as ship}<div
+        <small>ENEMY FLEET STATUS</small>{#each FLEET as ship (ship.kind)}<div
             class:sunk={sunkShips.has(ship.kind)}
           >
             <span>{ship.name}</span><span class="mini-ship"
-              >{#each Array.from({ length: ship.size }) as _}<i></i>{/each}</span
+              >{#each Array.from({ length: ship.size }) as _, index (index)}<i></i>{/each}</span
             >{#if sunkShips.has(ship.kind)}<Check size={13} />{/if}
           </div>{/each}
       </div>

@@ -7,6 +7,7 @@
   import '@fontsource/rajdhani/600.css';
   import '@fontsource/rajdhani/700.css';
   import { onMount } from 'svelte';
+  import { resolve } from '$app/paths';
   import { Crosshair, History, Radio, Settings, UserRound, X } from '@lucide/svelte';
   import { api } from '$lib/api';
   import { gameError, session, socketStatus } from '$lib/stores';
@@ -40,7 +41,7 @@
 
 <header class="app-header">
   <div class="shell app-header__inner">
-    <a class="brand" href={$session ? '/lobby' : '/'} aria-label="Mk.01 홈">
+    <a class="brand" href={resolve($session ? '/lobby' : '/')} aria-label="Mk.01 홈">
       <span class="brand__mark"><Crosshair size={18} strokeWidth={1.5} /></span>
       <span class="brand__text">
         <strong>MK.01</strong>
@@ -50,10 +51,10 @@
 
     <nav class="nav-links" aria-label="주 메뉴">
       {#if $session}
-        <a class="nav-link" href="/lobby"><Radio size={17} /><span>작전 로비</span></a>
-        <a class="nav-link" href="/stats"><History size={17} /><span>전투 기록</span></a>
+        <a class="nav-link" href={resolve('/lobby')}><Radio size={17} /><span>작전 로비</span></a>
+        <a class="nav-link" href={resolve('/stats')}><History size={17} /><span>전투 기록</span></a>
       {/if}
-      <a class="nav-link" href="/settings"><Settings size={17} /><span>설정</span></a>
+      <a class="nav-link" href={resolve('/settings')}><Settings size={17} /><span>설정</span></a>
     </nav>
 
     {#if $session}

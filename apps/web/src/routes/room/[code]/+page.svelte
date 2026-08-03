@@ -1,8 +1,8 @@
 <script lang="ts">
   import { page } from '$app/state';
   import { goto } from '$app/navigation';
+  import { resolve } from '$app/paths';
   import { onMount } from 'svelte';
-  import { get } from 'svelte/store';
   import { ArrowLeft, Check, Radio, ShieldCheck, Wifi, WifiOff } from '@lucide/svelte';
   import BattleView from '$lib/components/BattleView.svelte';
   import DisconnectedOverlay from '$lib/components/DisconnectedOverlay.svelte';
@@ -20,7 +20,6 @@
   let loadError = $state('');
   let placementSubmitting = $state(false);
   let attackPending = $state(false);
-  let pendingRequestId = $state<string | null>(null);
   let lastSoundRequest = $state<string | null>(null);
   let resultSoundPlayed = $state(false);
 
@@ -48,7 +47,7 @@
         realtime.connect();
       } catch (caught) {
         if (caught instanceof ApiError && caught.code === 'UNAUTHORIZED') {
-          await goto(`/join/${routeCode}`);
+          await goto(resolve('/join/[code]', { code: routeCode }));
           return;
         }
         loadError =
@@ -68,7 +67,6 @@
     if (!attack || attack.requestId === lastSoundRequest) return;
     lastSoundRequest = attack.requestId;
     attackPending = false;
-    pendingRequestId = null;
     if (attack.outcome === 'MISS') sounds.miss();
     else if (attack.outcome === 'SUNK') sounds.sunk();
     else sounds.hit();
@@ -103,7 +101,6 @@
   function fire(coordinate: Coordinate) {
     if (!snapshot || attackPending || snapshot.turnNumber === null) return;
     const requestId = crypto.randomUUID();
-    pendingRequestId = requestId;
     attackPending = true;
     const sent = realtime.send({
       type: 'attack:fire',
@@ -118,7 +115,6 @@
     });
     if (!sent) {
       attackPending = false;
-      pendingRequestId = null;
       gameError.set({
         code: 'CONNECTION_REQUIRED',
         message: '실시간 연결이 복구된 뒤 다시 공격해 주세요.',
@@ -133,7 +129,7 @@
       await api.leaveRoom(snapshot.room.id);
     } finally {
       gameSnapshot.set(null);
-      await goto('/lobby');
+      await goto(resolve('/lobby'));
     }
   }
 
@@ -156,7 +152,7 @@
       <WifiOff size={34} />
       <h1>작전 채널에 연결할 수 없습니다</h1>
       <p>{loadError}</p>
-      <a class="button" href="/lobby"><ArrowLeft size={16} /> 로비로 복귀</a>
+      <a class="button" href={resolve('/lobby')}><ArrowLeft size={16} /> 로비로 복귀</a>
     </section>
   {:else if snapshot}
     <div class="room-meta">
@@ -184,7 +180,7 @@
             상대 지휘관의 배치 확정을 기다리고 있습니다. 양쪽이 완료되면 선공을 무작위로 결정합니다.
           </p>
           <div class="player-ready-list">
-            {#each snapshot.players as player}<div>
+            {#each snapshot.players as player (player.id)}<div>
                 <span class:ready={player.placementConfirmed}><ShieldCheck size={17} /></span
                 ><strong>{player.nickname}</strong><em
                   >{player.placementConfirmed ? '배치 확정' : '배치 중'}</em

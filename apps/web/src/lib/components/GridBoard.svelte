@@ -2,7 +2,6 @@
   import { Crosshair, Flame, Waves } from '@lucide/svelte';
   import { cellsForPlacement } from '$lib/game/placement';
   import {
-    FLEET,
     ROW_LABELS,
     coordinateKey,
     coordinateLabel,
@@ -86,7 +85,7 @@
   }
 
   function handleKeyboard(event: KeyboardEvent, coordinate: Coordinate) {
-    let next = coordinate;
+    let next: Coordinate;
     if (event.key === 'ArrowUp') next = { ...coordinate, row: Math.max(0, coordinate.row - 1) };
     else if (event.key === 'ArrowDown')
       next = { ...coordinate, row: Math.min(9, coordinate.row + 1) };
@@ -124,12 +123,12 @@
     onmouseleave={() => onhover?.(null)}
   >
     <span class="axis axis--corner" aria-hidden="true"><Crosshair size={10} /></span>
-    {#each Array.from({ length: 10 }) as _, col}
+    {#each Array.from({ length: 10 }) as _, col (col)}
       <span class="axis axis--col" aria-hidden="true">{col + 1}</span>
     {/each}
-    {#each grid as row, rowIndex}
+    {#each grid as row, rowIndex (rowIndex)}
       <span class="axis axis--row" aria-hidden="true">{ROW_LABELS[rowIndex]}</span>
-      {#each row as coordinate}
+      {#each row as coordinate (coordinateKey(coordinate))}
         {@const attack = attackAt(coordinate)}
         {@const kind = mode === 'placement' ? placementKind(coordinate) : ownShipKind(coordinate)}
         {@const preview = isPreview(coordinate)}

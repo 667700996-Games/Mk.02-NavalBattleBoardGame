@@ -4,7 +4,6 @@
   import GridBoard from './GridBoard.svelte';
   import {
     autoPlaceFleet,
-    cellsForPlacement,
     rotatePlacement,
     validateFleet,
     validatePlacement
@@ -166,7 +165,7 @@
         <Grip size={18} />
       </div>
       <div class="fleet-list">
-        {#each FLEET as ship}
+        {#each FLEET as ship (ship.kind)}
           {@const placed = placements.find((placement) => placement.kind === ship.kind)}
           <button
             type="button"
@@ -182,7 +181,7 @@
               ><strong>{ship.name}</strong><small>{ship.size} CELLS</small></span
             >
             <span class="ship-shape" aria-hidden="true"
-              >{#each Array.from({ length: ship.size }) as _}<i></i>{/each}</span
+              >{#each Array.from({ length: ship.size }) as _, index (index)}<i></i>{/each}</span
             >
             {#if placed}<span class="placed-check"><Check size={15} /></span>{/if}
           </button>

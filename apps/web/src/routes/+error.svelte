@@ -1,5 +1,6 @@
 <script lang="ts">
   import { page } from '$app/state';
+  import { resolve } from '$app/paths';
   import { ArrowLeft, Radio } from '@lucide/svelte';
 </script>
 
@@ -15,7 +16,9 @@
         ? '요청한 작전 채널이 존재하지 않거나 이동되었습니다.'
         : '요청을 처리하지 못했습니다. 잠시 후 로비에서 다시 시도해 주세요.'}
     </p>
-    <a class="button button--primary" href="/lobby"><ArrowLeft size={16} /> 작전 로비로 복귀</a>
+    <a class="button button--primary" href={resolve('/lobby')}
+      ><ArrowLeft size={16} /> 작전 로비로 복귀</a
+    >
   </section>
 </div>
 
