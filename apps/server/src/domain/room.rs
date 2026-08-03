@@ -448,6 +448,7 @@ impl GameRoom {
             result,
             reconnect_deadline: self.disconnected_deadlines.values().min().copied(),
             rematch_requested_by: self.rematch_requests.iter().copied().collect(),
+            placement: self.pending_placements.get(&me.id).cloned(),
         })
     }
 }
@@ -510,6 +511,7 @@ pub struct GameSnapshot {
     pub result: Option<GameResult>,
     pub reconnect_deadline: Option<DateTime<Utc>>,
     pub rematch_requested_by: Vec<Uuid>,
+    pub placement: Option<Vec<ShipPlacement>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

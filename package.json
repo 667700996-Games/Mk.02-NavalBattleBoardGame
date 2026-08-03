@@ -1,0 +1,26 @@
+{
+  "name": "mk01-naval-battle-board-game",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "apps/web"
+  ],
+  "scripts": {
+    "dev": "concurrently -k -n SERVER,WEB -c blue,cyan \"cargo run -p mk01-server\" \"npm run dev:web\"",
+    "dev:web": "npm --workspace @mk01/web run dev",
+    "build": "cargo build --workspace --release && npm --workspace @mk01/web run build",
+    "check": "cargo check --workspace && npm --workspace @mk01/web run check",
+    "lint": "cargo fmt --all -- --check && cargo clippy --workspace --all-targets -- -D warnings && npm --workspace @mk01/web run lint",
+    "format": "cargo fmt --all && npm --workspace @mk01/web run format",
+    "test": "cargo test --workspace && npm --workspace @mk01/web run test:unit",
+    "test:e2e": "npm --workspace @mk01/web run test:e2e"
+  },
+  "devDependencies": {
+    "concurrently": "9.2.1"
+  },
+  "engines": {
+    "node": ">=22",
+    "npm": ">=11"
+  }
+}
+
