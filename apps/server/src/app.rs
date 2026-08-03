@@ -21,7 +21,7 @@ use uuid::Uuid;
 use crate::{
     api,
     config::{Settings, StorageMode},
-    domain::{GameRoom, GameSnapshot, RoomVisibility, UserSession},
+    domain::{GameRoom, RoomVisibility, UserSession},
     error::GameError,
     protocol::{CreateRoomInput, ServerEvent},
     store::{GameStore, MemoryStore, PostgresRedisStore},
@@ -158,9 +158,14 @@ impl AppState {
 
     pub async fn room_by_code(&self, code: &str) -> Result<Arc<Mutex<GameRoom>>, GameError> {
         let normalized = code.trim().to_ascii_uppercase();
-        for room in self.rooms.iter() {
-            if room.value().lock().await.code == normalized {
-                return Ok(room.value().clone());
+        let cached_rooms: Vec<_> = self
+            .rooms
+            .iter()
+            .map(|entry| entry.value().clone())
+            .collect();
+        for room in cached_rooms {
+            if room.lock().await.code == normalized {
+                return Ok(room);
             }
         }
         let room = self
@@ -492,7 +497,10 @@ pub fn build_router(state: AppState) -> Router {
         .nest("/api", api::router())
         .route("/ws", get(ws::websocket_handler))
         .layer(axum::extract::DefaultBodyLimit::max(64 * 1024))
-        .layer(TimeoutLayer::new(Duration::from_secs(15)))
+        .layer(TimeoutLayer::with_status_code(
+            axum::http::StatusCode::REQUEST_TIMEOUT,
+            Duration::from_secs(15),
+        ))
         .layer(CompressionLayer::new())
         .layer(CatchPanicLayer::new())
         .layer(TraceLayer::new_for_http())

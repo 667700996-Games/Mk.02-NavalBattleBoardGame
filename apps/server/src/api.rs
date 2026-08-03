@@ -3,7 +3,7 @@ use axum::{
     extract::{Path, State},
     http::{HeaderMap, StatusCode, header::AUTHORIZATION},
     response::IntoResponse,
-    routing::{delete, get, post},
+    routing::{get, post},
 };
 use axum_extra::extract::{
     CookieJar,
@@ -55,7 +55,7 @@ async fn create_session(
     Json(input): Json<CreateSessionInput>,
 ) -> Result<impl IntoResponse, GameError> {
     let (session, token) = state.create_session(input.nickname).await?;
-    let max_age = cookie::time::Duration::seconds(state.settings.session_ttl.as_secs() as i64);
+    let max_age = time::Duration::seconds(state.settings.session_ttl.as_secs() as i64);
     let cookie = Cookie::build(("mk01_session", token))
         .path("/")
         .http_only(true)
