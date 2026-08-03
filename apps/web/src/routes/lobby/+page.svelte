@@ -42,10 +42,13 @@
         const current = await api.currentSession();
         session.set(current);
         const recovered = await api.recover();
-        if (recovered && !['FINISHED', 'CANCELLED'].includes(recovered.room.status)) {
+        if (recovered && recovered.room.status !== 'CANCELLED') {
           gameSnapshot.set(recovered);
           await goto(`/room/${recovered.room.code}`);
           return;
+        }
+        if (recovered?.room.status === 'CANCELLED') {
+          await api.leaveRoom(recovered.room.id);
         }
         realtime.connect();
         await loadRooms();

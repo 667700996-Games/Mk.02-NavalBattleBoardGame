@@ -258,11 +258,10 @@ impl GameRoom {
             expected_turn,
             next_version,
         )?;
-        self.bump();
         if record.winner_id.is_some() {
             self.status = RoomStatus::Finished;
-            self.bump();
         }
+        self.bump();
         Ok((record, false))
     }
 
@@ -552,4 +551,225 @@ pub struct TargetAttackSnapshot {
     pub coordinate: Coordinate,
     pub outcome: AttackOutcome,
     pub sunk_ship: Option<ShipKind>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::Orientation;
+
+    fn session(nickname: &str) -> UserSession {
+        let now = Utc::now();
+        UserSession {
+            id: Uuid::new_v4(),
+            nickname: nickname.to_string(),
+            token_hash: Uuid::new_v4().to_string(),
+            created_at: now,
+            last_seen_at: now,
+            current_room_id: None,
+        }
+    }
+
+    fn fleet(first_row: u8) -> Vec<ShipPlacement> {
+        vec![
+            ShipPlacement {
+                kind: ShipKind::Carrier,
+                origin: Coordinate {
+                    row: first_row,
+                    col: 0,
+                },
+                orientation: Orientation::Horizontal,
+            },
+            ShipPlacement {
+                kind: ShipKind::Battleship,
+                origin: Coordinate {
+                    row: first_row + 1,
+                    col: 0,
+                },
+                orientation: Orientation::Horizontal,
+            },
+            ShipPlacement {
+                kind: ShipKind::Cruiser,
+                origin: Coordinate {
+                    row: first_row + 2,
+                    col: 0,
+                },
+                orientation: Orientation::Horizontal,
+            },
+            ShipPlacement {
+                kind: ShipKind::Submarine,
+                origin: Coordinate {
+                    row: first_row + 3,
+                    col: 0,
+                },
+                orientation: Orientation::Horizontal,
+            },
+            ShipPlacement {
+                kind: ShipKind::Destroyer,
+                origin: Coordinate {
+                    row: first_row + 4,
+                    col: 0,
+                },
+                orientation: Orientation::Horizontal,
+            },
+        ]
+    }
+
+    fn playing_room() -> (GameRoom, UserSession, UserSession) {
+        let first = session("Alpha");
+        let second = session("Bravo");
+        let mut room = GameRoom::new(
+            "ABC234".to_string(),
+            "Test operation".to_string(),
+            RoomVisibility::Private,
+            &first,
+        )
+        .unwrap();
+        room.join(&second).unwrap();
+        room.place_ships(first.id, fleet(0)).unwrap();
+        room.place_ships(second.id, fleet(5)).unwrap();
+        assert!(!room.confirm_placement(first.id).unwrap());
+        assert!(room.confirm_placement(second.id).unwrap());
+        (room, first, second)
+    }
+
+    #[test]
+    fn follows_waiting_placement_playing_state_machine() {
+        let host = session("Alpha");
+        let guest = session("Bravo");
+        let mut room = GameRoom::new(
+            "ABC234".to_string(),
+            "Test operation".to_string(),
+            RoomVisibility::Public,
+            &host,
+        )
+        .unwrap();
+        assert_eq!(room.status, RoomStatus::Waiting);
+        room.join(&guest).unwrap();
+        assert_eq!(room.status, RoomStatus::Placement);
+        assert_eq!(
+            room.confirm_placement(host.id).unwrap_err(),
+            GameError::IncompleteFleet
+        );
+        room.place_ships(host.id, fleet(0)).unwrap();
+        room.place_ships(guest.id, fleet(5)).unwrap();
+        assert!(!room.confirm_placement(host.id).unwrap());
+        assert!(room.confirm_placement(guest.id).unwrap());
+        assert_eq!(room.status, RoomStatus::Playing);
+        assert!(room.game.is_some());
+        assert_eq!(
+            room.place_ships(host.id, fleet(0)).unwrap_err(),
+            GameError::InvalidState
+        );
+    }
+
+    #[test]
+    fn personalized_snapshot_never_contains_opponent_ships_or_session_ids() {
+        let (room, first, second) = playing_room();
+        let first_snapshot = serde_json::to_value(room.snapshot_for(first.id).unwrap()).unwrap();
+        let second_snapshot = serde_json::to_value(room.snapshot_for(second.id).unwrap()).unwrap();
+
+        assert!(first_snapshot["ownBoard"]["ships"].is_array());
+        assert!(second_snapshot["ownBoard"]["ships"].is_array());
+        assert!(first_snapshot["targetBoard"].get("ships").is_none());
+        assert!(second_snapshot["targetBoard"].get("ships").is_none());
+        let first_json = serde_json::to_string(&first_snapshot).unwrap();
+        assert!(!first_json.contains("sessionId"));
+        assert!(!first_json.contains(&second.id.to_string()));
+    }
+
+    #[test]
+    fn duplicate_attack_is_idempotent_even_with_stale_version() {
+        let (mut room, first, second) = playing_room();
+        let current_id = room.game.as_ref().unwrap().current_player_id;
+        let (session_id, player_id) = if room.player_for_session(first.id).unwrap().id == current_id
+        {
+            (first.id, current_id)
+        } else {
+            (second.id, current_id)
+        };
+        let request_id = Uuid::new_v4();
+        let version = room.version;
+        let (original, duplicate) = room
+            .fire(
+                session_id,
+                request_id,
+                player_id,
+                Coordinate { row: 9, col: 9 },
+                version,
+                1,
+            )
+            .unwrap();
+        assert!(!duplicate);
+        let resolved_version = room.version;
+        let (replayed, duplicate) = room
+            .fire(
+                session_id,
+                request_id,
+                player_id,
+                Coordinate { row: 9, col: 9 },
+                version,
+                1,
+            )
+            .unwrap();
+        assert!(duplicate);
+        assert_eq!(original.request_id, replayed.request_id);
+        assert_eq!(room.version, resolved_version);
+    }
+
+    #[test]
+    fn reconnect_restores_the_previous_state_and_expiry_forfeits() {
+        let (mut room, first, second) = playing_room();
+        room.disconnect(first.id, 90).unwrap();
+        assert_eq!(room.status, RoomStatus::Disconnected);
+        room.reconnect(first.id).unwrap();
+        assert_eq!(room.status, RoomStatus::Playing);
+
+        let first_player_id = room.player_for_session(first.id).unwrap().id;
+        let second_player_id = room.player_for_session(second.id).unwrap().id;
+        room.disconnect(first.id, 0).unwrap();
+        assert!(
+            room.expire_disconnect(first_player_id, Utc::now() + Duration::seconds(1))
+                .unwrap()
+        );
+        assert_eq!(room.status, RoomStatus::Finished);
+        assert_eq!(
+            room.game
+                .as_ref()
+                .unwrap()
+                .result
+                .as_ref()
+                .unwrap()
+                .winner_id,
+            second_player_id
+        );
+        assert_eq!(
+            room.disconnect(second.id, 90).unwrap_err(),
+            GameError::InvalidState
+        );
+    }
+
+    #[test]
+    fn internal_room_state_round_trips_after_attacks() {
+        let (mut room, first, second) = playing_room();
+        let current_id = room.game.as_ref().unwrap().current_player_id;
+        let session_id = if room.player_for_session(first.id).unwrap().id == current_id {
+            first.id
+        } else {
+            second.id
+        };
+        let version = room.version;
+        room.fire(
+            session_id,
+            Uuid::new_v4(),
+            current_id,
+            Coordinate { row: 9, col: 9 },
+            version,
+            1,
+        )
+        .unwrap();
+        let json = serde_json::to_string(&room).unwrap();
+        let restored: GameRoom = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored.game.unwrap().attacks.len(), 1);
+    }
 }
