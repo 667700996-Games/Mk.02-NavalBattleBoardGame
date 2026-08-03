@@ -19,7 +19,9 @@
     "concurrently": "9.2.4"
   },
   "overrides": {
-    "cookie": "0.7.2"
+    "@sveltejs/kit": {
+      "cookie": "0.7.2"
+    }
   },
   "engines": {
     "node": ">=22",
