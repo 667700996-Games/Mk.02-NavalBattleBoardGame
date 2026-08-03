@@ -16,11 +16,13 @@
     "test:e2e": "npm --workspace @mk01/web run test:e2e"
   },
   "devDependencies": {
-    "concurrently": "9.2.1"
+    "concurrently": "9.2.4"
+  },
+  "overrides": {
+    "cookie": "0.7.2"
   },
   "engines": {
     "node": ">=22",
     "npm": ">=11"
   }
 }
-
