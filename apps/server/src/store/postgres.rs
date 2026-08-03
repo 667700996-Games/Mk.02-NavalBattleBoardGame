@@ -198,18 +198,26 @@ impl GameStore for PostgresRedisStore {
         &self,
         session_id: Uuid,
     ) -> Result<Vec<GameHistoryItem>, GameError> {
-        let rows: Vec<(Uuid, String, serde_json::Value)> = sqlx::query_as(
-            "SELECT room_id, room_name, result FROM game_results WHERE $1 = ANY(participant_session_ids) ORDER BY finished_at DESC LIMIT 50"
+        let rows: Vec<(Uuid, String, serde_json::Value, serde_json::Value)> = sqlx::query_as(
+            "SELECT results.room_id, results.room_name, results.result, rooms.snapshot FROM game_results results JOIN game_rooms rooms ON rooms.id = results.room_id WHERE $1 = ANY(results.participant_session_ids) ORDER BY results.finished_at DESC LIMIT 50"
         ).bind(session_id).fetch_all(&self.pool).await?;
         rows.into_iter()
-            .map(|(room_id, room_name, value)| {
-                serde_json::from_value(value)
-                    .map(|result| GameHistoryItem {
-                        room_id,
-                        room_name,
-                        result,
-                    })
-                    .map_err(|_| GameError::Internal)
+            .map(|(room_id, room_name, value, snapshot)| {
+                let room: GameRoom =
+                    serde_json::from_value(snapshot).map_err(|_| GameError::Internal)?;
+                let self_player_id = room
+                    .players
+                    .iter()
+                    .find(|player| player.session_id == session_id)
+                    .map(|player| player.id)
+                    .ok_or(GameError::Internal)?;
+                let result = serde_json::from_value(value).map_err(|_| GameError::Internal)?;
+                Ok(GameHistoryItem {
+                    room_id,
+                    room_name,
+                    self_player_id,
+                    result,
+                })
             })
             .collect()
     }

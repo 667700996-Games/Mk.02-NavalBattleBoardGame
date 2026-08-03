@@ -93,15 +93,16 @@ impl GameStore for MemoryStore {
     ) -> Result<Vec<GameHistoryItem>, GameError> {
         let mut history = Vec::new();
         for room in self.rooms.iter() {
-            if room
+            if let Some(player) = room
                 .players
                 .iter()
-                .any(|player| player.session_id == session_id)
+                .find(|player| player.session_id == session_id)
             {
                 if let Some(result) = room.game.as_ref().and_then(|game| game.result.clone()) {
                     history.push(GameHistoryItem {
                         room_id: room.id,
                         room_name: room.name.clone(),
+                        self_player_id: player.id,
                         result,
                     });
                 }

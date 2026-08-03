@@ -143,6 +143,7 @@ export interface RoomCreatedResponse {
 export interface HistoryItem {
   roomId: string;
   roomName: string;
+  selfPlayerId: string;
   result: GameResult;
 }
 
@@ -215,4 +216,3 @@ export function coordinateLabel(coordinate: Coordinate): string {
 export function shipName(kind: ShipKind): string {
   return FLEET.find((ship) => ship.kind === kind)?.name ?? kind;
 }
-

@@ -17,6 +17,7 @@ pub use postgres::PostgresRedisStore;
 pub struct GameHistoryItem {
     pub room_id: Uuid,
     pub room_name: String,
+    pub self_player_id: Uuid,
     pub result: GameResult,
 }
 
