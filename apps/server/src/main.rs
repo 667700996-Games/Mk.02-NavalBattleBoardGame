@@ -1,5 +1,8 @@
 use mk01_server::{AppState, build_router, config::Settings};
-use tokio::net::TcpListener;
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::{TcpListener, TcpStream},
+};
 use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 
 #[tokio::main]
@@ -8,6 +11,13 @@ async fn main() {
         eprintln!("configuration error: {error}");
         std::process::exit(2);
     });
+    if std::env::args().any(|argument| argument == "--healthcheck") {
+        std::process::exit(if healthcheck(settings.bind_addr.port()).await {
+            0
+        } else {
+            1
+        });
+    }
     init_tracing();
     let state = AppState::new(settings.clone())
         .await
@@ -27,6 +37,27 @@ async fn main() {
         .with_graceful_shutdown(shutdown_signal())
         .await
         .unwrap();
+}
+
+async fn healthcheck(port: u16) -> bool {
+    let check = async move {
+        let mut stream = TcpStream::connect(("127.0.0.1", port)).await.ok()?;
+        stream
+            .write_all(b"GET /api/health HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+            .await
+            .ok()?;
+        let mut response = Vec::with_capacity(512);
+        stream.read_to_end(&mut response).await.ok()?;
+        String::from_utf8(response)
+            .ok()?
+            .starts_with("HTTP/1.1 200")
+            .then_some(())
+    };
+    tokio::time::timeout(std::time::Duration::from_secs(3), check)
+        .await
+        .ok()
+        .flatten()
+        .is_some()
 }
 
 fn init_tracing() {

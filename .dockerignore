@@ -1,0 +1,10 @@
+.git
+.env
+node_modules
+target
+apps/web/.svelte-kit
+apps/web/build
+apps/web/test-results
+apps/web/playwright-report
+*.log
+

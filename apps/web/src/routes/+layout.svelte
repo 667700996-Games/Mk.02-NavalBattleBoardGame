@@ -1,11 +1,11 @@
 <script lang="ts">
-  import '@fontsource/ibm-plex-sans-kr/400.css';
-  import '@fontsource/ibm-plex-sans-kr/500.css';
-  import '@fontsource/ibm-plex-sans-kr/600.css';
-  import '@fontsource/ibm-plex-sans-kr/700.css';
-  import '@fontsource/rajdhani/500.css';
-  import '@fontsource/rajdhani/600.css';
-  import '@fontsource/rajdhani/700.css';
+  import '@fontsource/ibm-plex-sans-kr/korean-400.css';
+  import '@fontsource/ibm-plex-sans-kr/korean-700.css';
+  import '@fontsource/ibm-plex-sans-kr/latin-400.css';
+  import '@fontsource/ibm-plex-sans-kr/latin-700.css';
+  import '@fontsource/rajdhani/latin-500.css';
+  import '@fontsource/rajdhani/latin-600.css';
+  import '@fontsource/rajdhani/latin-700.css';
   import { onMount } from 'svelte';
   import { resolve } from '$app/paths';
   import { Crosshair, History, Radio, Settings, UserRound, X } from '@lucide/svelte';

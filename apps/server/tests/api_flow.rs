@@ -1,0 +1,173 @@
+use std::{net::SocketAddr, sync::Arc, time::Duration};
+
+use axum::{
+    Router,
+    body::{Body, to_bytes},
+    http::{Request, Response, StatusCode, header},
+};
+use mk01_server::{
+    AppState, build_router,
+    config::{Settings, StorageMode},
+    store::MemoryStore,
+};
+use serde_json::{Value, json};
+use tower::ServiceExt;
+
+fn test_app() -> Router {
+    let settings = Settings {
+        bind_addr: SocketAddr::from(([127, 0, 0, 1], 0)),
+        storage_mode: StorageMode::Memory,
+        database_url: String::new(),
+        redis_url: String::new(),
+        allowed_origins: vec!["http://localhost:5173".to_string()],
+        secure_cookies: false,
+        session_ttl: Duration::from_secs(3_600),
+        reconnect_grace: Duration::from_secs(1),
+        public_base_url: "http://localhost:5173".to_string(),
+    };
+    build_router(AppState::with_store(
+        settings,
+        Arc::new(MemoryStore::default()),
+    ))
+}
+
+async fn send(app: &Router, request: Request<Body>) -> Response<Body> {
+    app.clone().oneshot(request).await.unwrap()
+}
+
+async fn json_body(response: Response<Body>) -> Value {
+    let bytes = to_bytes(response.into_body(), 128 * 1024).await.unwrap();
+    serde_json::from_slice(&bytes).unwrap()
+}
+
+async fn create_session(app: &Router, nickname: &str) -> (String, Value) {
+    let response = send(
+        app,
+        Request::builder()
+            .method("POST")
+            .uri("/api/sessions")
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(json!({ "nickname": nickname }).to_string()))
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let set_cookie = response
+        .headers()
+        .get(header::SET_COOKIE)
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_string();
+    assert!(set_cookie.contains("HttpOnly"));
+    assert!(set_cookie.contains("SameSite=Lax"));
+    let cookie = set_cookie.split(';').next().unwrap().to_string();
+    let body = json_body(response).await;
+    assert!(body.get("playerToken").is_none());
+    (cookie, body)
+}
+
+#[tokio::test]
+async fn guest_sessions_create_join_and_recover_a_two_player_room() {
+    let app = test_app();
+    let (host_cookie, host_session) = create_session(&app, "Alpha").await;
+
+    let create_response = send(
+        &app,
+        Request::builder()
+            .method("POST")
+            .uri("/api/rooms")
+            .header(header::CONTENT_TYPE, "application/json")
+            .header(header::COOKIE, &host_cookie)
+            .body(Body::from(
+                json!({ "name": "North Sea", "visibility": "PUBLIC" }).to_string(),
+            ))
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(create_response.status(), StatusCode::CREATED);
+    let created = json_body(create_response).await;
+    let room_id = created["snapshot"]["room"]["id"].as_str().unwrap();
+    let room_code = created["snapshot"]["room"]["code"].as_str().unwrap();
+    assert_eq!(created["snapshot"]["room"]["status"], "WAITING");
+    assert!(created["inviteUrl"].as_str().unwrap().ends_with(room_code));
+
+    let list_response = send(
+        &app,
+        Request::builder()
+            .uri("/api/rooms")
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(
+        json_body(list_response).await["rooms"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+
+    let (guest_cookie, _) = create_session(&app, "Bravo").await;
+    let join_response = send(
+        &app,
+        Request::builder()
+            .method("POST")
+            .uri("/api/rooms/join")
+            .header(header::CONTENT_TYPE, "application/json")
+            .header(header::COOKIE, &guest_cookie)
+            .body(Body::from(json!({ "code": room_code }).to_string()))
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(join_response.status(), StatusCode::OK);
+    let joined = json_body(join_response).await;
+    assert_eq!(joined["room"]["status"], "PLACEMENT");
+    assert_eq!(joined["players"].as_array().unwrap().len(), 2);
+    assert!(
+        joined["players"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|player| player.get("sessionId").is_none())
+    );
+
+    let recover_response = send(
+        &app,
+        Request::builder()
+            .uri("/api/games/recover")
+            .header(header::COOKIE, &host_cookie)
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    let recovered = json_body(recover_response).await;
+    assert_eq!(recovered["room"]["id"], room_id);
+    assert_eq!(recovered["players"].as_array().unwrap().len(), 2);
+
+    let (third_cookie, _) = create_session(&app, "Charlie").await;
+    let full_response = send(
+        &app,
+        Request::builder()
+            .method("POST")
+            .uri("/api/rooms/join")
+            .header(header::CONTENT_TYPE, "application/json")
+            .header(header::COOKIE, &third_cookie)
+            .body(Body::from(json!({ "code": room_code }).to_string()))
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(full_response.status(), StatusCode::CONFLICT);
+    assert_eq!(json_body(full_response).await["code"], "ROOM_FULL");
+
+    let unauthenticated = send(
+        &app,
+        Request::builder()
+            .uri("/api/games/recover")
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(unauthenticated.status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(host_session["nickname"], "Alpha");
+}

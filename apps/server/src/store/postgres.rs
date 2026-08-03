@@ -13,7 +13,7 @@ use super::{GameHistoryItem, GameStore};
 #[derive(Clone)]
 pub struct PostgresRedisStore {
     pool: PgPool,
-    cache: ConnectionManager,
+    cache: Option<ConnectionManager>,
 }
 
 impl std::fmt::Debug for PostgresRedisStore {
@@ -38,8 +38,19 @@ impl PostgresRedisStore {
                 tracing::error!(%error, "database migration failed");
                 GameError::StorageUnavailable
             })?;
-        let client = redis::Client::open(redis_url)?;
-        let cache = ConnectionManager::new(client).await?;
+        let cache = match redis::Client::open(redis_url) {
+            Ok(client) => match ConnectionManager::new(client).await {
+                Ok(cache) => Some(cache),
+                Err(error) => {
+                    tracing::warn!(%error, "redis unavailable; continuing with postgres only");
+                    None
+                }
+            },
+            Err(error) => {
+                tracing::warn!(%error, "redis configuration invalid; continuing with postgres only");
+                None
+            }
+        };
         Ok(Self { pool, cache })
     }
 
@@ -48,11 +59,16 @@ impl PostgresRedisStore {
     }
 
     async fn cache_room(&self, room: &GameRoom) -> Result<(), GameError> {
-        let mut cache = self.cache.clone();
+        let Some(mut cache) = self.cache.clone() else {
+            return Ok(());
+        };
         let data = serde_json::to_string(room).map_err(|_| GameError::Internal)?;
-        cache
+        if let Err(error) = cache
             .set_ex::<_, _, ()>(Self::room_cache_key(room.id), data, 60 * 60)
-            .await?;
+            .await
+        {
+            tracing::warn!(%error, room_id = %room.id, "redis cache write skipped");
+        }
         Ok(())
     }
 }
@@ -141,12 +157,18 @@ impl GameStore for PostgresRedisStore {
     }
 
     async fn room_by_id(&self, id: Uuid) -> Result<Option<GameRoom>, GameError> {
-        let key = Self::room_cache_key(id);
-        let mut cache = self.cache.clone();
-        let cached: Option<String> = cache.get(&key).await?;
-        if let Some(cached) = cached {
-            if let Ok(room) = serde_json::from_str(&cached) {
-                return Ok(Some(room));
+        if let Some(mut cache) = self.cache.clone() {
+            let key = Self::room_cache_key(id);
+            match cache.get::<_, Option<String>>(&key).await {
+                Ok(Some(cached)) => {
+                    if let Ok(room) = serde_json::from_str(&cached) {
+                        return Ok(Some(room));
+                    }
+                }
+                Ok(None) => {}
+                Err(error) => {
+                    tracing::warn!(%error, room_id = %id, "redis cache read skipped");
+                }
             }
         }
         let snapshot: Option<serde_json::Value> =
