@@ -190,3 +190,10 @@ pub struct MatchmakingStatus {
     pub queued_at: Option<DateTime<Utc>>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatchmakingResponse {
+    pub queued: bool,
+    pub queued_at: Option<DateTime<Utc>>,
+    pub snapshot: Option<GameSnapshot>,
+}
