@@ -28,18 +28,7 @@ pub async fn websocket_handler(
     headers: HeaderMap,
     upgrade: WebSocketUpgrade,
 ) -> Result<Response, GameError> {
-    let origin_allowed = headers
-        .get(ORIGIN)
-        .and_then(|value| value.to_str().ok())
-        .map(|origin| {
-            state
-                .settings
-                .allowed_origins
-                .iter()
-                .any(|allowed| allowed == origin)
-        })
-        .unwrap_or_else(|| headers.contains_key(AUTHORIZATION));
-    if !origin_allowed {
+    if !origin_allowed(&state.settings.allowed_origins, &headers) {
         return Err(GameError::OriginNotAllowed);
     }
     let session = authenticate(&state, &jar, &headers).await?;
@@ -289,5 +278,35 @@ fn protocol_error(error: GameError) -> ProtocolError {
             GameError::VersionConflict | GameError::TurnConflict | GameError::StorageUnavailable
         ),
         request_id: Uuid::new_v4(),
+    }
+}
+
+fn origin_allowed(allowed_origins: &[String], headers: &HeaderMap) -> bool {
+    headers
+        .get(ORIGIN)
+        .and_then(|value| value.to_str().ok())
+        .map(|origin| allowed_origins.iter().any(|allowed| allowed == origin))
+        .unwrap_or_else(|| headers.contains_key(AUTHORIZATION))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::http::HeaderValue;
+
+    #[test]
+    fn websocket_origin_must_be_allowlisted_or_use_bearer_auth() {
+        let allowed = vec!["https://game.example.com".to_string()];
+        let mut headers = HeaderMap::new();
+        headers.insert(ORIGIN, HeaderValue::from_static("https://game.example.com"));
+        assert!(origin_allowed(&allowed, &headers));
+
+        headers.insert(ORIGIN, HeaderValue::from_static("https://evil.example"));
+        assert!(!origin_allowed(&allowed, &headers));
+
+        headers.remove(ORIGIN);
+        assert!(!origin_allowed(&allowed, &headers));
+        headers.insert(AUTHORIZATION, HeaderValue::from_static("Bearer test"));
+        assert!(origin_allowed(&allowed, &headers));
     }
 }

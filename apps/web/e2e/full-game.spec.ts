@@ -14,9 +14,11 @@ async function deploy(page: Page) {
 }
 
 async function shipCoordinates(page: Page): Promise<string[]> {
-  return page.locator('[data-testid^="own-cell-"].cell--ship').evaluateAll((cells) =>
-    cells.map((cell) => (cell as HTMLElement).dataset.testid!.replace('own-cell-', ''))
-  );
+  return page
+    .locator('[data-testid^="own-cell-"].cell--ship')
+    .evaluateAll((cells) =>
+      cells.map((cell) => (cell as HTMLElement).dataset.testid!.replace('own-cell-', ''))
+    );
 }
 
 async function fire(page: Page, target: string) {
@@ -53,7 +55,9 @@ function auditFrames(page: Page, violations: string[]) {
   });
 }
 
-test('two isolated browser sessions complete a secure game and recover after refresh', async ({ browser }) => {
+test('two isolated browser sessions complete a secure game and recover after refresh', async ({
+  browser
+}) => {
   const firstContext: BrowserContext = await browser.newContext();
   const secondContext: BrowserContext = await browser.newContext();
   const first = await firstContext.newPage();
@@ -95,10 +99,18 @@ test('two isolated browser sessions complete a secure game and recover after ref
     }
 
     if (!refreshed && firstShots + secondShots >= 4) {
-      const attacksBefore = await first.locator('[data-testid^="target-cell-"].cell--hit, [data-testid^="target-cell-"].cell--sunk').count();
+      const attacksBefore = await first
+        .locator(
+          '[data-testid^="target-cell-"].cell--hit, [data-testid^="target-cell-"].cell--sunk'
+        )
+        .count();
       await first.reload();
       await expect(first.getByText('상대 공격 보드')).toBeVisible();
-      await expect(first.locator('[data-testid^="target-cell-"].cell--hit, [data-testid^="target-cell-"].cell--sunk')).toHaveCount(attacksBefore);
+      await expect(
+        first.locator(
+          '[data-testid^="target-cell-"].cell--hit, [data-testid^="target-cell-"].cell--sunk'
+        )
+      ).toHaveCount(attacksBefore);
       refreshed = true;
     }
 

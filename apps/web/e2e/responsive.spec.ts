@@ -10,4 +10,3 @@ test('mobile landing keeps controls readable without horizontal overflow', async
   }));
   expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.clientWidth + 1);
 });
-

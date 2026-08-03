@@ -72,6 +72,22 @@ async fn guest_sessions_create_join_and_recover_a_two_player_room() {
     let app = test_app();
     let (host_cookie, host_session) = create_session(&app, "Alpha").await;
 
+    let malformed_response = send(
+        &app,
+        Request::builder()
+            .method("POST")
+            .uri("/api/sessions")
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from("{\"nickname\":"))
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(malformed_response.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(
+        json_body(malformed_response).await["code"],
+        "INVALID_REQUEST"
+    );
+
     let create_response = send(
         &app,
         Request::builder()
