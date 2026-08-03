@@ -13,6 +13,7 @@ base64 = "0.22"
 chrono = { version = "0.4", features = ["serde"] }
 config = "0.15"
 dashmap = "6.1"
+dotenvy = "0.15"
 futures-util = "0.3"
 http = "1.3"
 rand = "0.9"
@@ -32,4 +33,3 @@ uuid = { version = "1", features = ["v4", "serde"] }
 [dev-dependencies]
 pretty_assertions = "1"
 tower = { version = "0.5", features = ["util"] }
-
