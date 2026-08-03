@@ -99,7 +99,9 @@
   }
 </script>
 
-<section class="placement" aria-labelledby="placement-title" tabindex="0" onkeydown={handleKeydown}>
+<svelte:window onkeydown={handleKeydown} />
+
+<section class="placement" aria-labelledby="placement-title">
   <header class="placement__heading">
     <div><p class="eyebrow">FLEET DEPLOYMENT</p><h2 id="placement-title">함대 배치</h2><p>상대 지휘관에게 함선 좌표는 공개되지 않습니다.</p></div>
     <span class:success={fleet.valid} class="status-pill"><span class="status-dot"></span>{placements.length}/5 함선 배치</span>

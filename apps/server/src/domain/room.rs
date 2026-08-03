@@ -271,6 +271,9 @@ impl GameRoom {
         session_id: Uuid,
         grace_seconds: i64,
     ) -> Result<DateTime<Utc>, GameError> {
+        if matches!(self.status, RoomStatus::Finished | RoomStatus::Cancelled) {
+            return Err(GameError::InvalidState);
+        }
         let player_id = self.player_for_session(session_id)?.id;
         if let Some(player) = self
             .players
@@ -407,9 +410,9 @@ impl GameRoom {
                     attacks_received: board
                         .attacks_received()
                         .iter()
-                        .map(|(coordinate, outcome)| CellAttackSnapshot {
-                            coordinate: *coordinate,
-                            outcome: *outcome,
+                        .map(|attack| CellAttackSnapshot {
+                            coordinate: attack.coordinate,
+                            outcome: attack.outcome,
                         })
                         .collect(),
                 };

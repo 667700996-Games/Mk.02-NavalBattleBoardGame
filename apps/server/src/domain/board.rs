@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 use serde::{Deserialize, Serialize};
 
@@ -93,7 +93,14 @@ pub enum AttackOutcome {
 #[serde(rename_all = "camelCase")]
 pub struct Board {
     ships: Vec<Ship>,
-    attacks_received: HashMap<Coordinate, AttackOutcome>,
+    attacks_received: Vec<ReceivedAttack>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReceivedAttack {
+    pub coordinate: Coordinate,
+    pub outcome: AttackOutcome,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -132,13 +139,17 @@ impl Board {
 
         Ok(Self {
             ships,
-            attacks_received: HashMap::new(),
+            attacks_received: Vec::new(),
         })
     }
 
     pub fn attack(&mut self, coordinate: Coordinate) -> Result<BoardAttackResult, GameError> {
         Coordinate::new(coordinate.row, coordinate.col)?;
-        if self.attacks_received.contains_key(&coordinate) {
+        if self
+            .attacks_received
+            .iter()
+            .any(|attack| attack.coordinate == coordinate)
+        {
             return Err(GameError::CoordinateAlreadyAttacked);
         }
 
@@ -157,7 +168,10 @@ impl Board {
                 outcome = AttackOutcome::Hit;
             }
         }
-        self.attacks_received.insert(coordinate, outcome);
+        self.attacks_received.push(ReceivedAttack {
+            coordinate,
+            outcome,
+        });
 
         Ok(BoardAttackResult {
             outcome,
@@ -170,7 +184,7 @@ impl Board {
         &self.ships
     }
 
-    pub fn attacks_received(&self) -> &HashMap<Coordinate, AttackOutcome> {
+    pub fn attacks_received(&self) -> &[ReceivedAttack] {
         &self.attacks_received
     }
 }
