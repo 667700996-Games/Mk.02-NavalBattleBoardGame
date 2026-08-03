@@ -37,6 +37,18 @@
     name="description"
     content="두 지휘관이 실시간으로 맞붙는 서버 권위형 온라인 해전 전략 게임"
   />
+  <meta property="og:type" content="website" />
+  <meta property="og:locale" content="ko_KR" />
+  <meta property="og:title" content="Mk.01 — Naval Command" />
+  <meta
+    property="og:description"
+    content="함선을 배치하고 좌표를 추론하며 맞붙는 2인 실시간 해전 전략 게임"
+  />
+  <meta property="og:image" content="/og-mk01.png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta property="og:image:alt" content="시안과 주황 함대가 대치하는 해군 작전 지도" />
+  <meta name="twitter:card" content="summary_large_image" />
 </svelte:head>
 
 <header class="app-header">
