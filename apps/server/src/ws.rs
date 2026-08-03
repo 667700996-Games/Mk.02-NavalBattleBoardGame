@@ -3,7 +3,10 @@ use axum::{
         State, WebSocketUpgrade,
         ws::{Message, WebSocket},
     },
-    http::HeaderMap,
+    http::{
+        HeaderMap,
+        header::{AUTHORIZATION, ORIGIN},
+    },
     response::Response,
 };
 use axum_extra::extract::CookieJar;
@@ -25,6 +28,20 @@ pub async fn websocket_handler(
     headers: HeaderMap,
     upgrade: WebSocketUpgrade,
 ) -> Result<Response, GameError> {
+    let origin_allowed = headers
+        .get(ORIGIN)
+        .and_then(|value| value.to_str().ok())
+        .map(|origin| {
+            state
+                .settings
+                .allowed_origins
+                .iter()
+                .any(|allowed| allowed == origin)
+        })
+        .unwrap_or_else(|| headers.contains_key(AUTHORIZATION));
+    if !origin_allowed {
+        return Err(GameError::OriginNotAllowed);
+    }
     let session = authenticate(&state, &jar, &headers).await?;
     Ok(upgrade
         .max_message_size(64 * 1024)

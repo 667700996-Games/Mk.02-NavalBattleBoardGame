@@ -52,6 +52,8 @@ pub enum GameError {
     DuplicateNickname,
     #[error("인증 세션이 없거나 만료되었습니다.")]
     Unauthorized,
+    #[error("허용되지 않은 출처의 연결입니다.")]
+    OriginNotAllowed,
     #[error("요청 형식이 올바르지 않습니다.")]
     InvalidRequest,
     #[error("요청이 너무 잦습니다. 잠시 후 다시 시도해 주세요.")]
@@ -86,6 +88,7 @@ impl GameError {
             Self::InvalidRoomName => "INVALID_ROOM_NAME",
             Self::DuplicateNickname => "DUPLICATE_NICKNAME",
             Self::Unauthorized => "UNAUTHORIZED",
+            Self::OriginNotAllowed => "ORIGIN_NOT_ALLOWED",
             Self::InvalidRequest => "INVALID_REQUEST",
             Self::RateLimited => "RATE_LIMITED",
             Self::StorageUnavailable => "STORAGE_UNAVAILABLE",
@@ -96,6 +99,7 @@ impl GameError {
     pub fn status(&self) -> StatusCode {
         match self {
             Self::Unauthorized => StatusCode::UNAUTHORIZED,
+            Self::OriginNotAllowed => StatusCode::FORBIDDEN,
             Self::RoomNotFound => StatusCode::NOT_FOUND,
             Self::RoomFull
             | Self::RoomAlreadyStarted

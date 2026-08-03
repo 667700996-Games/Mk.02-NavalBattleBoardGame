@@ -76,9 +76,7 @@ impl GameStore for MemoryStore {
         Ok(self
             .rooms
             .iter()
-            .filter(|entry| {
-                !matches!(entry.status, RoomStatus::Finished | RoomStatus::Cancelled)
-            })
+            .filter(|entry| !matches!(entry.status, RoomStatus::Finished | RoomStatus::Cancelled))
             .map(|entry| entry.clone())
             .collect())
     }

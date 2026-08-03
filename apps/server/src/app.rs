@@ -316,7 +316,7 @@ impl AppState {
                 continue;
             }
             let grace = self.settings.reconnect_grace.as_secs() as i64;
-            let Ok(_) = room.disconnect(session_id, grace) else {
+            let Ok(deadline) = room.disconnect(session_id, grace) else {
                 continue;
             };
             let room_id = room.id;
@@ -329,11 +329,7 @@ impl AppState {
                 .await;
             drop(room);
 
-            self.schedule_disconnect_expiry(
-                room_id,
-                player_id,
-                Utc::now() + chrono::Duration::seconds(grace),
-            );
+            self.schedule_disconnect_expiry(room_id, player_id, deadline);
             break;
         }
     }

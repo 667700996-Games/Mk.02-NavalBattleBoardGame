@@ -1,6 +1,9 @@
 use axum::{
     Json, Router,
-    extract::{Path, State},
+    extract::{
+        Path, State,
+        rejection::{JsonRejection, PathRejection},
+    },
     http::{HeaderMap, StatusCode, header::AUTHORIZATION},
     response::IntoResponse,
     routing::{get, post},
@@ -52,8 +55,9 @@ async fn health(State(state): State<AppState>) -> Json<HealthResponse> {
 async fn create_session(
     State(state): State<AppState>,
     jar: CookieJar,
-    Json(input): Json<CreateSessionInput>,
+    input: Result<Json<CreateSessionInput>, JsonRejection>,
 ) -> Result<impl IntoResponse, GameError> {
+    let input = parse_json(input)?;
     let (session, token) = state.create_session(input.nickname).await?;
     let max_age = time::Duration::seconds(state.settings.session_ttl.as_secs() as i64);
     let cookie = Cookie::build(("mk01_session", token))
@@ -105,8 +109,9 @@ async fn create_room(
     State(state): State<AppState>,
     jar: CookieJar,
     headers: HeaderMap,
-    Json(input): Json<CreateRoomInput>,
+    input: Result<Json<CreateRoomInput>, JsonRejection>,
 ) -> Result<impl IntoResponse, GameError> {
+    let input = parse_json(input)?;
     let session = authenticate(&state, &jar, &headers).await?;
     let room = state.create_room(&session, input).await?;
     let snapshot = room.snapshot_for(session.id)?;
@@ -121,8 +126,9 @@ async fn join_room(
     State(state): State<AppState>,
     jar: CookieJar,
     headers: HeaderMap,
-    Json(input): Json<JoinRoomInput>,
+    input: Result<Json<JoinRoomInput>, JsonRejection>,
 ) -> Result<Json<GameSnapshot>, GameError> {
+    let input = parse_json(input)?;
     let session = authenticate(&state, &jar, &headers).await?;
     let room = state.join_room(&session, &input.code).await?;
     let snapshot = room.snapshot_for(session.id)?;
@@ -136,8 +142,9 @@ async fn room_state(
     State(state): State<AppState>,
     jar: CookieJar,
     headers: HeaderMap,
-    Path(room_id): Path<Uuid>,
+    room_id: Result<Path<Uuid>, PathRejection>,
 ) -> Result<Json<GameSnapshot>, GameError> {
+    let Path(room_id) = parse_path(room_id)?;
     let session = authenticate(&state, &jar, &headers).await?;
     let room = state.room(room_id).await?;
     let room = room.lock().await;
@@ -148,8 +155,9 @@ async fn leave_room(
     State(state): State<AppState>,
     jar: CookieJar,
     headers: HeaderMap,
-    Path(room_id): Path<Uuid>,
+    room_id: Result<Path<Uuid>, PathRejection>,
 ) -> Result<StatusCode, GameError> {
+    let Path(room_id) = parse_path(room_id)?;
     let session = authenticate(&state, &jar, &headers).await?;
     let room = state.leave_room(&session, room_id).await?;
     state
@@ -227,6 +235,20 @@ async fn cancel_matchmaking(
 #[serde(rename_all = "camelCase")]
 struct HistoryResponse {
     games: Vec<GameHistoryItem>,
+}
+
+fn parse_json<T>(input: Result<Json<T>, JsonRejection>) -> Result<T, GameError> {
+    input.map(|Json(value)| value).map_err(|rejection| {
+        tracing::debug!(%rejection, "request body rejected");
+        GameError::InvalidRequest
+    })
+}
+
+fn parse_path<T>(input: Result<Path<T>, PathRejection>) -> Result<Path<T>, GameError> {
+    input.map_err(|rejection| {
+        tracing::debug!(%rejection, "request path rejected");
+        GameError::InvalidRequest
+    })
 }
 
 pub async fn authenticate(
