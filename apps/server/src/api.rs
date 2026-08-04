@@ -135,6 +135,7 @@ async fn join_room(
     state
         .broadcast_snapshots(&room, SnapshotEvent::PlayerJoined)
         .await;
+    state.broadcast_latest_chat_message(&room);
     Ok(Json(snapshot))
 }
 
@@ -163,6 +164,7 @@ async fn leave_room(
     state
         .broadcast_snapshots(&room, SnapshotEvent::PlayerLeft)
         .await;
+    state.broadcast_latest_chat_message(&room);
     Ok(StatusCode::NO_CONTENT)
 }
 

@@ -7,8 +7,9 @@ use uuid::Uuid;
 use crate::error::GameError;
 
 use super::{
-    AttackOutcome, AttackRecord, Board, ConnectionState, Coordinate, FinishReason, Game,
-    GameResult, Player, ShipKind, ShipPlacement, UserSession,
+    AttackOutcome, AttackRecord, Board, ChatMessage, ChatMessageKind, ChatTypingEvent,
+    ConnectionState, Coordinate, FinishReason, Game, GameResult, MAX_CHAT_HISTORY,
+    MAX_CHAT_MESSAGE_CHARS, Player, ShipKind, ShipPlacement, SurrenderRecord, UserSession,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -47,6 +48,10 @@ pub struct GameRoom {
     pub updated_at: DateTime<Utc>,
     pub disconnected_deadlines: HashMap<Uuid, DateTime<Utc>>,
     pub rematch_requests: HashSet<Uuid>,
+    #[serde(default)]
+    pub chat_messages: Vec<ChatMessage>,
+    #[serde(skip, default)]
+    chat_rate_windows: HashMap<Uuid, Vec<DateTime<Utc>>>,
 }
 
 impl GameRoom {
@@ -58,7 +63,7 @@ impl GameRoom {
     ) -> Result<Self, GameError> {
         validate_room_name(&name)?;
         let now = Utc::now();
-        Ok(Self {
+        let mut room = Self {
             id: Uuid::new_v4(),
             code,
             name,
@@ -73,7 +78,14 @@ impl GameRoom {
             updated_at: now,
             disconnected_deadlines: HashMap::new(),
             rematch_requests: HashSet::new(),
-        })
+            chat_messages: Vec::new(),
+            chat_rate_windows: HashMap::new(),
+        };
+        room.push_system_message(format!(
+            "{} 지휘관이 작전실에 입장했습니다.",
+            host_session.nickname
+        ));
+        Ok(room)
     }
 
     pub fn join(&mut self, session: &UserSession) -> Result<Uuid, GameError> {
@@ -106,6 +118,10 @@ impl GameRoom {
         self.players.push(player);
         self.status = RoomStatus::Placement;
         self.bump();
+        self.push_system_message(format!(
+            "{} 지휘관이 작전실에 입장했습니다.",
+            session.nickname
+        ));
         Ok(id)
     }
 
@@ -159,13 +175,16 @@ impl GameRoom {
     }
 
     pub fn leave(&mut self, session_id: Uuid) -> Result<(), GameError> {
-        let player_id = self.player_for_session(session_id)?.id;
+        let leaving_player = self.player_for_session(session_id)?.clone();
+        let player_id = leaving_player.id;
         let opponent_id = self
             .players
             .iter()
             .find(|player| player.id != player_id)
             .map(|player| player.id);
-        if self.status == RoomStatus::Playing {
+        let was_active_game = matches!(self.status, RoomStatus::Playing | RoomStatus::Disconnected)
+            && self.game.as_ref().is_some_and(|game| game.result.is_none());
+        if was_active_game {
             if let (Some(game), Some(winner_id)) = (self.game.as_mut(), opponent_id) {
                 game.forfeit(winner_id, FinishReason::PlayerLeft)?;
                 self.status = RoomStatus::Finished;
@@ -183,6 +202,24 @@ impl GameRoom {
             player.connection_state = ConnectionState::Offline;
         }
         self.bump();
+        let message = if was_active_game {
+            let winner = self
+                .players
+                .iter()
+                .find(|player| player.id != player_id)
+                .map(|player| player.nickname.as_str())
+                .unwrap_or("상대");
+            format!(
+                "Commander {} left the operation. {} 지휘관이 승리했습니다.",
+                leaving_player.nickname, winner
+            )
+        } else {
+            format!(
+                "{} 지휘관이 작전실에서 퇴장했습니다.",
+                leaving_player.nickname
+            )
+        };
+        self.push_system_message(message);
         Ok(())
     }
 
@@ -220,6 +257,7 @@ impl GameRoom {
             self.status = RoomStatus::Playing;
             self.pending_placements.clear();
             self.bump();
+            self.push_system_message("게임이 시작되었습니다. 전투 채널을 개방합니다.");
         }
         Ok(all_ready)
     }
@@ -262,6 +300,17 @@ impl GameRoom {
             self.status = RoomStatus::Finished;
         }
         self.bump();
+        if let Some(winner_id) = record.winner_id {
+            let winner = self
+                .players
+                .iter()
+                .find(|player| player.id == winner_id)
+                .map(|player| player.nickname.as_str())
+                .unwrap_or("UNKNOWN");
+            self.push_system_message(format!(
+                "게임이 종료되었습니다. {winner} 지휘관이 적 함대를 전멸시켰습니다."
+            ));
+        }
         Ok((record, false))
     }
 
@@ -273,7 +322,8 @@ impl GameRoom {
         if matches!(self.status, RoomStatus::Finished | RoomStatus::Cancelled) {
             return Err(GameError::InvalidState);
         }
-        let player_id = self.player_for_session(session_id)?.id;
+        let disconnected_player = self.player_for_session(session_id)?.clone();
+        let player_id = disconnected_player.id;
         if let Some(player) = self
             .players
             .iter_mut()
@@ -291,11 +341,21 @@ impl GameRoom {
             self.status = RoomStatus::Disconnected;
         }
         self.bump();
+        self.push_system_message(format!(
+            "{} 지휘관의 연결이 끊겼습니다. 재접속을 기다립니다.",
+            disconnected_player.nickname
+        ));
         Ok(deadline)
     }
 
-    pub fn reconnect(&mut self, session_id: Uuid) -> Result<(), GameError> {
-        let player_id = self.player_for_session(session_id)?.id;
+    pub fn reconnect(&mut self, session_id: Uuid) -> Result<bool, GameError> {
+        let reconnecting_player = self.player_for_session(session_id)?.clone();
+        let player_id = reconnecting_player.id;
+        let was_reconnecting = reconnecting_player.connection_state != ConnectionState::Online
+            || self.disconnected_deadlines.contains_key(&player_id);
+        if !was_reconnecting {
+            return Ok(false);
+        }
         if let Some(player) = self
             .players
             .iter_mut()
@@ -313,7 +373,11 @@ impl GameRoom {
             self.status = self.resume_status.take().unwrap_or(RoomStatus::Waiting);
         }
         self.bump();
-        Ok(())
+        self.push_system_message(format!(
+            "{} 지휘관이 전투 채널에 재접속했습니다.",
+            reconnecting_player.nickname
+        ));
+        Ok(true)
     }
 
     pub fn expire_disconnect(
@@ -327,6 +391,12 @@ impl GameRoom {
         if deadline > now {
             return Ok(false);
         }
+        let disconnected_nickname = self
+            .players
+            .iter()
+            .find(|player| player.id == player_id)
+            .map(|player| player.nickname.clone())
+            .unwrap_or_else(|| "UNKNOWN".to_string());
         if let Some(player) = self
             .players
             .iter_mut()
@@ -348,6 +418,24 @@ impl GameRoom {
         self.disconnected_deadlines.remove(&player_id);
         self.resume_status = None;
         self.bump();
+        let message = if let Some(winner_id) = opponent_id {
+            let winner = self
+                .players
+                .iter()
+                .find(|player| player.id == winner_id)
+                .map(|player| player.nickname.as_str())
+                .unwrap_or("상대");
+            format!(
+                "{} 지휘관의 재접속 시간이 만료되었습니다. {} 지휘관이 승리했습니다.",
+                disconnected_nickname, winner
+            )
+        } else {
+            format!(
+                "{} 지휘관의 재접속 시간이 만료되어 작전이 취소되었습니다.",
+                disconnected_nickname
+            )
+        };
+        self.push_system_message(message);
         Ok(true)
     }
 
@@ -369,7 +457,152 @@ impl GameRoom {
             self.status = RoomStatus::Placement;
         }
         self.bump();
+        if accepted {
+            self.push_system_message("재대결이 승인되었습니다. 함대 배치를 다시 시작합니다.");
+        }
         Ok(accepted)
+    }
+
+    pub fn surrender(
+        &mut self,
+        session_id: Uuid,
+        claimed_player_id: Uuid,
+    ) -> Result<SurrenderRecord, GameError> {
+        let surrendering_player = self.player_for_session(session_id)?.clone();
+        if surrendering_player.id != claimed_player_id {
+            return Err(GameError::Unauthorized);
+        }
+        let active = self.status == RoomStatus::Playing
+            || (self.status == RoomStatus::Disconnected
+                && self.resume_status == Some(RoomStatus::Playing));
+        if !active || self.game.as_ref().is_none_or(|game| game.result.is_some()) {
+            return Err(GameError::InvalidState);
+        }
+        let winner = self
+            .players
+            .iter()
+            .find(|player| player.id != surrendering_player.id)
+            .cloned()
+            .ok_or(GameError::InvalidState)?;
+        self.game
+            .as_mut()
+            .ok_or(GameError::InvalidState)?
+            .forfeit(winner.id, FinishReason::Surrender)?;
+        self.status = RoomStatus::Finished;
+        self.resume_status = None;
+        self.disconnected_deadlines.clear();
+        self.bump();
+        let timestamp = self
+            .game
+            .as_ref()
+            .and_then(|game| game.result.as_ref())
+            .map(|result| result.finished_at)
+            .unwrap_or_else(Utc::now);
+        self.push_system_message(format!(
+            "Commander {} surrendered. {} 지휘관이 승리했습니다.",
+            surrendering_player.nickname, winner.nickname
+        ));
+        Ok(SurrenderRecord {
+            room_id: self.id,
+            surrendered_player_id: surrendering_player.id,
+            winner_id: winner.id,
+            nickname: surrendering_player.nickname,
+            timestamp,
+        })
+    }
+
+    pub fn send_chat(
+        &mut self,
+        session_id: Uuid,
+        message: String,
+    ) -> Result<ChatMessage, GameError> {
+        self.send_chat_at(session_id, message, Utc::now())
+    }
+
+    fn send_chat_at(
+        &mut self,
+        session_id: Uuid,
+        message: String,
+        now: DateTime<Utc>,
+    ) -> Result<ChatMessage, GameError> {
+        if !matches!(
+            self.status,
+            RoomStatus::Waiting
+                | RoomStatus::Placement
+                | RoomStatus::Ready
+                | RoomStatus::Playing
+                | RoomStatus::Disconnected
+        ) {
+            return Err(GameError::InvalidState);
+        }
+        let player = self.player_for_session(session_id)?.clone();
+        let normalized = normalize_chat_message(message)?;
+        let window = self.chat_rate_windows.entry(player.id).or_default();
+        window.retain(|sent_at| now.signed_duration_since(*sent_at).num_seconds() < 5);
+        if window.len() >= 5
+            || window
+                .last()
+                .is_some_and(|sent_at| now.signed_duration_since(*sent_at).num_milliseconds() < 400)
+        {
+            return Err(GameError::RateLimited);
+        }
+        window.push(now);
+        let message = ChatMessage {
+            message_id: Uuid::new_v4(),
+            room_id: self.id,
+            player_id: Some(player.id),
+            nickname: player.nickname,
+            message: normalized,
+            timestamp: now,
+            kind: ChatMessageKind::Player,
+        };
+        self.append_chat_message(message.clone());
+        Ok(message)
+    }
+
+    pub fn chat_history(&self, session_id: Uuid) -> Result<Vec<ChatMessage>, GameError> {
+        self.player_for_session(session_id)?;
+        Ok(self.chat_messages.clone())
+    }
+
+    pub fn typing_event(
+        &self,
+        session_id: Uuid,
+        is_typing: bool,
+    ) -> Result<ChatTypingEvent, GameError> {
+        if matches!(self.status, RoomStatus::Finished | RoomStatus::Cancelled) {
+            return Err(GameError::InvalidState);
+        }
+        let player = self.player_for_session(session_id)?;
+        Ok(ChatTypingEvent {
+            room_id: self.id,
+            player_id: player.id,
+            nickname: player.nickname.clone(),
+            is_typing,
+        })
+    }
+
+    fn push_system_message(&mut self, message: impl Into<String>) -> ChatMessage {
+        let message = ChatMessage {
+            message_id: Uuid::new_v4(),
+            room_id: self.id,
+            player_id: None,
+            nickname: "SYSTEM".to_string(),
+            message: message.into(),
+            timestamp: Utc::now(),
+            kind: ChatMessageKind::System,
+        };
+        self.append_chat_message(message.clone());
+        message
+    }
+
+    fn append_chat_message(&mut self, message: ChatMessage) {
+        self.chat_messages.push(message);
+        if self.chat_messages.len() > MAX_CHAT_HISTORY {
+            let excess = self.chat_messages.len() - MAX_CHAT_HISTORY;
+            self.chat_messages.drain(..excess);
+        }
+        self.updated_at = Utc::now();
     }
 
     fn bump(&mut self) {
@@ -461,6 +694,22 @@ fn validate_room_name(name: &str) -> Result<(), GameError> {
         return Err(GameError::InvalidRoomName);
     }
     Ok(())
+}
+
+fn normalize_chat_message(message: String) -> Result<String, GameError> {
+    let normalized = message.replace("\r\n", "\n").replace('\r', "\n");
+    let trimmed = normalized.trim();
+    let count = trimmed.chars().count();
+    let safe = (1..=MAX_CHAT_MESSAGE_CHARS).contains(&count)
+        && !trimmed.contains(['<', '>'])
+        && trimmed
+            .chars()
+            .all(|character| !character.is_control() || character == '\n');
+    if safe {
+        Ok(trimmed.to_string())
+    } else {
+        Err(GameError::InvalidChatMessage)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -744,8 +993,141 @@ mod tests {
             second_player_id
         );
         assert_eq!(
+            room.game
+                .as_ref()
+                .unwrap()
+                .result
+                .as_ref()
+                .unwrap()
+                .win_type,
+            crate::domain::WinType::Disconnect
+        );
+        assert_eq!(
             room.disconnect(second.id, 90).unwrap_err(),
             GameError::InvalidState
+        );
+    }
+
+    #[test]
+    fn surrender_finishes_once_and_records_the_win_type() {
+        let (mut room, first, second) = playing_room();
+        let first_player_id = room.player_for_session(first.id).unwrap().id;
+        let second_player_id = room.player_for_session(second.id).unwrap().id;
+
+        assert_eq!(
+            room.surrender(first.id, second_player_id).unwrap_err(),
+            GameError::Unauthorized
+        );
+        let record = room.surrender(first.id, first_player_id).unwrap();
+        assert_eq!(record.surrendered_player_id, first_player_id);
+        assert_eq!(record.winner_id, second_player_id);
+        assert_eq!(room.status, RoomStatus::Finished);
+        let result = room.game.as_ref().unwrap().result.as_ref().unwrap();
+        assert_eq!(result.finish_reason, FinishReason::Surrender);
+        assert_eq!(result.win_type, crate::domain::WinType::Surrender);
+        assert!(
+            room.chat_messages
+                .last()
+                .unwrap()
+                .message
+                .contains("Commander Alpha surrendered")
+        );
+        assert_eq!(
+            room.surrender(first.id, first_player_id).unwrap_err(),
+            GameError::InvalidState
+        );
+    }
+
+    #[test]
+    fn chat_is_plain_text_rate_limited_room_scoped_and_bounded() {
+        let host = session("Alpha");
+        let other_host = session("Charlie");
+        let mut room = GameRoom::new(
+            "ABC234".to_string(),
+            "Test operation".to_string(),
+            RoomVisibility::Private,
+            &host,
+        )
+        .unwrap();
+        let other_room = GameRoom::new(
+            "XYZ234".to_string(),
+            "Other operation".to_string(),
+            RoomVisibility::Private,
+            &other_host,
+        )
+        .unwrap();
+        let now = Utc::now();
+        assert_eq!(
+            room.send_chat_at(other_host.id, "intrusion".to_string(), now)
+                .unwrap_err(),
+            GameError::NotRoomMember
+        );
+        assert_eq!(
+            room.chat_history(other_host.id).unwrap_err(),
+            GameError::NotRoomMember
+        );
+        let message = room
+            .send_chat_at(host.id, "  ready\nfor battle  ".to_string(), now)
+            .unwrap();
+        assert_eq!(message.message, "ready\nfor battle");
+        assert_eq!(message.room_id, room.id);
+        assert_ne!(message.room_id, other_room.id);
+        assert_eq!(message.player_id, Some(room.players[0].id));
+        assert_eq!(
+            room.send_chat_at(host.id, "   ".to_string(), now + Duration::seconds(1))
+                .unwrap_err(),
+            GameError::InvalidChatMessage
+        );
+        assert_eq!(
+            room.send_chat_at(
+                host.id,
+                "<script>alert(1)</script>".to_string(),
+                now + Duration::seconds(1)
+            )
+            .unwrap_err(),
+            GameError::InvalidChatMessage
+        );
+        assert_eq!(
+            room.send_chat_at(host.id, "x".repeat(301), now + Duration::seconds(1))
+                .unwrap_err(),
+            GameError::InvalidChatMessage
+        );
+        assert_eq!(
+            room.send_chat_at(
+                host.id,
+                "too fast".to_string(),
+                now + Duration::milliseconds(100)
+            )
+            .unwrap_err(),
+            GameError::RateLimited
+        );
+        for second in 1..=4 {
+            room.send_chat_at(
+                host.id,
+                format!("message {second}"),
+                now + Duration::seconds(second),
+            )
+            .unwrap();
+        }
+        assert_eq!(
+            room.send_chat_at(
+                host.id,
+                "flood".to_string(),
+                now + Duration::milliseconds(4500)
+            )
+            .unwrap_err(),
+            GameError::RateLimited
+        );
+
+        for index in 0..110 {
+            room.push_system_message(format!("system event {index}"));
+        }
+        assert_eq!(room.chat_messages.len(), MAX_CHAT_HISTORY);
+        assert!(
+            room.chat_history(host.id)
+                .unwrap()
+                .iter()
+                .all(|entry| entry.room_id == room.id)
         );
     }
 
@@ -771,5 +1153,6 @@ mod tests {
         let json = serde_json::to_string(&room).unwrap();
         let restored: GameRoom = serde_json::from_str(&json).unwrap();
         assert_eq!(restored.game.unwrap().attacks.len(), 1);
+        assert_eq!(restored.chat_messages, room.chat_messages);
     }
 }

@@ -1,6 +1,13 @@
 import { browser } from '$app/environment';
 import { writable } from 'svelte/store';
-import type { AttackRecord, GameSnapshot, ProtocolError, Session } from '$lib/types';
+import type {
+  AttackRecord,
+  ChatMessage,
+  ChatTypingEvent,
+  GameSnapshot,
+  ProtocolError,
+  Session
+} from '$lib/types';
 
 export type SocketStatus = 'idle' | 'connecting' | 'online' | 'reconnecting' | 'offline';
 
@@ -9,6 +16,30 @@ export const gameSnapshot = writable<GameSnapshot | null>(null);
 export const socketStatus = writable<SocketStatus>('idle');
 export const lastAttack = writable<AttackRecord | null>(null);
 export const gameError = writable<ProtocolError | null>(null);
+export const chatMessages = writable<ChatMessage[]>([]);
+export const chatTyping = writable<ChatTypingEvent | null>(null);
+export const chatHistoryLoaded = writable(false);
+
+export interface HudNotification {
+  id: string;
+  title: string;
+  message: string;
+  tone: 'info' | 'success' | 'warning' | 'danger';
+}
+
+export const hudNotifications = writable<HudNotification[]>([]);
+
+export function dismissHudNotification(id: string): void {
+  hudNotifications.update((notifications) =>
+    notifications.filter((notification) => notification.id !== id)
+  );
+}
+
+export function resetRoomRealtimeState(): void {
+  chatMessages.set([]);
+  chatTyping.set(null);
+  chatHistoryLoaded.set(false);
+}
 
 export interface Preferences {
   sound: boolean;

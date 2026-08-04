@@ -58,6 +58,8 @@ pub enum GameError {
     InvalidRequest,
     #[error("요청이 너무 잦습니다. 잠시 후 다시 시도해 주세요.")]
     RateLimited,
+    #[error("채팅 메시지는 1~300자의 일반 텍스트로 입력해 주세요.")]
+    InvalidChatMessage,
     #[error("데이터 저장소에 일시적인 문제가 발생했습니다.")]
     StorageUnavailable,
     #[error("서버에서 요청을 처리하지 못했습니다.")]
@@ -91,6 +93,7 @@ impl GameError {
             Self::OriginNotAllowed => "ORIGIN_NOT_ALLOWED",
             Self::InvalidRequest => "INVALID_REQUEST",
             Self::RateLimited => "RATE_LIMITED",
+            Self::InvalidChatMessage => "INVALID_CHAT_MESSAGE",
             Self::StorageUnavailable => "STORAGE_UNAVAILABLE",
             Self::Internal => "INTERNAL_ERROR",
         }

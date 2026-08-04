@@ -3,6 +3,7 @@
     ArrowLeft,
     Check,
     Crosshair,
+    Flag,
     Medal,
     RotateCcw,
     Share2,
@@ -26,12 +27,35 @@
     snapshot.result?.players.find((player) => player.playerId !== snapshot.selfPlayerId)
   );
   let rematchRequested = $derived(snapshot.rematchRequestedBy.includes(snapshot.selfPlayerId));
+  let outcomeLabel = $derived.by(() => {
+    switch (snapshot.result?.winType) {
+      case 'SURRENDER':
+        return won ? 'Victory by Surrender' : 'Defeat by Surrender';
+      case 'DISCONNECT':
+        return won ? 'Victory by Disconnect' : 'Defeat by Disconnect';
+      default:
+        return won ? 'Normal Victory' : 'Normal Defeat';
+    }
+  });
+  let outcomeSummary = $derived.by(() => {
+    if (snapshot.result?.winType === 'SURRENDER') {
+      return won ? '적 지휘관이 작전을 포기했습니다.' : '작전 포기로 교전이 종료되었습니다.';
+    }
+    if (snapshot.result?.winType === 'DISCONNECT') {
+      return won
+        ? '적 지휘관의 연결 복구 시간이 만료되었습니다.'
+        : '연결 복구 시간이 만료되어 작전이 종료되었습니다.';
+    }
+    return won
+      ? '상대 함대 전력을 모두 무력화했습니다.'
+      : '아군 함대가 전투 불능 상태에 도달했습니다.';
+  });
   let shared = $state(false);
   const formatDuration = (seconds: number) => `${Math.floor(seconds / 60)}분 ${seconds % 60}초`;
 
   async function shareResult() {
     const title = `${won ? '작전 승리' : '작전 완료'} · Mk.01`;
-    const text = `${snapshot.room.name}에서 ${stats?.hits ?? 0}회 명중, ${Math.round((stats?.accuracy ?? 0) * 100)}% 명중률을 기록했습니다.`;
+    const text = `${outcomeLabel} · ${snapshot.room.name}에서 ${stats?.hits ?? 0}회 명중, ${Math.round((stats?.accuracy ?? 0) * 100)}% 명중률을 기록했습니다.`;
     if (navigator.share) await navigator.share({ title, text, url: location.origin });
     else await navigator.clipboard.writeText(`${title}\n${text}\n${location.origin}`);
     shared = true;
@@ -47,9 +71,8 @@
   </div>
   <p class="eyebrow">OPERATION COMPLETE</p>
   <h1>{won ? '작전 승리' : '작전 패배'}</h1>
-  <p class="result__summary">
-    {won ? '상대 함대 전력을 모두 무력화했습니다.' : '아군 함대가 전투 불능 상태에 도달했습니다.'}
-  </p>
+  <p class="result__outcome"><Flag size={13} /> {outcomeLabel}</p>
+  <p class="result__summary">{outcomeSummary}</p>
 
   <div class="result-score">
     <div class:score-winner={won}>
@@ -178,6 +201,26 @@
   }
   .result__summary {
     color: var(--steel-300);
+  }
+  .result__outcome {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin: 8px 0 6px;
+    padding: 5px 9px;
+    border: 1px solid rgba(40, 223, 232, 0.2);
+    border-radius: 999px;
+    color: var(--cyan-300);
+    background: rgba(40, 223, 232, 0.06);
+    font-family: var(--font-display);
+    font-size: 9px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .result--loss .result__outcome {
+    border-color: rgba(255, 83, 100, 0.2);
+    color: var(--red-400);
+    background: rgba(255, 83, 100, 0.06);
   }
   .result-score {
     display: grid;

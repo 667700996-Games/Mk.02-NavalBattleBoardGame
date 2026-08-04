@@ -1,7 +1,9 @@
 <script lang="ts">
-  import { Activity, Check, Crosshair, Radio, Shield, Waves, X } from '@lucide/svelte';
+  import { Activity, Check, Crosshair, Flag, Radio, Shield, Waves, X } from '@lucide/svelte';
   import GridBoard from './GridBoard.svelte';
   import { sounds } from '$lib/sound';
+  import { chatMessages } from '$lib/stores';
+  import { Button, Modal } from '$lib/ui';
   import {
     FLEET,
     coordinateKey,
@@ -15,11 +17,21 @@
     snapshot: GameSnapshot;
     pending?: boolean;
     disabled?: boolean;
+    surrenderPending?: boolean;
     onfire: (coordinate: Coordinate) => void;
+    onsurrender: () => void;
   }
-  let { snapshot, pending = false, disabled = false, onfire }: Props = $props();
+  let {
+    snapshot,
+    pending = false,
+    disabled = false,
+    surrenderPending = false,
+    onfire,
+    onsurrender
+  }: Props = $props();
   let selected = $state<Coordinate | null>(null);
   let activeBoard = $state<'target' | 'own'>('target');
+  let showSurrender = $state(false);
 
   let myTurn = $derived(snapshot.currentPlayerId === snapshot.selfPlayerId);
   let me = $derived(snapshot.players.find((player) => player.id === snapshot.selfPlayerId));
@@ -43,6 +55,12 @@
     (snapshot.targetBoard?.attacks ?? [])
       .map((attack, index) => ({ ...attack, sequence: index + 1 }))
       .slice(-5)
+      .reverse()
+  );
+  let systemLog = $derived(
+    $chatMessages
+      .filter((message) => message.kind === 'SYSTEM')
+      .slice(-4)
       .reverse()
   );
 
@@ -78,7 +96,20 @@
       <small>CURRENT COMMAND</small><strong class:cyan={myTurn}
         >{myTurn ? 'YOUR TURN' : 'OPPONENT'}</strong
       >
+      <button
+        class="surrender-trigger"
+        type="button"
+        disabled={surrenderPending}
+        onclick={() => (showSurrender = true)}><Flag size={12} /> 작전 포기</button
+      >
     </div>
+    <button
+      class="mobile-surrender"
+      type="button"
+      aria-label="작전 포기"
+      disabled={surrenderPending}
+      onclick={() => (showSurrender = true)}><Flag size={15} /></button
+    >
   </header>
 
   <div class="mobile-tabs" role="tablist" aria-label="전투 보드 선택">
@@ -193,8 +224,16 @@
         </div>
         <span>LIVE / {String(snapshot.version).padStart(3, '0')}</span>
       </header>
-      {#if battleLog.length}
+      {#if battleLog.length || systemLog.length}
         <ol>
+          {#each systemLog as entry (entry.messageId)}
+            <li class="log-system">
+              <span>SYS</span>
+              <Activity size={14} />
+              <strong>SYSTEM EVENT</strong>
+              <em>{entry.message}</em>
+            </li>
+          {/each}
           {#each battleLog as entry (coordinateKey(entry.coordinate))}
             <li class:log-hit={entry.outcome !== 'MISS'} class:log-sunk={entry.outcome === 'SUNK'}>
               <span>{String(entry.sequence).padStart(2, '0')}</span>
@@ -216,6 +255,27 @@
     </section>
   </div>
 </section>
+
+<Modal
+  open={showSurrender}
+  eyebrow="IRREVERSIBLE COMMAND"
+  title="작전을 종료하시겠습니까?"
+  description="기권하면 즉시 패배 처리되며 되돌릴 수 없습니다."
+  onclose={() => (showSurrender = false)}
+>
+  <div class="surrender-modal-actions">
+    <Button variant="ghost" full onclick={() => (showSurrender = false)}>취소</Button>
+    <Button
+      variant="danger"
+      full
+      loading={surrenderPending}
+      onclick={() => {
+        showSurrender = false;
+        onsurrender();
+      }}><Flag size={15} /> 기권</Button
+    >
+  </div>
+</Modal>
 
 <style>
   .turn-banner {
@@ -262,6 +322,32 @@
     font-family: Rajdhani;
     font-size: 13px;
     letter-spacing: 0.11em;
+  }
+  .surrender-trigger {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 5px;
+    margin-top: 3px;
+    padding: 0;
+    border: 0;
+    color: var(--ink-500);
+    background: transparent;
+    cursor: pointer;
+    font-family: var(--font-display);
+    font-size: 8px;
+    letter-spacing: 0.07em;
+    transition: 180ms ease;
+  }
+  .surrender-trigger:hover {
+    color: var(--red-400);
+  }
+  .surrender-trigger:disabled {
+    cursor: wait;
+    opacity: 0.4;
+  }
+  .mobile-surrender {
+    display: none;
   }
   .battle-grid {
     display: grid;
@@ -435,6 +521,11 @@
     color: var(--danger-400);
     border-color: rgba(255, 94, 74, 0.24);
   }
+  .battle-log li.log-system {
+    color: var(--green-400);
+    border-color: rgba(79, 226, 173, 0.16);
+    background: rgba(79, 226, 173, 0.025);
+  }
   .battle-log > p {
     align-self: center;
     margin: 0;
@@ -588,6 +679,12 @@
   .mobile-tabs {
     display: none;
   }
+  .surrender-modal-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-top: 20px;
+  }
   @media (max-width: 1120px) {
     .battle-grid {
       grid-template-columns: 1fr 1fr;
@@ -627,11 +724,21 @@
   }
   @media (max-width: 720px) {
     .turn-banner {
-      grid-template-columns: auto 1fr;
+      grid-template-columns: auto 1fr auto;
       padding: 13px;
     }
     .turn-banner__side {
       display: none;
+    }
+    .mobile-surrender {
+      display: grid;
+      width: 36px;
+      height: 36px;
+      place-items: center;
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      color: var(--ink-400);
+      background: rgba(4, 16, 24, 0.55);
     }
     .turn-banner h1 {
       font-size: 14px;

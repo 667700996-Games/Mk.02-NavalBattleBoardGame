@@ -19,7 +19,10 @@ use crate::{
     api::authenticate,
     app::{AppState, SnapshotEvent},
     error::GameError,
-    protocol::{ClientEvent, HeartbeatResponse, ProtocolError, RoomCreatedResponse, ServerEvent},
+    protocol::{
+        ChatHistoryResponse, ClientEvent, HeartbeatResponse, ProtocolError, RoomCreatedResponse,
+        ServerEvent,
+    },
 };
 
 pub async fn websocket_handler(
@@ -101,6 +104,7 @@ async fn handle_event(state: &AppState, session: &crate::domain::UserSession, ev
                 state
                     .broadcast_snapshots(&room, SnapshotEvent::PlayerJoined)
                     .await;
+                state.broadcast_latest_chat_message(&room);
                 Ok(())
             }
             .await
@@ -111,6 +115,7 @@ async fn handle_event(state: &AppState, session: &crate::domain::UserSession, ev
                 state
                     .broadcast_snapshots(&room, SnapshotEvent::PlayerLeft)
                     .await;
+                state.broadcast_latest_chat_message(&room);
                 Ok(())
             }
             .await
@@ -163,6 +168,9 @@ async fn handle_event(state: &AppState, session: &crate::domain::UserSession, ev
                         },
                     )
                     .await;
+                if started {
+                    state.broadcast_latest_chat_message(&room);
+                }
                 Ok(())
             }
             .await
@@ -202,6 +210,9 @@ async fn handle_event(state: &AppState, session: &crate::domain::UserSession, ev
                                 .send(player.session_id, ServerEvent::ShipSunk(record.clone()));
                         }
                     }
+                    if record.winner_id.is_some() {
+                        state.broadcast_latest_chat_message(&room);
+                    }
                     state
                         .broadcast_snapshots(
                             &room,
@@ -213,6 +224,47 @@ async fn handle_event(state: &AppState, session: &crate::domain::UserSession, ev
                         )
                         .await;
                 }
+                Ok(())
+            }
+            .await
+        }
+        ClientEvent::GameSurrender(input) => {
+            async {
+                let room_ref = state.room(input.room_id).await?;
+                let mut room = room_ref.lock().await;
+                let record = room.surrender(session.id, input.player_id)?;
+                state.save_room(&room).await?;
+                for player in &room.players {
+                    state.hub.send(
+                        player.session_id,
+                        ServerEvent::GameSurrendered(record.clone()),
+                    );
+                }
+                state.broadcast_latest_chat_message(&room);
+                state
+                    .broadcast_snapshots(&room, SnapshotEvent::GameFinished)
+                    .await;
+                Ok(())
+            }
+            .await
+        }
+        ClientEvent::ChatSend(input) => {
+            async {
+                let room_ref = state.room(input.room_id).await?;
+                let mut room = room_ref.lock().await;
+                let message = room.send_chat(session.id, input.message)?;
+                state.save_room(&room).await?;
+                state.broadcast_chat_message(&room, &message);
+                Ok(())
+            }
+            .await
+        }
+        ClientEvent::ChatTyping(input) => {
+            async {
+                let room_ref = state.room(input.room_id).await?;
+                let room = room_ref.lock().await;
+                let event = room.typing_event(session.id, input.is_typing)?;
+                state.broadcast_chat_typing(&room, &event);
                 Ok(())
             }
             .await
@@ -237,6 +289,13 @@ async fn handle_event(state: &AppState, session: &crate::domain::UserSession, ev
                 state.hub.send(
                     session.id,
                     ServerEvent::GameSnapshot(room.snapshot_for(session.id)?),
+                );
+                state.hub.send(
+                    session.id,
+                    ServerEvent::ChatHistory(ChatHistoryResponse {
+                        room_id: room.id,
+                        messages: room.chat_history(session.id)?,
+                    }),
                 );
                 Ok(())
             }

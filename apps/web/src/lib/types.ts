@@ -6,7 +6,9 @@ export type ConnectionState = 'ONLINE' | 'RECONNECTING' | 'OFFLINE';
 export type ShipKind = 'CARRIER' | 'BATTLESHIP' | 'CRUISER' | 'SUBMARINE' | 'DESTROYER';
 export type Orientation = 'HORIZONTAL' | 'VERTICAL';
 export type AttackOutcome = 'MISS' | 'HIT' | 'SUNK';
-export type FinishReason = 'FLEET_DESTROYED' | 'DISCONNECT_TIMEOUT' | 'PLAYER_LEFT';
+export type FinishReason = 'FLEET_DESTROYED' | 'SURRENDER' | 'DISCONNECT_TIMEOUT' | 'PLAYER_LEFT';
+export type WinType = 'NORMAL_VICTORY' | 'SURRENDER' | 'DISCONNECT';
+export type ChatMessageKind = 'PLAYER' | 'SYSTEM';
 
 export interface Coordinate {
   row: number;
@@ -88,6 +90,32 @@ export interface GameResult {
   finishedAt: string;
   players: PlayerStatistics[];
   finishReason: FinishReason;
+  winType: WinType;
+}
+
+export interface ChatMessage {
+  messageId: string;
+  roomId: string;
+  playerId: string | null;
+  nickname: string;
+  message: string;
+  timestamp: string;
+  kind: ChatMessageKind;
+}
+
+export interface ChatTypingEvent {
+  roomId: string;
+  playerId: string;
+  nickname: string;
+  isTyping: boolean;
+}
+
+export interface SurrenderRecord {
+  roomId: string;
+  surrenderedPlayerId: string;
+  winnerId: string;
+  nickname: string;
+  timestamp: string;
 }
 
 export interface GameSnapshot {
@@ -165,6 +193,9 @@ export type ClientEvent =
         turnNumber: number;
       };
     }
+  | { type: 'game:surrender'; payload: { roomId: string; playerId: string } }
+  | { type: 'chat:send'; payload: { roomId: string; message: string } }
+  | { type: 'chat:typing'; payload: { roomId: string; isTyping: boolean } }
   | { type: 'game:rematch'; payload: { roomId: string } }
   | { type: 'game:sync'; payload: { roomId: string } }
   | { type: 'heartbeat'; payload: { clientTime: string } };
@@ -187,6 +218,10 @@ export type ServerEvent =
     }
   | { type: 'placement:rejected' | 'error'; payload: ProtocolError }
   | { type: 'attack:result' | 'ship:sunk'; payload: AttackRecord }
+  | { type: 'game:surrendered'; payload: SurrenderRecord }
+  | { type: 'chat:message'; payload: ChatMessage }
+  | { type: 'chat:history'; payload: { roomId: string; messages: ChatMessage[] } }
+  | { type: 'chat:typing'; payload: ChatTypingEvent }
   | { type: 'heartbeat'; payload: { serverTime: string } };
 
 export const FLEET: ReadonlyArray<{ kind: ShipKind; size: number; name: string }> = [

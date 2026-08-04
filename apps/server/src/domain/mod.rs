@@ -1,9 +1,11 @@
 mod board;
+mod chat;
 mod game;
 mod room;
 mod session;
 
 pub use board::*;
+pub use chat::*;
 pub use game::*;
 pub use room::*;
 pub use session::*;

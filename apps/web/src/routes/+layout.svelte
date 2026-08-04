@@ -12,7 +12,14 @@
   import { resolve } from '$app/paths';
   import { Crosshair, History, Radio, Settings } from '@lucide/svelte';
   import { api } from '$lib/api';
-  import { gameError, preferences, session, socketStatus } from '$lib/stores';
+  import {
+    dismissHudNotification,
+    gameError,
+    hudNotifications,
+    preferences,
+    session,
+    socketStatus
+  } from '$lib/stores';
   import { Avatar, Status, Toast, Tooltip } from '$lib/ui';
 
   let { children } = $props();
@@ -139,14 +146,24 @@
 
 <main class="main-content">{@render children()}</main>
 
-{#if $gameError}
+{#if $gameError || $hudNotifications.length}
   <div class="toast-stack" aria-live="assertive">
-    <Toast
-      tone="danger"
-      title={$gameError.code}
-      message={$gameError.message}
-      onclose={() => gameError.set(null)}
-    />
+    {#if $gameError}
+      <Toast
+        tone="danger"
+        title={$gameError.code}
+        message={$gameError.message}
+        onclose={() => gameError.set(null)}
+      />
+    {/if}
+    {#each $hudNotifications as notification (notification.id)}
+      <Toast
+        tone={notification.tone}
+        title={notification.title}
+        message={notification.message}
+        onclose={() => dismissHudNotification(notification.id)}
+      />
+    {/each}
   </div>
 {/if}
 

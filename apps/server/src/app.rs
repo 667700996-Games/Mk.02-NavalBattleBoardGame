@@ -21,7 +21,7 @@ use uuid::Uuid;
 use crate::{
     api,
     config::{Settings, StorageMode},
-    domain::{GameRoom, RoomVisibility, UserSession},
+    domain::{ChatMessage, ChatTypingEvent, GameRoom, RoomVisibility, UserSession},
     error::GameError,
     protocol::{CreateRoomInput, ServerEvent},
     store::{GameStore, MemoryStore, PostgresRedisStore},
@@ -285,6 +285,28 @@ impl AppState {
         }
     }
 
+    pub fn broadcast_chat_message(&self, room: &GameRoom, message: &ChatMessage) {
+        for player in &room.players {
+            self.hub
+                .send(player.session_id, ServerEvent::ChatMessage(message.clone()));
+        }
+    }
+
+    pub fn broadcast_latest_chat_message(&self, room: &GameRoom) {
+        if let Some(message) = room.chat_messages.last() {
+            self.broadcast_chat_message(room, message);
+        }
+    }
+
+    pub fn broadcast_chat_typing(&self, room: &GameRoom, event: &ChatTypingEvent) {
+        for player in &room.players {
+            if player.id != event.player_id {
+                self.hub
+                    .send(player.session_id, ServerEvent::ChatTyping(event.clone()));
+            }
+        }
+    }
+
     pub async fn restore_connection(&self, session: &UserSession) {
         let Some(room_id) = session.current_room_id else {
             return;
@@ -293,8 +315,9 @@ impl AppState {
             return;
         };
         let mut room = room.lock().await;
-        if room.reconnect(session.id).is_ok() {
+        if matches!(room.reconnect(session.id), Ok(true)) {
             let _ = self.store.save_room(&room).await;
+            self.broadcast_latest_chat_message(&room);
             self.broadcast_snapshots(&room, SnapshotEvent::PlayerReconnected)
                 .await;
         }
@@ -325,6 +348,7 @@ impl AppState {
                 Err(_) => continue,
             };
             let _ = self.store.save_room(&room).await;
+            self.broadcast_latest_chat_message(&room);
             self.broadcast_snapshots(&room, SnapshotEvent::PlayerDisconnected)
                 .await;
             drop(room);
@@ -369,6 +393,7 @@ impl AppState {
                 .unwrap_or(false)
             {
                 let _ = state.store.save_room(&room).await;
+                state.broadcast_latest_chat_message(&room);
                 state
                     .broadcast_snapshots(&room, SnapshotEvent::GameFinished)
                     .await;
@@ -408,6 +433,7 @@ impl AppState {
             }
             self.broadcast_snapshots(&room, SnapshotEvent::PlayerJoined)
                 .await;
+            self.broadcast_latest_chat_message(&room);
             Ok(Some(room))
         } else {
             queue.push_back(QueuedSession {

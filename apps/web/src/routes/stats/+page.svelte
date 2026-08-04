@@ -23,6 +23,11 @@
   const won = (game: HistoryItem) => game.result.winnerId === game.selfPlayerId;
   const duration = (seconds: number) =>
     `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+  const winTypeLabel = (game: HistoryItem) => {
+    if (game.result.winType === 'SURRENDER') return 'SURRENDER';
+    if (game.result.winType === 'DISCONNECT') return 'DISCONNECT';
+    return 'NORMAL VICTORY';
+  };
   let wins = $derived(games.filter(won).length);
   let averageAccuracy = $derived(
     games.length
@@ -94,7 +99,8 @@
           <div class="history-name">
             <small>{new Date(game.result.finishedAt).toLocaleDateString('ko-KR')}</small><strong
               >{game.roomName}</strong
-            ><em>{won(game) ? '승리' : '패배'}</em>
+            ><em>{won(game) ? '승리' : '패배'}</em><span class="win-type">{winTypeLabel(game)}</span
+            >
           </div>
           <div>
             <Target size={14} /><span>명중률</span><strong
@@ -233,6 +239,18 @@
     color: var(--cyan-400);
     font-size: 10px;
     font-style: normal;
+  }
+  .history-name .win-type {
+    grid-column: 1 / -1;
+    width: fit-content;
+    padding: 3px 6px;
+    border: 1px solid rgba(40, 223, 232, 0.14);
+    border-radius: 999px;
+    color: var(--ink-400);
+    background: rgba(40, 223, 232, 0.04);
+    font-family: var(--font-display);
+    font-size: 7px;
+    letter-spacing: 0.08em;
   }
   .history-row > div:not(.history-name) {
     display: grid;

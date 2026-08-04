@@ -11,6 +11,8 @@
 - 드래그 앤 드롭, 클릭/터치, `R` 회전, 자동 배치, 초기화가 가능한 함대 배치기
 - 서버 권위형 규칙 검증, 턴/버전 순서 검증, UUID 요청 멱등성
 - 새로고침 복구, 지수 백오프 재연결, 재접속 유예 시간과 자동 기권승 처리
+- 서버 검증형 기권과 `Normal Victory`/`Surrender`/`Disconnect` 승리 원인 기록
+- 방 단위 실시간 전술 채팅, 입력 중 표시, 최근 100개 메시지 복구와 시스템 작전 로그
 - 재경기, 승패·명중률·턴·플레이 시간 통계, 전투 기록
 - 데스크톱 2보드 레이아웃과 모바일 탭 전환, 키보드 조작, 고대비/모션 감소, 사운드 설정
 - PostgreSQL 영속화, Redis 읽기 캐시, 구조화 JSON 로그, Docker Compose 운영 구성
@@ -23,14 +25,14 @@
 
 ## 기술 스택
 
-| 영역 | 기술 |
-| --- | --- |
-| 프런트엔드 | SvelteKit 2, Svelte 5, TypeScript 6, CSS 디자인 토큰 |
-| API/게임 서버 | Rust 1.87, Axum 0.8, Tokio |
-| 실시간 | WebSocket, 타입화 JSON 이벤트 |
-| 저장소 | PostgreSQL 17, SQLx migration, Redis 7.4 |
-| 테스트 | Rust unit/integration, Vitest, Playwright Chromium/WebKit |
-| 운영 | adapter-node, Docker Compose, Caddy |
+| 영역          | 기술                                                      |
+| ------------- | --------------------------------------------------------- |
+| 프런트엔드    | SvelteKit 2, Svelte 5, TypeScript 6, CSS 디자인 토큰      |
+| API/게임 서버 | Rust 1.87, Axum 0.8, Tokio                                |
+| 실시간        | WebSocket, 타입화 JSON 이벤트                             |
+| 저장소        | PostgreSQL 17, SQLx migration, Redis 7.4                  |
+| 테스트        | Rust unit/integration, Vitest, Playwright Chromium/WebKit |
+| 운영          | adapter-node, Docker Compose, Caddy                       |
 
 ## 시스템 아키텍처
 
@@ -44,7 +46,7 @@ flowchart LR
   S -.->|best-effort room cache| R[(Redis)]
 ```
 
-브라우저는 자신의 배치/보드와 자신이 실행한 공격 결과만 받습니다. `GameRoom` 내부 스냅샷은 PostgreSQL JSONB에 원자적으로 저장되고 Redis는 1시간 읽기 캐시로만 사용됩니다. Redis가 중단되어도 PostgreSQL로 게임을 계속할 수 있습니다.
+브라우저는 자신의 배치/보드와 자신이 실행한 공격 결과만 받습니다. `GameRoom` 내부 스냅샷은 최근 채팅 100개를 포함해 PostgreSQL JSONB에 원자적으로 저장되고 Redis는 1시간 읽기 캐시로만 사용됩니다. Redis가 중단되어도 PostgreSQL로 게임을 계속할 수 있습니다. 채팅 추가는 공격용 게임 버전을 변경하지 않아 동시에 도착한 사격 요청과 충돌하지 않습니다.
 
 상태 머신은 다음 전이만 허용합니다.
 
@@ -100,36 +102,36 @@ POSTGRES_PASSWORD='replace-this-local-password' docker compose up --build
 
 ## 환경 변수
 
-| 변수 | 기본값 | 설명 |
-| --- | --- | --- |
-| `SERVER_HOST` | `0.0.0.0` | Rust 서버 바인드 주소 |
-| `SERVER_PORT` | `8080` | Rust 서버 포트 |
-| `STORAGE_MODE` | `memory` | `memory` 또는 `postgres` |
-| `DATABASE_URL` | 예제 참조 | PostgreSQL 접속 URL |
-| `REDIS_URL` | `redis://localhost:6379/` | Redis 접속 URL |
-| `PUBLIC_BASE_URL` | `http://localhost:5173` | 초대 URL에 쓰이는 공개 주소 |
-| `ALLOWED_ORIGINS` | localhost 2개 | 쉼표로 구분한 CORS/WebSocket Origin 허용 목록 |
-| `SECURE_COOKIES` | `false` | HTTPS 운영에서는 반드시 `true` |
-| `SESSION_TTL_SECONDS` | `2592000` | 게스트 세션 유효 기간 |
-| `RECONNECT_GRACE_SECONDS` | `90` | 재접속 유예 시간 |
-| `RUST_LOG` | info | `tracing` 로그 필터 |
+| 변수                      | 기본값                    | 설명                                          |
+| ------------------------- | ------------------------- | --------------------------------------------- |
+| `SERVER_HOST`             | `0.0.0.0`                 | Rust 서버 바인드 주소                         |
+| `SERVER_PORT`             | `8080`                    | Rust 서버 포트                                |
+| `STORAGE_MODE`            | `memory`                  | `memory` 또는 `postgres`                      |
+| `DATABASE_URL`            | 예제 참조                 | PostgreSQL 접속 URL                           |
+| `REDIS_URL`               | `redis://localhost:6379/` | Redis 접속 URL                                |
+| `PUBLIC_BASE_URL`         | `http://localhost:5173`   | 초대 URL에 쓰이는 공개 주소                   |
+| `ALLOWED_ORIGINS`         | localhost 2개             | 쉼표로 구분한 CORS/WebSocket Origin 허용 목록 |
+| `SECURE_COOKIES`          | `false`                   | HTTPS 운영에서는 반드시 `true`                |
+| `SESSION_TTL_SECONDS`     | `2592000`                 | 게스트 세션 유효 기간                         |
+| `RECONNECT_GRACE_SECONDS` | `90`                      | 재접속 유예 시간                              |
+| `RUST_LOG`                | info                      | `tracing` 로그 필터                           |
 
 ## REST API
 
 모든 경로의 prefix는 `/api`입니다. 세션 생성 후 발급된 `mk01_session` HttpOnly 쿠키를 사용하며 JSON에 토큰을 반환하지 않습니다.
 
-| Method | 경로 | 기능 |
-| --- | --- | --- |
-| `GET` | `/health` | 프로세스/저장 모드 헬스 |
-| `POST` | `/sessions` | 닉네임 검증 후 게스트 세션 생성 |
-| `GET` | `/sessions/current` | 현재 세션 복구 |
-| `GET/POST` | `/rooms` | 공개 방 목록 / 방 생성 |
-| `POST` | `/rooms/join` | 방 코드로 참가 |
-| `GET` | `/rooms/{roomId}` | 본인 기준 비공개 필터 스냅샷 |
-| `POST` | `/rooms/{roomId}/leave` | 방 나가기/기권 |
-| `GET` | `/games/recover` | 진행 중 게임 복구 |
-| `GET` | `/games/history` | 최근 50개 경기 결과 |
-| `POST/DELETE` | `/matchmaking` | 빠른 매칭 대기/취소 |
+| Method        | 경로                    | 기능                                     |
+| ------------- | ----------------------- | ---------------------------------------- |
+| `GET`         | `/health`               | 프로세스/저장 모드 헬스                  |
+| `POST`        | `/sessions`             | 닉네임 검증 후 게스트 세션 생성          |
+| `GET`         | `/sessions/current`     | 현재 세션 복구                           |
+| `GET/POST`    | `/rooms`                | 공개 방 목록 / 방 생성                   |
+| `POST`        | `/rooms/join`           | 방 코드로 참가                           |
+| `GET`         | `/rooms/{roomId}`       | 본인 기준 비공개 필터 스냅샷             |
+| `POST`        | `/rooms/{roomId}/leave` | 전투 전 방 나가기 또는 전투 중 이탈 처리 |
+| `GET`         | `/games/recover`        | 진행 중 게임 복구                        |
+| `GET`         | `/games/history`        | 최근 50개 경기 결과                      |
+| `POST/DELETE` | `/matchmaking`          | 빠른 매칭 대기/취소                      |
 
 오류는 `{ code, message, requestId }` 형태의 안전한 JSON으로 반환됩니다. 잘못된 JSON·UUID도 내부 파서 정보 대신 `INVALID_REQUEST`로 일관되게 처리합니다.
 
@@ -138,41 +140,58 @@ POSTGRES_PASSWORD='replace-this-local-password' docker compose up --build
 연결 경로는 `/ws`이며 쿠키 세션과 `Origin` 허용 목록을 모두 검증합니다. 공통 envelope는 다음과 같습니다.
 
 ```json
-{ "type": "attack:fire", "payload": { "requestId": "uuid", "roomId": "uuid", "playerId": "uuid", "coordinate": { "row": 0, "col": 0 }, "expectedVersion": 12, "turnNumber": 4 } }
+{
+  "type": "attack:fire",
+  "payload": {
+    "requestId": "uuid",
+    "roomId": "uuid",
+    "playerId": "uuid",
+    "coordinate": { "row": 0, "col": 0 },
+    "expectedVersion": 12,
+    "turnNumber": 4
+  }
+}
 ```
 
-| 클라이언트 이벤트 | 핵심 payload |
-| --- | --- |
-| `room:create` | `name`, `visibility` |
-| `room:join` | `code` |
-| `room:leave` | `roomId` |
-| `player:ready` | `roomId`, `playerId`, `ready` |
-| `ships:place` | `roomId`, `playerId`, `placements[]` |
-| `ships:confirm` | `roomId`, `playerId` |
-| `attack:fire` | `requestId`, `roomId`, `playerId`, `coordinate`, `expectedVersion`, `turnNumber` |
-| `game:rematch` | `roomId` |
-| `game:sync` | `roomId` |
-| `heartbeat` | `clientTime` |
+| 클라이언트 이벤트 | 핵심 payload                                                                     |
+| ----------------- | -------------------------------------------------------------------------------- |
+| `room:create`     | `name`, `visibility`                                                             |
+| `room:join`       | `code`                                                                           |
+| `room:leave`      | `roomId`                                                                         |
+| `player:ready`    | `roomId`, `playerId`, `ready`                                                    |
+| `ships:place`     | `roomId`, `playerId`, `placements[]`                                             |
+| `ships:confirm`   | `roomId`, `playerId`                                                             |
+| `attack:fire`     | `requestId`, `roomId`, `playerId`, `coordinate`, `expectedVersion`, `turnNumber` |
+| `game:surrender`  | `roomId`, `playerId`                                                             |
+| `chat:send`       | `roomId`, `message` (공백 제외 1–300자)                                          |
+| `chat:typing`     | `roomId`, `isTyping`                                                             |
+| `game:rematch`    | `roomId`                                                                         |
+| `game:sync`       | `roomId`                                                                         |
+| `heartbeat`       | `clientTime`                                                                     |
 
-| 서버 이벤트 | 용도 |
-| --- | --- |
-| `room:created`, `room:updated` | 방 생성/상태 갱신 |
-| `player:joined`, `player:left` | 참가자 변경 |
-| `placement:accepted`, `placement:rejected` | 배치 검증 결과 |
-| `game:started`, `turn:changed` | 선공/턴 동기화 |
-| `attack:result`, `ship:sunk` | 공격·격침 결과 |
-| `game:finished` | 승패와 통계 |
-| `player:disconnected`, `player:reconnected` | 연결 상태 |
-| `game:snapshot` | 세션별 전체 공개 상태 |
-| `heartbeat` | 연결 생존 확인 |
-| `error` | `code`, 사용자 메시지, `retryable`, `requestId` |
+| 서버 이벤트                                 | 용도                                            |
+| ------------------------------------------- | ----------------------------------------------- |
+| `room:created`, `room:updated`              | 방 생성/상태 갱신                               |
+| `player:joined`, `player:left`              | 참가자 변경                                     |
+| `placement:accepted`, `placement:rejected`  | 배치 검증 결과                                  |
+| `game:started`, `turn:changed`              | 선공/턴 동기화                                  |
+| `attack:result`, `ship:sunk`                | 공격·격침 결과                                  |
+| `game:finished`                             | 승패와 통계                                     |
+| `game:surrendered`                          | 기권자·승자·서버 판정 시각                      |
+| `chat:message`                              | 플레이어 또는 `SYSTEM` 작전 메시지              |
+| `chat:history`                              | 방의 최근 메시지 최대 100개                     |
+| `chat:typing`                               | 상대 지휘관 입력 상태(비영속)                   |
+| `player:disconnected`, `player:reconnected` | 연결 상태                                       |
+| `game:snapshot`                             | 세션별 전체 공개 상태                           |
+| `heartbeat`                                 | 연결 생존 확인                                  |
+| `error`                                     | `code`, 사용자 메시지, `retryable`, `requestId` |
 
-`row`/`col`은 0–9입니다. `ships:place`는 항공모함·전함·순양함·잠수함·구축함을 각각 한 번씩 정확히 포함해야 합니다. 서버는 세션으로 실제 `playerId`를 다시 확인하며, 공격 UUID가 중복되면 기존 결과만 재전송합니다.
+`row`/`col`은 0–9입니다. `ships:place`는 항공모함·전함·순양함·잠수함·구축함을 각각 한 번씩 정확히 포함해야 합니다. 서버는 세션으로 실제 `playerId`를 다시 확인하며, 공격 UUID가 중복되면 기존 결과만 재전송합니다. `game:surrender`는 진행 중 게임과 세션 소유권을 다시 확인한 뒤 즉시 상대 승리로 확정합니다. `chat:send`와 `chat:typing`도 현재 방 멤버만 허용하며 다른 방으로 브로드캐스트하지 않습니다.
 
 ## 재접속과 게임 복구 정책
 
 - WebSocket이 끊기면 방은 `DISCONNECTED`로 전이하고 기존 상태와 절대 마감 시각을 저장합니다.
-- 클라이언트는 0.6–10초 지수 백오프로 재연결하고, 연결 즉시 `game:sync`로 자신에게 허용된 스냅샷을 받습니다.
+- 클라이언트는 0.6–10초 지수 백오프로 재연결하고, 연결 즉시 `game:sync`로 자신에게 허용된 스냅샷과 `chat:history`를 받습니다.
 - 기본 90초 안에 같은 HttpOnly 세션으로 복귀하면 이전 `WAITING`/`PLACEMENT`/`PLAYING` 상태를 복원합니다.
 - 전투 중 마감 시각이 지나면 온라인 상대의 기권승, 전투 전이면 `CANCELLED`로 처리합니다.
 - 서버 재시작 시 활성 방과 재접속 마감을 PostgreSQL에서 다시 불러와 남은 타이머를 재개합니다.
@@ -182,6 +201,7 @@ POSTGRES_PASSWORD='replace-this-local-password' docker compose up --build
 - 256-bit 무작위 게스트 토큰을 HttpOnly, SameSite=Lax 쿠키로 전달하고 SHA-256 해시만 저장합니다.
 - WebSocket upgrade의 `Origin`을 명시적 허용 목록으로 검증해 cross-site WebSocket hijacking을 차단합니다.
 - JSON은 알 수 없는 필드를 거부하고 본문/프레임을 64 KiB로 제한합니다.
+- 채팅은 HTML 구분자·제어 문자를 거부하고 Svelte 텍스트 바인딩으로만 렌더링합니다. 플레이어별 400ms 최소 간격과 5초당 5개 제한으로 flood를 차단합니다.
 - 배치, 턴, 공격, 격침, 승패, 요청 순서를 모두 서버에서 재검증합니다.
 - 클라이언트 스냅샷은 세션별로 생성되며 상대 `Board`, 함선 좌표, 세션 ID/토큰을 포함하지 않습니다.
 - DB/Redis 오류는 구조화 로그에만 원인을 남기고, 클라이언트에는 안전한 오류 코드와 추적 UUID만 보냅니다.
@@ -200,7 +220,7 @@ npm run test:e2e    # 독립 브라우저 2개의 전체 경기 + 모바일
 npm run build       # Rust release + SvelteKit adapter-node
 ```
 
-Rust 테스트는 배치, 경계/겹침, 명중/빗나감/격침, 승리, 턴, 중복 공격, 상태 전이, 재접속, JSON 영속화, 클라이언트 정보 비공개를 검증합니다. Playwright는 두 브라우저가 방 생성부터 최종 격침까지 완주하고, 중간 새로고침 복구와 모바일 가로 넘침을 검증합니다.
+Rust 테스트는 배치, 경계/겹침, 명중/빗나감/격침, 승리, 턴, 중복 공격, 상태 전이, 기권, 채팅 검증·속도 제한·100개 보존, 재접속, JSON 영속화, 클라이언트 정보 비공개를 검증합니다. Playwright는 두 브라우저가 방 생성부터 최종 격침까지 완주하고, 채팅 동기화·새로고침 복구·기권 결과와 모바일 가로 넘침을 검증합니다.
 
 ## 프로덕션 빌드·배포
 

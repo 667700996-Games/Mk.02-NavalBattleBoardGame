@@ -3,7 +3,8 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::domain::{
-    AttackRecord, Coordinate, GameSnapshot, RoomSummary, RoomVisibility, ShipPlacement,
+    AttackRecord, ChatMessage, ChatTypingEvent, Coordinate, GameSnapshot, RoomSummary,
+    RoomVisibility, ShipPlacement, SurrenderRecord,
 };
 
 #[derive(Debug, Clone, Deserialize)]
@@ -98,6 +99,34 @@ pub struct AttackFireInput {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SurrenderInput {
+    pub room_id: Uuid,
+    pub player_id: Uuid,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ChatSendInput {
+    pub room_id: Uuid,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ChatTypingInput {
+    pub room_id: Uuid,
+    pub is_typing: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatHistoryResponse {
+    pub room_id: Uuid,
+    pub messages: Vec<ChatMessage>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct HeartbeatInput {
     pub client_time: DateTime<Utc>,
 }
@@ -119,6 +148,12 @@ pub enum ClientEvent {
     ShipsConfirm(ConfirmShipsInput),
     #[serde(rename = "attack:fire")]
     AttackFire(AttackFireInput),
+    #[serde(rename = "game:surrender")]
+    GameSurrender(SurrenderInput),
+    #[serde(rename = "chat:send")]
+    ChatSend(ChatSendInput),
+    #[serde(rename = "chat:typing")]
+    ChatTyping(ChatTypingInput),
     #[serde(rename = "game:rematch")]
     GameRematch(RoomReference),
     #[serde(rename = "game:sync")]
@@ -152,6 +187,14 @@ pub enum ServerEvent {
     ShipSunk(AttackRecord),
     #[serde(rename = "game:finished")]
     GameFinished(GameSnapshot),
+    #[serde(rename = "game:surrendered")]
+    GameSurrendered(SurrenderRecord),
+    #[serde(rename = "chat:message")]
+    ChatMessage(ChatMessage),
+    #[serde(rename = "chat:history")]
+    ChatHistory(ChatHistoryResponse),
+    #[serde(rename = "chat:typing")]
+    ChatTyping(ChatTypingEvent),
     #[serde(rename = "player:disconnected")]
     PlayerDisconnected(GameSnapshot),
     #[serde(rename = "player:reconnected")]
@@ -196,4 +239,56 @@ pub struct MatchmakingResponse {
     pub queued: bool,
     pub queued_at: Option<DateTime<Utc>>,
     pub snapshot: Option<GameSnapshot>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::ChatMessageKind;
+
+    #[test]
+    fn chat_and_surrender_contracts_use_the_public_camel_case_envelope() {
+        let room_id = Uuid::new_v4();
+        let player_id = Uuid::new_v4();
+        let surrender: ClientEvent = serde_json::from_value(serde_json::json!({
+            "type": "game:surrender",
+            "payload": { "roomId": room_id, "playerId": player_id }
+        }))
+        .unwrap();
+        assert!(matches!(
+            surrender,
+            ClientEvent::GameSurrender(SurrenderInput {
+                room_id: parsed_room,
+                player_id: parsed_player
+            }) if parsed_room == room_id && parsed_player == player_id
+        ));
+
+        let chat: ClientEvent = serde_json::from_value(serde_json::json!({
+            "type": "chat:send",
+            "payload": { "roomId": room_id, "message": "Sector C4" }
+        }))
+        .unwrap();
+        assert!(matches!(
+            chat,
+            ClientEvent::ChatSend(ChatSendInput { room_id: parsed_room, message })
+                if parsed_room == room_id && message == "Sector C4"
+        ));
+
+        let timestamp = Utc::now();
+        let event = ServerEvent::ChatMessage(ChatMessage {
+            message_id: Uuid::new_v4(),
+            room_id,
+            player_id: Some(player_id),
+            nickname: "Alpha".to_string(),
+            message: "Sector C4".to_string(),
+            timestamp,
+            kind: ChatMessageKind::Player,
+        });
+        let serialized = serde_json::to_value(event).unwrap();
+        assert_eq!(serialized["type"], "chat:message");
+        assert_eq!(serialized["payload"]["roomId"], room_id.to_string());
+        assert_eq!(serialized["payload"]["playerId"], player_id.to_string());
+        assert_eq!(serialized["payload"]["kind"], "PLAYER");
+        assert!(serialized["payload"].get("message_id").is_none());
+    }
 }

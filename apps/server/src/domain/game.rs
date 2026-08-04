@@ -45,14 +45,36 @@ pub struct GameResult {
     pub finished_at: DateTime<Utc>,
     pub players: Vec<PlayerStatistics>,
     pub finish_reason: FinishReason,
+    #[serde(default)]
+    pub win_type: WinType,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum FinishReason {
     FleetDestroyed,
+    Surrender,
     DisconnectTimeout,
     PlayerLeft,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum WinType {
+    #[default]
+    NormalVictory,
+    Surrender,
+    Disconnect,
+}
+
+impl From<FinishReason> for WinType {
+    fn from(reason: FinishReason) -> Self {
+        match reason {
+            FinishReason::FleetDestroyed => Self::NormalVictory,
+            FinishReason::Surrender => Self::Surrender,
+            FinishReason::DisconnectTimeout | FinishReason::PlayerLeft => Self::Disconnect,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -170,6 +192,9 @@ impl Game {
     }
 
     pub fn forfeit(&mut self, winner_id: Uuid, reason: FinishReason) -> Result<(), GameError> {
+        if self.result.is_some() || !self.boards.contains_key(&winner_id) {
+            return Err(GameError::InvalidState);
+        }
         let loser_id = self
             .boards
             .keys()
@@ -220,6 +245,7 @@ impl Game {
             finished_at,
             players,
             finish_reason: reason,
+            win_type: reason.into(),
         });
     }
 }

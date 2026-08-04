@@ -5,6 +5,7 @@
   import { onMount } from 'svelte';
   import { ArrowLeft, Check, Radio, ShieldCheck, Wifi, WifiOff } from '@lucide/svelte';
   import BattleView from '$lib/components/BattleView.svelte';
+  import ChatDrawer from '$lib/components/ChatDrawer.svelte';
   import DisconnectedOverlay from '$lib/components/DisconnectedOverlay.svelte';
   import FleetPlacement from '$lib/components/FleetPlacement.svelte';
   import ResultView from '$lib/components/ResultView.svelte';
@@ -12,7 +13,14 @@
   import { api, ApiError } from '$lib/api';
   import { realtime } from '$lib/realtime';
   import { sounds } from '$lib/sound';
-  import { gameError, gameSnapshot, lastAttack, session, socketStatus } from '$lib/stores';
+  import {
+    gameError,
+    gameSnapshot,
+    lastAttack,
+    resetRoomRealtimeState,
+    session,
+    socketStatus
+  } from '$lib/stores';
   import type { Coordinate, ShipPlacement } from '$lib/types';
 
   const routeCode = (page.params.code ?? '').toUpperCase();
@@ -20,6 +28,7 @@
   let loadError = $state('');
   let placementSubmitting = $state(false);
   let attackPending = $state(false);
+  let surrenderPending = $state(false);
   let lastSoundRequest = $state<string | null>(null);
   let resultSoundPlayed = $state(false);
 
@@ -33,6 +42,7 @@
 
   onMount(() => {
     let active = true;
+    resetRoomRealtimeState();
     (async () => {
       try {
         const current = await api.currentSession();
@@ -45,6 +55,7 @@
         }
         gameSnapshot.set(recovered);
         realtime.connect();
+        realtime.sync(recovered.room.id);
       } catch (caught) {
         if (caught instanceof ApiError && caught.code === 'UNAUTHORIZED') {
           await goto(resolve('/join/[code]', { code: routeCode }));
@@ -59,6 +70,7 @@
     return () => {
       active = false;
       realtime.disconnect();
+      resetRoomRealtimeState();
     };
   });
 
@@ -78,6 +90,7 @@
       if (snapshot.result.winnerId === snapshot.selfPlayerId) sounds.victory();
     }
     if (selfPlayer?.placementConfirmed) placementSubmitting = false;
+    if (snapshot?.room.status === 'FINISHED' || $gameError) surrenderPending = false;
   });
 
   function confirmPlacement(placements: ShipPlacement[]) {
@@ -118,6 +131,24 @@
       gameError.set({
         code: 'CONNECTION_REQUIRED',
         message: '실시간 연결이 복구된 뒤 다시 공격해 주세요.',
+        retryable: true
+      });
+    }
+  }
+
+  function surrender() {
+    if (!snapshot || surrenderPending || $socketStatus !== 'online') return;
+    surrenderPending = true;
+    gameError.set(null);
+    const sent = realtime.send({
+      type: 'game:surrender',
+      payload: { roomId: snapshot.room.id, playerId: snapshot.selfPlayerId }
+    });
+    if (!sent) {
+      surrenderPending = false;
+      gameError.set({
+        code: 'CONNECTION_REQUIRED',
+        message: '실시간 연결이 복구된 뒤 기권을 다시 요청해 주세요.',
         retryable: true
       });
     }
@@ -202,13 +233,21 @@
         <p>교전 순서 결정 중…</p>
       </div>
     {:else if snapshot.room.status === 'PLAYING'}
-      <BattleView {snapshot} pending={attackPending} onfire={fire} />
+      <BattleView
+        {snapshot}
+        pending={attackPending}
+        {surrenderPending}
+        onfire={fire}
+        onsurrender={surrender}
+      />
     {:else if snapshot.room.status === 'DISCONNECTED'}
       {#if snapshot.ownBoard}<BattleView
           {snapshot}
           pending={false}
           disabled={true}
           onfire={() => {}}
+          {surrenderPending}
+          onsurrender={surrender}
         />{:else}<FleetPlacement
           initialPlacement={snapshot.placement}
           confirmed={true}
@@ -225,6 +264,12 @@
         <button class="button" onclick={leaveRoom}><ArrowLeft size={16} /> 로비로 복귀</button>
       </section>
     {/if}
+    <ChatDrawer
+      roomId={snapshot.room.id}
+      selfPlayerId={snapshot.selfPlayerId}
+      online={$socketStatus === 'online'}
+      readOnly={snapshot.room.status === 'FINISHED' || snapshot.room.status === 'CANCELLED'}
+    />
   {/if}
 </div>
 
