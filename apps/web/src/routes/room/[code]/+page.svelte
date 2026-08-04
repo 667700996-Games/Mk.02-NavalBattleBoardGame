@@ -3,7 +3,7 @@
   import { goto } from '$app/navigation';
   import { resolve } from '$app/paths';
   import { onMount } from 'svelte';
-  import { ArrowLeft, Check, Radio, ShieldCheck, Wifi, WifiOff } from '@lucide/svelte';
+  import { ArrowLeft, Check, ShieldCheck, Unlock, Wifi, WifiOff } from '@lucide/svelte';
   import BattleView from '$lib/components/BattleView.svelte';
   import ChatDrawer from '$lib/components/ChatDrawer.svelte';
   import DisconnectedOverlay from '$lib/components/DisconnectedOverlay.svelte';
@@ -13,6 +13,7 @@
   import { api, ApiError } from '$lib/api';
   import { realtime } from '$lib/realtime';
   import { sounds } from '$lib/sound';
+  import { Button, Modal } from '$lib/ui';
   import {
     gameError,
     gameSnapshot,
@@ -29,6 +30,8 @@
   let placementSubmitting = $state(false);
   let attackPending = $state(false);
   let surrenderPending = $state(false);
+  let unreadyPending = $state(false);
+  let showUnready = $state(false);
   let lastSoundRequest = $state<string | null>(null);
   let resultSoundPlayed = $state(false);
 
@@ -90,6 +93,7 @@
       if (snapshot.result.winnerId === snapshot.selfPlayerId) sounds.victory();
     }
     if (selfPlayer?.placementConfirmed) placementSubmitting = false;
+    if (!selfPlayer?.placementConfirmed || $gameError) unreadyPending = false;
     if (snapshot?.room.status === 'FINISHED' || $gameError) surrenderPending = false;
   });
 
@@ -107,8 +111,34 @@
     });
     realtime.send({
       type: 'ships:confirm',
-      payload: { roomId: snapshot.room.id, playerId: snapshot.selfPlayerId }
+      payload: {
+        roomId: snapshot.room.id,
+        playerId: snapshot.selfPlayerId,
+        placements
+      }
     });
+  }
+
+  function cancelReady() {
+    if (!snapshot || unreadyPending || $socketStatus !== 'online') return;
+    unreadyPending = true;
+    gameError.set(null);
+    const sent = realtime.send({
+      type: 'player:unready',
+      payload: {
+        requestId: crypto.randomUUID(),
+        roomId: snapshot.room.id,
+        playerId: snapshot.selfPlayerId
+      }
+    });
+    if (!sent) {
+      unreadyPending = false;
+      gameError.set({
+        code: 'CONNECTION_REQUIRED',
+        message: '실시간 연결이 복구된 뒤 준비 취소를 다시 요청해 주세요.',
+        retryable: true
+      });
+    }
   }
 
   function fire(coordinate: Coordinate) {
@@ -201,7 +231,7 @@
 
     {#if snapshot.room.status === 'WAITING'}
       <WaitingView {snapshot} {inviteUrl} onleave={leaveRoom} />
-    {:else if snapshot.room.status === 'PLACEMENT'}
+    {:else if snapshot.room.status === 'PLACEMENT' || snapshot.room.status === 'READY'}
       {#if selfPlayer?.placementConfirmed}
         <section class="confirmed-wait panel">
           <div class="confirmed-icon"><Check size={29} /></div>
@@ -218,6 +248,13 @@
                 >
               </div>{/each}
           </div>
+          <Button
+            variant="ghost"
+            class="unready-button"
+            loading={unreadyPending}
+            disabled={$socketStatus !== 'online'}
+            onclick={() => (showUnready = true)}><Unlock size={15} /> 준비 완료 취소</Button
+          >
         </section>
       {:else}
         <FleetPlacement
@@ -227,11 +264,6 @@
           onconfirm={confirmPlacement}
         />
       {/if}
-    {:else if snapshot.room.status === 'READY'}
-      <div class="loading-view">
-        <Radio size={28} class="cyan" />
-        <p>교전 순서 결정 중…</p>
-      </div>
     {:else if snapshot.room.status === 'PLAYING'}
       <BattleView
         {snapshot}
@@ -268,10 +300,31 @@
       roomId={snapshot.room.id}
       selfPlayerId={snapshot.selfPlayerId}
       online={$socketStatus === 'online'}
-      readOnly={snapshot.room.status === 'FINISHED' || snapshot.room.status === 'CANCELLED'}
+      readOnly={snapshot.room.status === 'CANCELLED'}
     />
   {/if}
 </div>
+
+<Modal
+  open={showUnready}
+  eyebrow="DEPLOYMENT AUTHORIZATION"
+  title="준비 상태를 해제하시겠습니까?"
+  description="준비를 취소하면 함선 배치를 다시 수정할 수 있습니다."
+  onclose={() => (showUnready = false)}
+>
+  <div class="unready-modal-actions">
+    <Button variant="ghost" full onclick={() => (showUnready = false)}>계속 준비</Button>
+    <Button
+      variant="outline"
+      full
+      loading={unreadyPending}
+      onclick={() => {
+        showUnready = false;
+        cancelReady();
+      }}><Unlock size={15} /> 준비 취소</Button
+    >
+  </div>
+</Modal>
 
 <style>
   .room-page {
@@ -426,6 +479,16 @@
   .player-ready-list .ready + strong + em {
     color: var(--green-500);
   }
+  .confirmed-wait :global(.unready-button) {
+    margin: 22px auto 0;
+    color: var(--amber-500);
+  }
+  .unready-modal-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin-top: 22px;
+  }
   @media (max-width: 720px) {
     .room-page {
       padding-top: 14px;
@@ -449,6 +512,9 @@
       padding: 30px 16px;
     }
     .player-ready-list {
+      grid-template-columns: 1fr;
+    }
+    .unready-modal-actions {
       grid-template-columns: 1fr;
     }
   }

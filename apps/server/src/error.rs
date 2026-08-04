@@ -30,6 +30,8 @@ pub enum GameError {
     VersionConflict,
     #[error("턴 번호가 일치하지 않습니다.")]
     TurnConflict,
+    #[error("현재 턴의 제한 시간이 이미 만료되었습니다.")]
+    TurnExpired,
     #[error("방을 찾을 수 없습니다.")]
     RoomNotFound,
     #[error("이미 두 명이 참가한 방입니다.")]
@@ -44,6 +46,12 @@ pub enum GameError {
     NotHost,
     #[error("배치를 확정한 뒤에는 함선을 변경할 수 없습니다.")]
     PlacementLocked,
+    #[error("제출한 함선 배치가 서버에 저장된 배치와 일치하지 않습니다.")]
+    PlacementMismatch,
+    #[error("게임이 이미 시작되어 준비를 취소할 수 없습니다.")]
+    GameAlreadyStarted,
+    #[error("현재 준비 완료 상태가 아닙니다.")]
+    PlayerNotReady,
     #[error("닉네임은 2~16자의 문자, 숫자, 공백, 밑줄 또는 하이픈만 사용할 수 있습니다.")]
     InvalidNickname,
     #[error("방 이름은 2~32자로 입력해 주세요.")]
@@ -60,6 +68,10 @@ pub enum GameError {
     RateLimited,
     #[error("채팅 메시지는 1~300자의 일반 텍스트로 입력해 주세요.")]
     InvalidChatMessage,
+    #[error("허용되지 않은 빠른 명령입니다.")]
+    InvalidQuickCommand,
+    #[error("허용되지 않은 이모지입니다.")]
+    InvalidEmoji,
     #[error("데이터 저장소에 일시적인 문제가 발생했습니다.")]
     StorageUnavailable,
     #[error("서버에서 요청을 처리하지 못했습니다.")]
@@ -79,6 +91,7 @@ impl GameError {
             Self::NotYourTurn => "NOT_YOUR_TURN",
             Self::VersionConflict => "VERSION_CONFLICT",
             Self::TurnConflict => "TURN_CONFLICT",
+            Self::TurnExpired => "TURN_EXPIRED",
             Self::RoomNotFound => "ROOM_NOT_FOUND",
             Self::RoomFull => "ROOM_FULL",
             Self::RoomAlreadyStarted => "ROOM_ALREADY_STARTED",
@@ -86,6 +99,9 @@ impl GameError {
             Self::NotRoomMember => "NOT_ROOM_MEMBER",
             Self::NotHost => "NOT_HOST",
             Self::PlacementLocked => "PLACEMENT_LOCKED",
+            Self::PlacementMismatch => "PLACEMENT_MISMATCH",
+            Self::GameAlreadyStarted => "GAME_ALREADY_STARTED",
+            Self::PlayerNotReady => "PLAYER_NOT_READY",
             Self::InvalidNickname => "INVALID_NICKNAME",
             Self::InvalidRoomName => "INVALID_ROOM_NAME",
             Self::DuplicateNickname => "DUPLICATE_NICKNAME",
@@ -94,6 +110,8 @@ impl GameError {
             Self::InvalidRequest => "INVALID_REQUEST",
             Self::RateLimited => "RATE_LIMITED",
             Self::InvalidChatMessage => "INVALID_CHAT_MESSAGE",
+            Self::InvalidQuickCommand => "INVALID_QUICK_COMMAND",
+            Self::InvalidEmoji => "INVALID_EMOJI",
             Self::StorageUnavailable => "STORAGE_UNAVAILABLE",
             Self::Internal => "INTERNAL_ERROR",
         }
@@ -111,6 +129,7 @@ impl GameError {
             | Self::CoordinateAlreadyAttacked
             | Self::VersionConflict
             | Self::TurnConflict
+            | Self::TurnExpired
             | Self::PlacementLocked => StatusCode::CONFLICT,
             Self::RateLimited => StatusCode::TOO_MANY_REQUESTS,
             Self::StorageUnavailable => StatusCode::SERVICE_UNAVAILABLE,

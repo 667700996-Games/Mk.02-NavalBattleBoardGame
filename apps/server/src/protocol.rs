@@ -3,8 +3,9 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::domain::{
-    AttackRecord, ChatMessage, ChatTypingEvent, Coordinate, GameSnapshot, RoomSummary,
-    RoomVisibility, ShipPlacement, SurrenderRecord,
+    AttackRecord, ChatMessage, ChatMessageType, ChatTypingEvent, Coordinate, GameSnapshot,
+    GameTimerState, RoomSummary, RoomVisibility, ShipPlacement, SurrenderRecord, TurnExpiredRecord,
+    UnreadyRecord,
 };
 
 #[derive(Debug, Clone, Deserialize)]
@@ -84,6 +85,15 @@ pub struct PlaceShipsInput {
 pub struct ConfirmShipsInput {
     pub room_id: Uuid,
     pub player_id: Uuid,
+    pub placements: Vec<ShipPlacement>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct UnreadyInput {
+    pub request_id: Uuid,
+    pub room_id: Uuid,
+    pub player_id: Uuid,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -108,7 +118,11 @@ pub struct SurrenderInput {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ChatSendInput {
     pub room_id: Uuid,
-    pub message: String,
+    pub client_message_id: Uuid,
+    #[serde(rename = "type")]
+    pub message_type: ChatMessageType,
+    pub content: Option<String>,
+    pub command_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -146,6 +160,8 @@ pub enum ClientEvent {
     ShipsPlace(PlaceShipsInput),
     #[serde(rename = "ships:confirm")]
     ShipsConfirm(ConfirmShipsInput),
+    #[serde(rename = "player:unready")]
+    PlayerUnready(UnreadyInput),
     #[serde(rename = "attack:fire")]
     AttackFire(AttackFireInput),
     #[serde(rename = "game:surrender")]
@@ -177,10 +193,20 @@ pub enum ServerEvent {
     PlacementAccepted(GameSnapshot),
     #[serde(rename = "placement:rejected")]
     PlacementRejected(ProtocolError),
+    #[serde(rename = "player:unready:accepted")]
+    PlayerUnreadyAccepted(UnreadyRecord),
+    #[serde(rename = "player:unready:rejected")]
+    PlayerUnreadyRejected(ProtocolError),
     #[serde(rename = "game:started")]
     GameStarted(GameSnapshot),
     #[serde(rename = "turn:changed")]
     TurnChanged(GameSnapshot),
+    #[serde(rename = "turn:started")]
+    TurnStarted(GameTimerState),
+    #[serde(rename = "turn:expired")]
+    TurnExpired(TurnExpiredRecord),
+    #[serde(rename = "game:timer-sync")]
+    GameTimerSync(GameTimerState),
     #[serde(rename = "attack:result")]
     AttackResult(AttackRecord),
     #[serde(rename = "ship:sunk")]
@@ -193,6 +219,8 @@ pub enum ServerEvent {
     ChatMessage(ChatMessage),
     #[serde(rename = "chat:history")]
     ChatHistory(ChatHistoryResponse),
+    #[serde(rename = "chat:rejected")]
+    ChatRejected(ProtocolError),
     #[serde(rename = "chat:typing")]
     ChatTyping(ChatTypingEvent),
     #[serde(rename = "player:disconnected")]
@@ -244,7 +272,7 @@ pub struct MatchmakingResponse {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::ChatMessageKind;
+    use crate::domain::ChatMessageType;
 
     #[test]
     fn chat_and_surrender_contracts_use_the_public_camel_case_envelope() {
@@ -263,15 +291,43 @@ mod tests {
             }) if parsed_room == room_id && parsed_player == player_id
         ));
 
+        let client_message_id = Uuid::new_v4();
         let chat: ClientEvent = serde_json::from_value(serde_json::json!({
             "type": "chat:send",
-            "payload": { "roomId": room_id, "message": "Sector C4" }
+            "payload": {
+                "roomId": room_id,
+                "clientMessageId": client_message_id,
+                "type": "QUICK_COMMAND",
+                "content": null,
+                "commandId": "NICE_SHOT"
+            }
         }))
         .unwrap();
         assert!(matches!(
             chat,
-            ClientEvent::ChatSend(ChatSendInput { room_id: parsed_room, message })
-                if parsed_room == room_id && message == "Sector C4"
+            ClientEvent::ChatSend(ChatSendInput {
+                room_id: parsed_room,
+                client_message_id: parsed_message,
+                message_type: ChatMessageType::QuickCommand,
+                command_id: Some(command_id),
+                ..
+            }) if parsed_room == room_id && parsed_message == client_message_id && command_id == "NICE_SHOT"
+        ));
+
+        assert!(matches!(
+            serde_json::from_value::<ClientEvent>(serde_json::json!({
+                "type": "chat:send",
+                "payload": {
+                    "roomId": room_id,
+                    "clientMessageId": Uuid::new_v4(),
+                    "type": "QUICK_COMMAND",
+                    "content": null,
+                    "commandId": "ROOT_ACCESS"
+                }
+            }))
+            .unwrap(),
+            ClientEvent::ChatSend(ChatSendInput { command_id: Some(command_id), .. })
+                if command_id == "ROOT_ACCESS"
         ));
 
         let timestamp = Utc::now();
@@ -280,15 +336,16 @@ mod tests {
             room_id,
             player_id: Some(player_id),
             nickname: "Alpha".to_string(),
-            message: "Sector C4".to_string(),
+            content: "Sector C4".to_string(),
             timestamp,
-            kind: ChatMessageKind::Player,
+            message_type: ChatMessageType::Text,
+            command_id: None,
         });
         let serialized = serde_json::to_value(event).unwrap();
         assert_eq!(serialized["type"], "chat:message");
         assert_eq!(serialized["payload"]["roomId"], room_id.to_string());
         assert_eq!(serialized["payload"]["playerId"], player_id.to_string());
-        assert_eq!(serialized["payload"]["kind"], "PLAYER");
+        assert_eq!(serialized["payload"]["type"], "TEXT");
         assert!(serialized["payload"].get("message_id").is_none());
     }
 }

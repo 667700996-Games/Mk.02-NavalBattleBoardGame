@@ -1,5 +1,16 @@
 <script lang="ts">
-  import { Activity, Check, Crosshair, Flag, Radio, Shield, Waves, X } from '@lucide/svelte';
+  import { onDestroy, onMount } from 'svelte';
+  import {
+    Activity,
+    Check,
+    Clock3,
+    Crosshair,
+    Flag,
+    Radio,
+    Shield,
+    Waves,
+    X
+  } from '@lucide/svelte';
   import GridBoard from './GridBoard.svelte';
   import { sounds } from '$lib/sound';
   import { chatMessages } from '$lib/stores';
@@ -32,16 +43,56 @@
   let selected = $state<Coordinate | null>(null);
   let activeBoard = $state<'target' | 'own'>('target');
   let showSurrender = $state(false);
+  let clientNow = $state(Date.now());
+  let timerAnnouncement = $state('');
+  let announcedTurn = 0;
+  let announcedSeconds: number[] = [];
+  let clockTimer: ReturnType<typeof setInterval> | null = null;
 
   let myTurn = $derived(snapshot.currentPlayerId === snapshot.selfPlayerId);
   let me = $derived(snapshot.players.find((player) => player.id === snapshot.selfPlayerId));
   let opponent = $derived(snapshot.players.find((player) => player.id !== snapshot.selfPlayerId));
+  let serverOffsetMs = $derived(new Date(snapshot.serverTimestamp).getTime() - Date.now());
+  let serverNow = $derived(clientNow + serverOffsetMs);
+  let remainingSeconds = $derived.by(() => {
+    if (!snapshot.turnDeadlineAt) return null;
+    return Math.max(
+      0,
+      Math.ceil((new Date(snapshot.turnDeadlineAt).getTime() - serverNow) / 1_000)
+    );
+  });
+  let elapsedSeconds = $derived(
+    snapshot.gameStartedAt
+      ? Math.max(0, Math.floor((serverNow - new Date(snapshot.gameStartedAt).getTime()) / 1_000))
+      : 0
+  );
+  let timerProgress = $derived(
+    remainingSeconds === null || !snapshot.turnDurationSeconds
+      ? 1
+      : Math.max(0, Math.min(1, remainingSeconds / snapshot.turnDurationSeconds))
+  );
+  let timerTone = $derived(
+    remainingSeconds === null
+      ? 'normal'
+      : remainingSeconds === 0
+        ? 'expired'
+        : remainingSeconds <= 10
+          ? 'danger'
+          : remainingSeconds <= 20
+            ? 'warning'
+            : 'normal'
+  );
   let attackedKeys = $derived(
     new Set(snapshot.targetBoard?.attacks.map((attack) => coordinateKey(attack.coordinate)) ?? [])
   );
   let canFire = $derived(
     Boolean(
-      selected && myTurn && !pending && !disabled && !attackedKeys.has(coordinateKey(selected))
+      selected &&
+      myTurn &&
+      !pending &&
+      !disabled &&
+      remainingSeconds !== 0 &&
+      !attackedKeys.has(coordinateKey(selected))
     )
   );
   let sunkShips = $derived(
@@ -59,13 +110,20 @@
   );
   let systemLog = $derived(
     $chatMessages
-      .filter((message) => message.kind === 'SYSTEM')
+      .filter((message) => message.type === 'SYSTEM')
       .slice(-4)
       .reverse()
   );
 
   function choose(coordinate: Coordinate) {
-    if (!myTurn || pending || disabled || attackedKeys.has(coordinateKey(coordinate))) return;
+    if (
+      !myTurn ||
+      pending ||
+      disabled ||
+      remainingSeconds === 0 ||
+      attackedKeys.has(coordinateKey(coordinate))
+    )
+      return;
     selected = coordinate;
     sounds.select();
   }
@@ -75,6 +133,46 @@
     onfire(selected);
     selected = null;
   }
+
+  const formatClock = (seconds: number) => {
+    const hours = Math.floor(seconds / 3_600);
+    const minutes = Math.floor((seconds % 3_600) / 60);
+    const rest = seconds % 60;
+    return hours > 0
+      ? `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(rest).padStart(2, '0')}`
+      : `${String(minutes).padStart(2, '0')}:${String(rest).padStart(2, '0')}`;
+  };
+
+  $effect(() => {
+    const turn = snapshot.turnNumber ?? 0;
+    const seconds = remainingSeconds;
+    if (turn !== announcedTurn) {
+      announcedTurn = turn;
+      announcedSeconds = [];
+      timerAnnouncement = '';
+    }
+    if (
+      seconds === null ||
+      ![10, 5, 3, 2, 1, 0].includes(seconds) ||
+      announcedSeconds.includes(seconds)
+    ) {
+      return;
+    }
+    announcedSeconds.push(seconds);
+    if (myTurn && seconds > 0) sounds.countdown(seconds);
+    timerAnnouncement =
+      seconds === 0
+        ? '턴 제한 시간이 만료되었습니다. 서버 판정을 기다립니다.'
+        : `턴 제한 시간 ${seconds}초 남았습니다.`;
+  });
+
+  onMount(() => {
+    clockTimer = setInterval(() => (clientNow = Date.now()), 250);
+  });
+
+  onDestroy(() => {
+    if (clockTimer) clearInterval(clockTimer);
+  });
 </script>
 
 <section class="battle" aria-labelledby="battle-status">
@@ -91,6 +189,23 @@
             ? '공격 좌표를 지정하십시오'
             : `${opponent?.nickname ?? '상대'} 지휘관의 응답 대기`}
       </h1>
+    </div>
+    <div
+      class="timer-hud"
+      class:timer-hud--warning={timerTone === 'warning'}
+      class:timer-hud--danger={timerTone === 'danger'}
+      class:timer-hud--expired={timerTone === 'expired'}
+    >
+      <div class="turn-clock" style={`--timer-progress:${timerProgress * 360}deg`}>
+        <span><Clock3 size={13} /></span>
+        <strong>{remainingSeconds === null ? '∞' : formatClock(remainingSeconds)}</strong>
+        <small>{timerTone === 'expired' ? 'EXPIRED' : myTurn ? 'TURN LIMIT' : 'ENEMY TIME'}</small>
+      </div>
+      <div class="elapsed-clock">
+        <small>ELAPSED</small><strong>{formatClock(elapsedSeconds)}</strong><span
+          >TIMEOUT {me?.consecutiveTimeoutCount ?? 0}/3</span
+        >
+      </div>
     </div>
     <div class="turn-banner__side">
       <small>CURRENT COMMAND</small><strong class:cyan={myTurn}
@@ -111,6 +226,7 @@
       onclick={() => (showSurrender = true)}><Flag size={15} /></button
     >
   </header>
+  <span class="sr-only" aria-live="assertive">{timerAnnouncement}</span>
 
   <div class="mobile-tabs" role="tablist" aria-label="전투 보드 선택">
     <button
@@ -231,7 +347,7 @@
               <span>SYS</span>
               <Activity size={14} />
               <strong>SYSTEM EVENT</strong>
-              <em>{entry.message}</em>
+              <em>{entry.content}</em>
             </li>
           {/each}
           {#each battleLog as entry (coordinateKey(entry.coordinate))}
@@ -280,7 +396,7 @@
 <style>
   .turn-banner {
     display: grid;
-    grid-template-columns: auto 1fr auto;
+    grid-template-columns: auto minmax(0, 1fr) auto auto;
     align-items: center;
     gap: 16px;
     margin-bottom: 18px;
@@ -317,6 +433,97 @@
     display: grid;
     gap: 3px;
     text-align: right;
+  }
+  .timer-hud {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 10px;
+    border: 1px solid rgba(40, 223, 232, 0.16);
+    border-radius: 12px;
+    background: rgba(3, 16, 25, 0.55);
+    transition: 220ms var(--ease-out);
+  }
+  .turn-clock {
+    position: relative;
+    display: grid;
+    grid-template-columns: auto auto;
+    align-items: center;
+    gap: 0 5px;
+    min-width: 84px;
+    padding-left: 9px;
+  }
+  .turn-clock::before {
+    position: absolute;
+    left: 0;
+    width: 4px;
+    height: 32px;
+    content: '';
+    border-radius: 3px;
+    background: conic-gradient(var(--cyan-300) var(--timer-progress), rgba(40, 223, 232, 0.12) 0);
+    box-shadow: 0 0 9px rgba(40, 223, 232, 0.2);
+  }
+  .turn-clock span {
+    display: grid;
+    color: var(--cyan-300);
+  }
+  .turn-clock strong {
+    color: var(--cyan-200);
+    font-family: var(--font-display);
+    font-size: 17px;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.06em;
+  }
+  .turn-clock small {
+    grid-column: 1 / -1;
+    color: var(--ink-500);
+    font-family: var(--font-display);
+    font-size: 7px;
+    letter-spacing: 0.12em;
+  }
+  .elapsed-clock {
+    display: grid;
+    gap: 1px;
+    padding-left: 10px;
+    border-left: 1px solid var(--line);
+  }
+  .elapsed-clock small,
+  .elapsed-clock span {
+    color: var(--ink-500);
+    font-family: var(--font-display);
+    font-size: 7px;
+    letter-spacing: 0.1em;
+  }
+  .elapsed-clock strong {
+    color: var(--ink-200);
+    font-family: var(--font-display);
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+  }
+  .timer-hud--warning {
+    border-color: rgba(255, 180, 60, 0.28);
+  }
+  .timer-hud--warning .turn-clock strong,
+  .timer-hud--warning .turn-clock span {
+    color: var(--amber-500);
+  }
+  .timer-hud--danger,
+  .timer-hud--expired {
+    border-color: rgba(255, 83, 100, 0.3);
+  }
+  .timer-hud--danger .turn-clock strong,
+  .timer-hud--danger .turn-clock span,
+  .timer-hud--expired .turn-clock strong,
+  .timer-hud--expired .turn-clock span {
+    color: var(--red-400);
+  }
+  .timer-hud--danger .turn-clock {
+    animation: timer-pulse 1s ease-in-out infinite;
+  }
+  @keyframes timer-pulse {
+    50% {
+      opacity: 0.7;
+    }
   }
   .turn-banner__side strong {
     font-family: Rajdhani;
@@ -686,6 +893,12 @@
     margin-top: 20px;
   }
   @media (max-width: 1120px) {
+    .turn-banner {
+      grid-template-columns: auto minmax(0, 1fr) auto;
+    }
+    .turn-banner__side {
+      display: none;
+    }
     .battle-grid {
       grid-template-columns: 1fr 1fr;
     }
@@ -723,6 +936,14 @@
     }
   }
   @media (max-width: 720px) {
+    .turn-banner {
+      grid-template-columns: auto minmax(0, 1fr) auto;
+    }
+    .timer-hud {
+      grid-column: 1 / -1;
+      justify-content: center;
+      width: 100%;
+    }
     .turn-banner {
       grid-template-columns: auto 1fr auto;
       padding: 13px;

@@ -21,7 +21,7 @@ use uuid::Uuid;
 use crate::{
     api,
     config::{Settings, StorageMode},
-    domain::{ChatMessage, ChatTypingEvent, GameRoom, RoomVisibility, UserSession},
+    domain::{ChatMessage, ChatTypingEvent, GameRoom, GameTimerState, RoomVisibility, UserSession},
     error::GameError,
     protocol::{CreateRoomInput, ServerEvent},
     store::{GameStore, MemoryStore, PostgresRedisStore},
@@ -35,6 +35,7 @@ pub struct AppState {
     pub rooms: Arc<DashMap<Uuid, Arc<Mutex<GameRoom>>>>,
     pub hub: ConnectionHub,
     matchmaking: Arc<Mutex<VecDeque<QueuedSession>>>,
+    turn_timers: Arc<DashMap<Uuid, TurnTimerKey>>,
 }
 
 impl std::fmt::Debug for AppState {
@@ -51,6 +52,13 @@ impl std::fmt::Debug for AppState {
 struct QueuedSession {
     session: UserSession,
     queued_at: chrono::DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TurnTimerKey {
+    turn_number: u32,
+    active_player_id: Uuid,
+    deadline: chrono::DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -81,6 +89,7 @@ impl AppState {
             rooms: Arc::new(DashMap::new()),
             hub: ConnectionHub::default(),
             matchmaking: Arc::new(Mutex::new(VecDeque::new())),
+            turn_timers: Arc::new(DashMap::new()),
         };
         state.restore_active_rooms().await?;
         Ok(state)
@@ -93,6 +102,7 @@ impl AppState {
             rooms: Arc::new(DashMap::new()),
             hub: ConnectionHub::default(),
             matchmaking: Arc::new(Mutex::new(VecDeque::new())),
+            turn_timers: Arc::new(DashMap::new()),
         }
     }
 
@@ -148,21 +158,27 @@ impl AppState {
         if let Some(room) = self.rooms.get(&id) {
             return Ok(room.clone());
         }
-        let room = self
+        let mut room = self
             .store
             .room_by_id(id)
             .await?
             .ok_or(GameError::RoomNotFound)?;
+        let changed = room.ensure_runtime_state(self.settings.turn_duration_seconds, Utc::now());
         let deadlines: Vec<_> = room
             .disconnected_deadlines
             .iter()
             .map(|(player_id, deadline)| (*player_id, *deadline))
             .collect();
+        let turn_timer = room.timer_state(Utc::now());
+        if changed {
+            self.store.save_room(&room).await?;
+        }
         let room = Arc::new(Mutex::new(room));
         self.rooms.insert(id, room.clone());
         for (player_id, deadline) in deadlines {
             self.schedule_disconnect_expiry(id, player_id, deadline);
         }
+        self.schedule_turn_expiry(turn_timer);
         Ok(room)
     }
 
@@ -178,14 +194,20 @@ impl AppState {
                 return Ok(room);
             }
         }
-        let room = self
+        let mut room = self
             .store
             .room_by_code(&normalized)
             .await?
             .ok_or(GameError::RoomNotFound)?;
+        let changed = room.ensure_runtime_state(self.settings.turn_duration_seconds, Utc::now());
         let id = room.id;
+        let turn_timer = room.timer_state(Utc::now());
+        if changed {
+            self.store.save_room(&room).await?;
+        }
         let room = Arc::new(Mutex::new(room));
         self.rooms.insert(id, room.clone());
+        self.schedule_turn_expiry(turn_timer);
         Ok(room)
     }
 
@@ -250,6 +272,9 @@ impl AppState {
         room.leave(session.id)?;
         self.store.save_room(&room).await?;
         self.store.update_session_room(session.id, None).await?;
+        if room.game.as_ref().is_some_and(|game| game.result.is_some()) {
+            self.cancel_turn_expiry(room.id);
+        }
         Ok(room.clone())
     }
 
@@ -307,6 +332,14 @@ impl AppState {
         }
     }
 
+    pub fn broadcast_timer_state(&self, room: &GameRoom, event: fn(GameTimerState) -> ServerEvent) {
+        if let Some(timer) = room.timer_state(Utc::now()) {
+            for player in &room.players {
+                self.hub.send(player.session_id, event(timer.clone()));
+            }
+        }
+    }
+
     pub async fn restore_connection(&self, session: &UserSession) {
         let Some(room_id) = session.current_room_id else {
             return;
@@ -359,17 +392,24 @@ impl AppState {
     }
 
     async fn restore_active_rooms(&self) -> Result<(), GameError> {
-        for room in self.store.active_rooms().await? {
+        for mut room in self.store.active_rooms().await? {
             let room_id = room.id;
+            let changed =
+                room.ensure_runtime_state(self.settings.turn_duration_seconds, Utc::now());
             let deadlines: Vec<_> = room
                 .disconnected_deadlines
                 .iter()
                 .map(|(player_id, deadline)| (*player_id, *deadline))
                 .collect();
+            let turn_timer = room.timer_state(Utc::now());
+            if changed {
+                self.store.save_room(&room).await?;
+            }
             self.rooms.insert(room_id, Arc::new(Mutex::new(room)));
             for (player_id, deadline) in deadlines {
                 self.schedule_disconnect_expiry(room_id, player_id, deadline);
             }
+            self.schedule_turn_expiry(turn_timer);
         }
         Ok(())
     }
@@ -393,12 +433,100 @@ impl AppState {
                 .unwrap_or(false)
             {
                 let _ = state.store.save_room(&room).await;
+                state.cancel_turn_expiry(room.id);
                 state.broadcast_latest_chat_message(&room);
                 state
                     .broadcast_snapshots(&room, SnapshotEvent::GameFinished)
                     .await;
             }
         });
+    }
+
+    pub fn schedule_turn_expiry(&self, timer: Option<GameTimerState>) {
+        let Some(timer) = timer else {
+            return;
+        };
+        let Some(deadline) = timer.turn_deadline_at else {
+            self.cancel_turn_expiry(timer.game_id);
+            return;
+        };
+        let key = TurnTimerKey {
+            turn_number: timer.turn_number,
+            active_player_id: timer.active_player_id,
+            deadline,
+        };
+        if self
+            .turn_timers
+            .get(&timer.game_id)
+            .is_some_and(|current| *current == key)
+        {
+            return;
+        }
+        self.turn_timers.insert(timer.game_id, key.clone());
+        let state = self.clone();
+        tokio::spawn(async move {
+            let delay = (deadline - Utc::now()).to_std().unwrap_or_default();
+            tokio::time::sleep(delay).await;
+            let still_current = state
+                .turn_timers
+                .get(&timer.game_id)
+                .is_some_and(|current| *current == key);
+            if !still_current {
+                return;
+            }
+            let Ok(room_ref) = state.room(timer.game_id).await else {
+                state.cancel_turn_expiry(timer.game_id);
+                return;
+            };
+            let mut room = room_ref.lock().await;
+            let record = room
+                .expire_turn(
+                    key.turn_number,
+                    key.active_player_id,
+                    key.deadline,
+                    Utc::now(),
+                )
+                .unwrap_or(None);
+            let Some(record) = record else {
+                if state
+                    .turn_timers
+                    .get(&timer.game_id)
+                    .is_some_and(|current| *current == key)
+                {
+                    state.cancel_turn_expiry(timer.game_id);
+                }
+                return;
+            };
+            let finished = record.winner_id.is_some();
+            let next_timer = room.timer_state(Utc::now());
+            let _ = state.store.save_room(&room).await;
+            for player in &room.players {
+                state
+                    .hub
+                    .send(player.session_id, ServerEvent::TurnExpired(record.clone()));
+            }
+            state.broadcast_latest_chat_message(&room);
+            state
+                .broadcast_snapshots(
+                    &room,
+                    if finished {
+                        SnapshotEvent::GameFinished
+                    } else {
+                        SnapshotEvent::TurnChanged
+                    },
+                )
+                .await;
+            if finished {
+                state.cancel_turn_expiry(timer.game_id);
+            } else {
+                state.broadcast_timer_state(&room, ServerEvent::TurnStarted);
+                state.schedule_turn_expiry(next_timer);
+            }
+        });
+    }
+
+    pub fn cancel_turn_expiry(&self, room_id: Uuid) {
+        self.turn_timers.remove(&room_id);
     }
 
     pub async fn enqueue_matchmaking(
@@ -568,4 +696,98 @@ pub fn build_router(state: AppState) -> Router {
         .layer(TraceLayer::new_for_http())
         .layer(cors)
         .with_state(state)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::{Coordinate, Orientation, RoomStatus, ShipKind, ShipPlacement};
+
+    fn session(nickname: &str) -> UserSession {
+        let now = Utc::now();
+        UserSession {
+            id: Uuid::new_v4(),
+            nickname: nickname.to_string(),
+            token_hash: Uuid::new_v4().to_string(),
+            created_at: now,
+            last_seen_at: now,
+            current_room_id: None,
+        }
+    }
+
+    fn fleet(first_row: u8) -> Vec<ShipPlacement> {
+        [
+            (ShipKind::Carrier, 0_u8),
+            (ShipKind::Battleship, 1),
+            (ShipKind::Cruiser, 2),
+            (ShipKind::Submarine, 3),
+            (ShipKind::Destroyer, 4),
+        ]
+        .into_iter()
+        .map(|(kind, offset)| ShipPlacement {
+            kind,
+            origin: Coordinate {
+                row: first_row + offset,
+                col: 0,
+            },
+            orientation: Orientation::Horizontal,
+        })
+        .collect()
+    }
+
+    #[tokio::test]
+    async fn restart_reclaims_an_already_expired_persisted_turn_once() {
+        let first = session("Alpha");
+        let second = session("Bravo");
+        let mut room = GameRoom::new(
+            "RST234".to_string(),
+            "Restart recovery".to_string(),
+            RoomVisibility::Private,
+            &first,
+        )
+        .unwrap();
+        room.join(&second).unwrap();
+        room.place_ships(first.id, fleet(0)).unwrap();
+        room.place_ships(second.id, fleet(5)).unwrap();
+        room.confirm_placement(first.id, &fleet(0), 1).unwrap();
+        room.confirm_placement(second.id, &fleet(5), 1).unwrap();
+        let original_turn = room.game.as_ref().unwrap().turn_number;
+        room.game.as_mut().unwrap().turn_deadline_at =
+            Some(Utc::now() - chrono::Duration::seconds(1));
+
+        let store = Arc::new(MemoryStore::default());
+        store.save_room(&room).await.unwrap();
+        let settings = Settings {
+            storage_mode: StorageMode::Memory,
+            turn_duration_seconds: 1,
+            ..Settings::default()
+        };
+        let state = AppState::with_store(settings, store.clone());
+        state.restore_active_rooms().await.unwrap();
+
+        for _ in 0..40 {
+            let recovered = store.room_by_id(room.id).await.unwrap().unwrap();
+            if recovered.game.as_ref().unwrap().turn_number > original_turn {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+
+        let recovered = store.room_by_id(room.id).await.unwrap().unwrap();
+        assert_eq!(recovered.status, RoomStatus::Playing);
+        assert_eq!(
+            recovered.game.as_ref().unwrap().turn_number,
+            original_turn + 1
+        );
+        assert_eq!(
+            recovered
+                .game
+                .as_ref()
+                .unwrap()
+                .total_timeout_counts
+                .values()
+                .sum::<u32>(),
+            1
+        );
+    }
 }

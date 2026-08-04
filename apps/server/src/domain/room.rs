@@ -7,10 +7,64 @@ use uuid::Uuid;
 use crate::error::GameError;
 
 use super::{
-    AttackOutcome, AttackRecord, Board, ChatMessage, ChatMessageKind, ChatTypingEvent,
-    ConnectionState, Coordinate, FinishReason, Game, GameResult, MAX_CHAT_HISTORY,
-    MAX_CHAT_MESSAGE_CHARS, Player, ShipKind, ShipPlacement, SurrenderRecord, UserSession,
+    ALLOWED_EMOJIS, AttackOutcome, AttackRecord, Board, ChatMessage, ChatMessageType,
+    ChatTypingEvent, ConnectionState, Coordinate, FinishReason, Game, GameResult, MAX_CHAT_HISTORY,
+    MAX_CHAT_MESSAGE_CHARS, Player, PlayerReadyState, QuickCommandId, ShipKind, ShipPlacement,
+    SurrenderRecord, TurnExpiration, UserSession,
 };
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UnreadyRecord {
+    pub request_id: Uuid,
+    pub room_id: Uuid,
+    pub player_id: Uuid,
+    pub version: u64,
+    pub accepted_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GameTimerState {
+    pub game_id: Uuid,
+    pub turn_number: u32,
+    pub active_player_id: Uuid,
+    pub game_started_at: DateTime<Utc>,
+    pub turn_started_at: Option<DateTime<Utc>>,
+    pub turn_deadline_at: Option<DateTime<Utc>>,
+    pub turn_duration_seconds: u32,
+    pub server_timestamp: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TurnExpiredRecord {
+    pub game_id: Uuid,
+    pub expired_turn_number: u32,
+    pub expired_player_id: Uuid,
+    pub next_player_id: Option<Uuid>,
+    pub consecutive_timeout_count: u8,
+    pub total_timeout_count: u32,
+    pub winner_id: Option<Uuid>,
+    pub expired_at: DateTime<Utc>,
+    pub server_timestamp: DateTime<Utc>,
+}
+
+impl TurnExpiredRecord {
+    fn from_expiration(room_id: Uuid, expiration: TurnExpiration, now: DateTime<Utc>) -> Self {
+        Self {
+            game_id: room_id,
+            expired_turn_number: expiration.expired_turn_number,
+            expired_player_id: expiration.expired_player_id,
+            next_player_id: expiration.next_player_id,
+            consecutive_timeout_count: expiration.consecutive_timeout_count,
+            total_timeout_count: expiration.total_timeout_count,
+            winner_id: expiration.winner_id,
+            expired_at: expiration.expired_at,
+            server_timestamp: now,
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
@@ -50,8 +104,14 @@ pub struct GameRoom {
     pub rematch_requests: HashSet<Uuid>,
     #[serde(default)]
     pub chat_messages: Vec<ChatMessage>,
+    #[serde(default)]
+    pub unready_resolutions: HashMap<Uuid, UnreadyRecord>,
     #[serde(skip, default)]
     chat_rate_windows: HashMap<Uuid, Vec<DateTime<Utc>>>,
+    #[serde(skip, default)]
+    chat_blocked_until: HashMap<Uuid, DateTime<Utc>>,
+    #[serde(skip, default)]
+    last_quick_commands: HashMap<Uuid, (QuickCommandId, DateTime<Utc>)>,
 }
 
 impl GameRoom {
@@ -79,7 +139,10 @@ impl GameRoom {
             disconnected_deadlines: HashMap::new(),
             rematch_requests: HashSet::new(),
             chat_messages: Vec::new(),
+            unready_resolutions: HashMap::new(),
             chat_rate_windows: HashMap::new(),
+            chat_blocked_until: HashMap::new(),
+            last_quick_commands: HashMap::new(),
         };
         room.push_system_message(format!(
             "{} 지휘관이 작전실에 입장했습니다.",
@@ -223,13 +286,31 @@ impl GameRoom {
         Ok(())
     }
 
-    pub fn confirm_placement(&mut self, session_id: Uuid) -> Result<bool, GameError> {
-        if self.status != RoomStatus::Placement {
+    pub fn confirm_placement(
+        &mut self,
+        session_id: Uuid,
+        submitted_placements: &[ShipPlacement],
+        turn_duration_seconds: u32,
+    ) -> Result<bool, GameError> {
+        if !matches!(self.status, RoomStatus::Placement | RoomStatus::Ready) {
             return Err(GameError::InvalidState);
         }
         let player_id = self.player_for_session(session_id)?.id;
-        if !self.pending_placements.contains_key(&player_id) {
-            return Err(GameError::IncompleteFleet);
+        let stored_placements = self
+            .pending_placements
+            .get(&player_id)
+            .ok_or(GameError::IncompleteFleet)?;
+        Board::from_placements(submitted_placements)?;
+        if stored_placements != submitted_placements {
+            return Err(GameError::PlacementMismatch);
+        }
+        if self
+            .players
+            .iter()
+            .find(|player| player.id == player_id)
+            .is_some_and(|player| player.ready_state == PlayerReadyState::Ready)
+        {
+            return Ok(false);
         }
         if let Some(player) = self
             .players
@@ -238,6 +319,7 @@ impl GameRoom {
         {
             player.placement_confirmed = true;
             player.is_ready = true;
+            player.ready_state = PlayerReadyState::Ready;
         }
         self.bump();
 
@@ -253,13 +335,77 @@ impl GameRoom {
                     .ok_or(GameError::IncompleteFleet)?;
                 boards.insert(player.id, Board::from_placements(placements)?);
             }
-            self.game = Some(Game::new(boards)?);
+            self.game = Some(Game::new_with_turn_duration(boards, turn_duration_seconds)?);
             self.status = RoomStatus::Playing;
             self.pending_placements.clear();
             self.bump();
             self.push_system_message("게임이 시작되었습니다. 전투 채널을 개방합니다.");
         }
         Ok(all_ready)
+    }
+
+    pub fn unready(
+        &mut self,
+        session_id: Uuid,
+        request_id: Uuid,
+        claimed_player_id: Uuid,
+    ) -> Result<(UnreadyRecord, bool), GameError> {
+        let player = self.player_for_session(session_id)?.clone();
+        if player.id != claimed_player_id {
+            return Err(GameError::Unauthorized);
+        }
+        if let Some(previous) = self.unready_resolutions.get(&request_id) {
+            if previous.player_id == player.id {
+                return Ok((previous.clone(), true));
+            }
+            return Err(GameError::Unauthorized);
+        }
+        if matches!(self.status, RoomStatus::Playing | RoomStatus::Finished) || self.game.is_some()
+        {
+            return Err(GameError::GameAlreadyStarted);
+        }
+        if !matches!(self.status, RoomStatus::Placement | RoomStatus::Ready) {
+            return Err(GameError::InvalidState);
+        }
+        if player.ready_state != PlayerReadyState::Ready || !player.placement_confirmed {
+            return Err(GameError::PlayerNotReady);
+        }
+        if let Some(player) = self
+            .players
+            .iter_mut()
+            .find(|candidate| candidate.id == claimed_player_id)
+        {
+            player.ready_state = PlayerReadyState::NotReady;
+            player.placement_confirmed = false;
+            player.is_ready = false;
+        }
+        if self.status == RoomStatus::Ready {
+            self.status = RoomStatus::Placement;
+        }
+        self.bump();
+        let record = UnreadyRecord {
+            request_id,
+            room_id: self.id,
+            player_id: claimed_player_id,
+            version: self.version,
+            accepted_at: Utc::now(),
+        };
+        if self.unready_resolutions.len() >= 64 {
+            if let Some(oldest_request) = self
+                .unready_resolutions
+                .iter()
+                .min_by_key(|(_, resolution)| resolution.accepted_at)
+                .map(|(request_id, _)| *request_id)
+            {
+                self.unready_resolutions.remove(&oldest_request);
+            }
+        }
+        self.unready_resolutions.insert(request_id, record.clone());
+        self.push_system_message(format!(
+            "{} 지휘관이 준비 상태를 해제하고 함선 배치를 다시 조정합니다.",
+            player.nickname
+        ));
+        Ok((record, false))
     }
 
     pub fn fire(
@@ -312,6 +458,103 @@ impl GameRoom {
             ));
         }
         Ok((record, false))
+    }
+
+    pub fn ensure_runtime_state(&mut self, turn_duration_seconds: u32, now: DateTime<Utc>) -> bool {
+        let mut changed = false;
+        for player in &mut self.players {
+            let expected = if player.placement_confirmed {
+                PlayerReadyState::Ready
+            } else {
+                PlayerReadyState::NotReady
+            };
+            if player.ready_state != expected {
+                player.ready_state = expected;
+                changed = true;
+            }
+        }
+        if self.is_active_battle()
+            && self
+                .game
+                .as_mut()
+                .is_some_and(|game| game.ensure_turn_timer(turn_duration_seconds, now))
+        {
+            changed = true;
+        }
+        if changed {
+            self.updated_at = now;
+        }
+        changed
+    }
+
+    pub fn timer_state(&self, now: DateTime<Utc>) -> Option<GameTimerState> {
+        let game = self.game.as_ref()?;
+        if game.result.is_some() {
+            return None;
+        }
+        Some(GameTimerState {
+            game_id: self.id,
+            turn_number: game.turn_number,
+            active_player_id: game.current_player_id,
+            game_started_at: game.started_at,
+            turn_started_at: game.turn_started_at,
+            turn_deadline_at: game.turn_deadline_at,
+            turn_duration_seconds: game.turn_duration_seconds,
+            server_timestamp: now,
+        })
+    }
+
+    pub fn expire_turn(
+        &mut self,
+        expected_turn: u32,
+        expected_player_id: Uuid,
+        expected_deadline: DateTime<Utc>,
+        now: DateTime<Utc>,
+    ) -> Result<Option<TurnExpiredRecord>, GameError> {
+        if !self.is_active_battle() {
+            return Ok(None);
+        }
+        let expiration = self
+            .game
+            .as_mut()
+            .ok_or(GameError::InvalidState)?
+            .expire_turn(expected_turn, expected_player_id, expected_deadline, now)?;
+        let Some(expiration) = expiration else {
+            return Ok(None);
+        };
+        if expiration.winner_id.is_some() {
+            self.status = RoomStatus::Finished;
+            self.resume_status = None;
+            self.disconnected_deadlines.clear();
+        }
+        self.bump();
+        let nickname = self
+            .players
+            .iter()
+            .find(|player| player.id == expiration.expired_player_id)
+            .map(|player| player.nickname.as_str())
+            .unwrap_or("상대");
+        let message = if expiration.winner_id.is_some() {
+            format!(
+                "{} 지휘관이 3회 연속 시간 초과로 자동 기권 처리되었습니다.",
+                nickname
+            )
+        } else {
+            format!(
+                "{} 지휘관의 작전 시간이 만료되었습니다. 공격 기회가 소멸했습니다.",
+                nickname
+            )
+        };
+        self.push_system_message(message);
+        Ok(Some(TurnExpiredRecord::from_expiration(
+            self.id, expiration, now,
+        )))
+    }
+
+    fn is_active_battle(&self) -> bool {
+        self.status == RoomStatus::Playing
+            || (self.status == RoomStatus::Disconnected
+                && self.resume_status == Some(RoomStatus::Playing))
     }
 
     pub fn disconnect(
@@ -450,9 +693,11 @@ impl GameRoom {
             self.game = None;
             self.pending_placements.clear();
             self.rematch_requests.clear();
+            self.unready_resolutions.clear();
             for player in &mut self.players {
                 player.placement_confirmed = false;
                 player.is_ready = false;
+                player.ready_state = PlayerReadyState::NotReady;
             }
             self.status = RoomStatus::Placement;
         }
@@ -514,17 +759,30 @@ impl GameRoom {
     pub fn send_chat(
         &mut self,
         session_id: Uuid,
-        message: String,
-    ) -> Result<ChatMessage, GameError> {
-        self.send_chat_at(session_id, message, Utc::now())
+        client_message_id: Uuid,
+        message_type: ChatMessageType,
+        content: Option<String>,
+        command_id: Option<QuickCommandId>,
+    ) -> Result<(ChatMessage, bool), GameError> {
+        self.send_chat_at(
+            session_id,
+            client_message_id,
+            message_type,
+            content,
+            command_id,
+            Utc::now(),
+        )
     }
 
     fn send_chat_at(
         &mut self,
         session_id: Uuid,
-        message: String,
+        client_message_id: Uuid,
+        message_type: ChatMessageType,
+        content: Option<String>,
+        command_id: Option<QuickCommandId>,
         now: DateTime<Utc>,
-    ) -> Result<ChatMessage, GameError> {
+    ) -> Result<(ChatMessage, bool), GameError> {
         if !matches!(
             self.status,
             RoomStatus::Waiting
@@ -532,32 +790,85 @@ impl GameRoom {
                 | RoomStatus::Ready
                 | RoomStatus::Playing
                 | RoomStatus::Disconnected
+                | RoomStatus::Finished
         ) {
             return Err(GameError::InvalidState);
         }
         let player = self.player_for_session(session_id)?.clone();
-        let normalized = normalize_chat_message(message)?;
-        let window = self.chat_rate_windows.entry(player.id).or_default();
-        window.retain(|sent_at| now.signed_duration_since(*sent_at).num_seconds() < 5);
-        if window.len() >= 5
-            || window
-                .last()
-                .is_some_and(|sent_at| now.signed_duration_since(*sent_at).num_milliseconds() < 400)
+        if let Some(previous) = self
+            .chat_messages
+            .iter()
+            .find(|message| message.message_id == client_message_id)
+        {
+            if previous.player_id == Some(player.id) {
+                return Ok((previous.clone(), true));
+            }
+            return Err(GameError::Unauthorized);
+        }
+        let (normalized, resolved_command) =
+            match message_type {
+                ChatMessageType::Text => (
+                    normalize_chat_message(content.ok_or(GameError::InvalidChatMessage)?)?,
+                    None,
+                ),
+                ChatMessageType::Emoji => {
+                    let emoji = content.ok_or(GameError::InvalidEmoji)?;
+                    if command_id.is_some() || !ALLOWED_EMOJIS.contains(&emoji.as_str()) {
+                        return Err(GameError::InvalidEmoji);
+                    }
+                    (emoji, None)
+                }
+                ChatMessageType::QuickCommand => {
+                    if content.is_some() {
+                        return Err(GameError::InvalidQuickCommand);
+                    }
+                    let command = command_id.ok_or(GameError::InvalidQuickCommand)?;
+                    if self.last_quick_commands.get(&player.id).is_some_and(
+                        |(previous, sent_at)| {
+                            *previous == command
+                                && now.signed_duration_since(*sent_at).num_milliseconds() < 2_000
+                        },
+                    ) {
+                        return Err(GameError::RateLimited);
+                    }
+                    (command.label().to_string(), Some(command))
+                }
+                ChatMessageType::System => return Err(GameError::InvalidChatMessage),
+            };
+        if self
+            .chat_blocked_until
+            .get(&player.id)
+            .is_some_and(|blocked_until| *blocked_until > now)
         {
             return Err(GameError::RateLimited);
         }
+        let window = self.chat_rate_windows.entry(player.id).or_default();
+        window.retain(|sent_at| now.signed_duration_since(*sent_at).num_seconds() < 10);
+        let recent_two_seconds = window
+            .iter()
+            .filter(|sent_at| now.signed_duration_since(**sent_at).num_milliseconds() < 2_000)
+            .count();
+        if window.len() >= 8 || recent_two_seconds >= 3 {
+            self.chat_blocked_until
+                .insert(player.id, now + Duration::seconds(3));
+            return Err(GameError::RateLimited);
+        }
         window.push(now);
+        if let Some(command) = resolved_command {
+            self.last_quick_commands.insert(player.id, (command, now));
+        }
         let message = ChatMessage {
-            message_id: Uuid::new_v4(),
+            message_id: client_message_id,
             room_id: self.id,
             player_id: Some(player.id),
             nickname: player.nickname,
-            message: normalized,
+            content: normalized,
             timestamp: now,
-            kind: ChatMessageKind::Player,
+            message_type,
+            command_id: resolved_command,
         };
         self.append_chat_message(message.clone());
-        Ok(message)
+        Ok((message, false))
     }
 
     pub fn chat_history(&self, session_id: Uuid) -> Result<Vec<ChatMessage>, GameError> {
@@ -570,7 +881,7 @@ impl GameRoom {
         session_id: Uuid,
         is_typing: bool,
     ) -> Result<ChatTypingEvent, GameError> {
-        if matches!(self.status, RoomStatus::Finished | RoomStatus::Cancelled) {
+        if self.status == RoomStatus::Cancelled {
             return Err(GameError::InvalidState);
         }
         let player = self.player_for_session(session_id)?;
@@ -588,9 +899,10 @@ impl GameRoom {
             room_id: self.id,
             player_id: None,
             nickname: "SYSTEM".to_string(),
-            message: message.into(),
+            content: message.into(),
             timestamp: Utc::now(),
-            kind: ChatMessageKind::System,
+            message_type: ChatMessageType::System,
+            command_id: None,
         };
         self.append_chat_message(message.clone());
         message
@@ -624,7 +936,11 @@ impl GameRoom {
 
     pub fn snapshot_for(&self, session_id: Uuid) -> Result<GameSnapshot, GameError> {
         let me = self.player_for_session(session_id)?;
-        let players = self.players.iter().map(PlayerPublic::from).collect();
+        let players = self
+            .players
+            .iter()
+            .map(|player| PlayerPublic::from_player(player, self.game.as_ref()))
+            .collect();
         let (own_board, target_board, turn_number, current_player_id, result) =
             if let Some(game) = &self.game {
                 let board = game.boards.get(&me.id).ok_or(GameError::InvalidState)?;
@@ -684,6 +1000,15 @@ impl GameRoom {
             reconnect_deadline: self.disconnected_deadlines.values().min().copied(),
             rematch_requested_by: self.rematch_requests.iter().copied().collect(),
             placement: self.pending_placements.get(&me.id).cloned(),
+            game_started_at: self.game.as_ref().map(|game| game.started_at),
+            game_finished_at: self
+                .game
+                .as_ref()
+                .and_then(|game| game.result.as_ref().map(|result| result.finished_at)),
+            turn_started_at: self.game.as_ref().and_then(|game| game.turn_started_at),
+            turn_deadline_at: self.game.as_ref().and_then(|game| game.turn_deadline_at),
+            turn_duration_seconds: self.game.as_ref().map(|game| game.turn_duration_seconds),
+            server_timestamp: Utc::now(),
         })
     }
 }
@@ -732,17 +1057,27 @@ pub struct PlayerPublic {
     pub is_host: bool,
     pub is_ready: bool,
     pub placement_confirmed: bool,
+    pub ready_state: PlayerReadyState,
+    pub consecutive_timeout_count: u8,
+    pub total_timeout_count: u32,
     pub connection_state: ConnectionState,
 }
 
-impl From<&Player> for PlayerPublic {
-    fn from(player: &Player) -> Self {
+impl PlayerPublic {
+    fn from_player(player: &Player, game: Option<&Game>) -> Self {
         Self {
             id: player.id,
             nickname: player.nickname.clone(),
             is_host: player.is_host,
             is_ready: player.is_ready,
             placement_confirmed: player.placement_confirmed,
+            ready_state: player.ready_state,
+            consecutive_timeout_count: game
+                .and_then(|game| game.consecutive_timeout_counts.get(&player.id).copied())
+                .unwrap_or_default(),
+            total_timeout_count: game
+                .and_then(|game| game.total_timeout_counts.get(&player.id).copied())
+                .unwrap_or_default(),
             connection_state: player.connection_state,
         }
     }
@@ -763,6 +1098,12 @@ pub struct GameSnapshot {
     pub reconnect_deadline: Option<DateTime<Utc>>,
     pub rematch_requested_by: Vec<Uuid>,
     pub placement: Option<Vec<ShipPlacement>>,
+    pub game_started_at: Option<DateTime<Utc>>,
+    pub game_finished_at: Option<DateTime<Utc>>,
+    pub turn_started_at: Option<DateTime<Utc>>,
+    pub turn_deadline_at: Option<DateTime<Utc>>,
+    pub turn_duration_seconds: Option<u32>,
+    pub server_timestamp: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -877,8 +1218,8 @@ mod tests {
         room.join(&second).unwrap();
         room.place_ships(first.id, fleet(0)).unwrap();
         room.place_ships(second.id, fleet(5)).unwrap();
-        assert!(!room.confirm_placement(first.id).unwrap());
-        assert!(room.confirm_placement(second.id).unwrap());
+        assert!(!room.confirm_placement(first.id, &fleet(0), 60).unwrap());
+        assert!(room.confirm_placement(second.id, &fleet(5), 60).unwrap());
         (room, first, second)
     }
 
@@ -897,13 +1238,13 @@ mod tests {
         room.join(&guest).unwrap();
         assert_eq!(room.status, RoomStatus::Placement);
         assert_eq!(
-            room.confirm_placement(host.id).unwrap_err(),
+            room.confirm_placement(host.id, &fleet(0), 60).unwrap_err(),
             GameError::IncompleteFleet
         );
         room.place_ships(host.id, fleet(0)).unwrap();
         room.place_ships(guest.id, fleet(5)).unwrap();
-        assert!(!room.confirm_placement(host.id).unwrap());
-        assert!(room.confirm_placement(guest.id).unwrap());
+        assert!(!room.confirm_placement(host.id, &fleet(0), 60).unwrap());
+        assert!(room.confirm_placement(guest.id, &fleet(5), 60).unwrap());
         assert_eq!(room.status, RoomStatus::Playing);
         assert!(room.game.is_some());
         assert_eq!(
@@ -1029,17 +1370,87 @@ mod tests {
             room.chat_messages
                 .last()
                 .unwrap()
-                .message
+                .content
                 .contains("Commander Alpha surrendered")
         );
         assert_eq!(
             room.surrender(first.id, first_player_id).unwrap_err(),
             GameError::InvalidState
         );
+        let (post_game_signal, duplicate) = room
+            .send_chat(
+                second.id,
+                Uuid::new_v4(),
+                ChatMessageType::QuickCommand,
+                None,
+                Some(QuickCommandId::GoodGame),
+            )
+            .unwrap();
+        assert!(!duplicate);
+        assert_eq!(post_game_signal.content, "굿게임");
     }
 
     #[test]
-    fn chat_is_plain_text_rate_limited_room_scoped_and_bounded() {
+    fn unready_is_editable_idempotent_and_loses_the_start_race() {
+        let host = session("Alpha");
+        let guest = session("Bravo");
+        let mut room = GameRoom::new(
+            "ABC234".to_string(),
+            "Test operation".to_string(),
+            RoomVisibility::Private,
+            &host,
+        )
+        .unwrap();
+        room.join(&guest).unwrap();
+        room.place_ships(host.id, fleet(0)).unwrap();
+        room.place_ships(guest.id, fleet(5)).unwrap();
+        assert!(!room.confirm_placement(host.id, &fleet(0), 60).unwrap());
+        let host_player_id = room.player_for_session(host.id).unwrap().id;
+        let request_id = Uuid::new_v4();
+        let (accepted, duplicate) = room.unready(host.id, request_id, host_player_id).unwrap();
+        assert!(!duplicate);
+        assert_eq!(accepted.player_id, host_player_id);
+        assert_eq!(room.status, RoomStatus::Placement);
+        assert_eq!(
+            room.player_for_session(host.id).unwrap().ready_state,
+            PlayerReadyState::NotReady
+        );
+        assert!(room.place_ships(host.id, fleet(0)).is_ok());
+        let (replayed, duplicate) = room.unready(host.id, request_id, host_player_id).unwrap();
+        assert!(duplicate);
+        assert_eq!(replayed, accepted);
+
+        assert!(!room.confirm_placement(guest.id, &fleet(5), 60).unwrap());
+        assert!(room.confirm_placement(host.id, &fleet(0), 60).unwrap());
+        assert_eq!(room.status, RoomStatus::Playing);
+        assert_eq!(
+            room.unready(host.id, Uuid::new_v4(), host_player_id)
+                .unwrap_err(),
+            GameError::GameAlreadyStarted
+        );
+    }
+
+    #[test]
+    fn confirmation_rejects_a_placement_that_differs_from_server_state() {
+        let host = session("Alpha");
+        let guest = session("Bravo");
+        let mut room = GameRoom::new(
+            "ABC234".to_string(),
+            "Test operation".to_string(),
+            RoomVisibility::Private,
+            &host,
+        )
+        .unwrap();
+        room.join(&guest).unwrap();
+        room.place_ships(host.id, fleet(0)).unwrap();
+        assert_eq!(
+            room.confirm_placement(host.id, &fleet(5), 60).unwrap_err(),
+            GameError::PlacementMismatch
+        );
+    }
+
+    #[test]
+    fn typed_chat_is_validated_idempotent_rate_limited_and_room_scoped() {
         let host = session("Alpha");
         let other_host = session("Charlie");
         let mut room = GameRoom::new(
@@ -1058,64 +1469,168 @@ mod tests {
         .unwrap();
         let now = Utc::now();
         assert_eq!(
-            room.send_chat_at(other_host.id, "intrusion".to_string(), now)
-                .unwrap_err(),
+            room.send_chat_at(
+                other_host.id,
+                Uuid::new_v4(),
+                ChatMessageType::Text,
+                Some("intrusion".to_string()),
+                None,
+                now,
+            )
+            .unwrap_err(),
             GameError::NotRoomMember
         );
         assert_eq!(
             room.chat_history(other_host.id).unwrap_err(),
             GameError::NotRoomMember
         );
-        let message = room
-            .send_chat_at(host.id, "  ready\nfor battle  ".to_string(), now)
+        let message_id = Uuid::new_v4();
+        let (message, duplicate) = room
+            .send_chat_at(
+                host.id,
+                message_id,
+                ChatMessageType::Text,
+                Some("  ready\nfor battle  ".to_string()),
+                None,
+                now,
+            )
             .unwrap();
-        assert_eq!(message.message, "ready\nfor battle");
+        assert!(!duplicate);
+        assert_eq!(message.content, "ready\nfor battle");
         assert_eq!(message.room_id, room.id);
         assert_ne!(message.room_id, other_room.id);
         assert_eq!(message.player_id, Some(room.players[0].id));
         assert_eq!(
-            room.send_chat_at(host.id, "   ".to_string(), now + Duration::seconds(1))
-                .unwrap_err(),
-            GameError::InvalidChatMessage
-        );
-        assert_eq!(
             room.send_chat_at(
                 host.id,
-                "<script>alert(1)</script>".to_string(),
-                now + Duration::seconds(1)
+                Uuid::new_v4(),
+                ChatMessageType::Text,
+                Some("   ".to_string()),
+                None,
+                now + Duration::seconds(1),
             )
             .unwrap_err(),
             GameError::InvalidChatMessage
         );
         assert_eq!(
-            room.send_chat_at(host.id, "x".repeat(301), now + Duration::seconds(1))
-                .unwrap_err(),
+            room.send_chat_at(
+                host.id,
+                Uuid::new_v4(),
+                ChatMessageType::Text,
+                Some("<script>alert(1)</script>".to_string()),
+                None,
+                now + Duration::seconds(1),
+            )
+            .unwrap_err(),
             GameError::InvalidChatMessage
         );
         assert_eq!(
             room.send_chat_at(
                 host.id,
-                "too fast".to_string(),
-                now + Duration::milliseconds(100)
+                Uuid::new_v4(),
+                ChatMessageType::Text,
+                Some("x".repeat(301)),
+                None,
+                now + Duration::seconds(1),
+            )
+            .unwrap_err(),
+            GameError::InvalidChatMessage
+        );
+        let (emoji, _) = room
+            .send_chat_at(
+                host.id,
+                Uuid::new_v4(),
+                ChatMessageType::Emoji,
+                Some("🎯".to_string()),
+                None,
+                now + Duration::seconds(1),
+            )
+            .unwrap();
+        assert_eq!(emoji.message_type, ChatMessageType::Emoji);
+        assert_eq!(emoji.content, "🎯");
+        assert_eq!(
+            room.send_chat_at(
+                host.id,
+                Uuid::new_v4(),
+                ChatMessageType::Emoji,
+                Some("<img>".to_string()),
+                None,
+                now + Duration::seconds(2),
+            )
+            .unwrap_err(),
+            GameError::InvalidEmoji
+        );
+        let (quick, _) = room
+            .send_chat_at(
+                host.id,
+                Uuid::new_v4(),
+                ChatMessageType::QuickCommand,
+                None,
+                Some(QuickCommandId::NiceShot),
+                now + Duration::seconds(3),
+            )
+            .unwrap();
+        assert_eq!(quick.content, "나이스 샷");
+        assert_eq!(quick.command_id, Some(QuickCommandId::NiceShot));
+        assert_eq!(
+            room.send_chat_at(
+                host.id,
+                Uuid::new_v4(),
+                ChatMessageType::QuickCommand,
+                None,
+                Some(QuickCommandId::NiceShot),
+                now + Duration::seconds(4),
             )
             .unwrap_err(),
             GameError::RateLimited
         );
-        for second in 1..=4 {
-            room.send_chat_at(
+
+        let before = room.chat_messages.len();
+        let (replayed, duplicate) = room
+            .send_chat_at(
                 host.id,
-                format!("message {second}"),
-                now + Duration::seconds(second),
+                message_id,
+                ChatMessageType::Text,
+                Some("changed".to_string()),
+                None,
+                now + Duration::seconds(5),
             )
             .unwrap();
+        assert!(duplicate);
+        assert_eq!(replayed.content, "ready\nfor battle");
+        assert_eq!(room.chat_messages.len(), before);
+
+        let spammer = session("Delta");
+        let mut spam_room = GameRoom::new(
+            "SPM234".to_string(),
+            "Spam operation".to_string(),
+            RoomVisibility::Private,
+            &spammer,
+        )
+        .unwrap();
+        for index in 0..3 {
+            spam_room
+                .send_chat_at(
+                    spammer.id,
+                    Uuid::new_v4(),
+                    ChatMessageType::Text,
+                    Some(format!("message {index}")),
+                    None,
+                    now,
+                )
+                .unwrap();
         }
         assert_eq!(
-            room.send_chat_at(
-                host.id,
-                "flood".to_string(),
-                now + Duration::milliseconds(4500)
-            )
-            .unwrap_err(),
+            spam_room
+                .send_chat_at(
+                    spammer.id,
+                    Uuid::new_v4(),
+                    ChatMessageType::Emoji,
+                    Some("🔥".to_string()),
+                    None,
+                    now,
+                )
+                .unwrap_err(),
             GameError::RateLimited
         );
 
@@ -1128,6 +1643,156 @@ mod tests {
                 .unwrap()
                 .iter()
                 .all(|entry| entry.room_id == room.id)
+        );
+    }
+
+    #[test]
+    fn turn_expiry_changes_turn_resets_on_attack_and_forfeits_after_three() {
+        let (mut room, first, second) = playing_room();
+        let timed_out_player = room.game.as_ref().unwrap().current_player_id;
+        let timed_out_session = if room.player_for_session(first.id).unwrap().id == timed_out_player
+        {
+            first.id
+        } else {
+            second.id
+        };
+        let opponent_session = if timed_out_session == first.id {
+            second.id
+        } else {
+            first.id
+        };
+
+        for cycle in 0..3 {
+            let game = room.game.as_ref().unwrap();
+            let deadline = game.turn_deadline_at.unwrap();
+            let turn = game.turn_number;
+            let record = room
+                .expire_turn(turn, timed_out_player, deadline, deadline)
+                .unwrap()
+                .unwrap();
+            assert_eq!(record.consecutive_timeout_count, cycle + 1);
+            if cycle == 2 {
+                assert!(record.winner_id.is_some());
+                break;
+            }
+            let opponent_id = room.player_for_session(opponent_session).unwrap().id;
+            let turn = room.game.as_ref().unwrap().turn_number;
+            room.fire(
+                opponent_session,
+                Uuid::new_v4(),
+                opponent_id,
+                Coordinate {
+                    row: 9,
+                    col: 9 - cycle,
+                },
+                room.version,
+                turn,
+            )
+            .unwrap();
+        }
+        let result = room.game.as_ref().unwrap().result.as_ref().unwrap();
+        assert_eq!(result.finish_reason, FinishReason::TurnTimeout);
+        assert_eq!(result.win_type, crate::domain::WinType::Timeout);
+        assert_eq!(room.status, RoomStatus::Finished);
+        assert_eq!(
+            result
+                .players
+                .iter()
+                .find(|stats| stats.player_id == timed_out_player)
+                .unwrap()
+                .total_timeouts,
+            3
+        );
+    }
+
+    #[test]
+    fn stale_expiry_cannot_override_a_normal_attack() {
+        let (mut room, first, second) = playing_room();
+        let current = room.game.as_ref().unwrap().current_player_id;
+        let session_id = if room.player_for_session(first.id).unwrap().id == current {
+            first.id
+        } else {
+            second.id
+        };
+        let old_turn = room.game.as_ref().unwrap().turn_number;
+        let old_deadline = room.game.as_ref().unwrap().turn_deadline_at.unwrap();
+        room.game.as_mut().unwrap().turn_deadline_at = Some(old_deadline + Duration::seconds(60));
+        room.fire(
+            session_id,
+            Uuid::new_v4(),
+            current,
+            Coordinate { row: 9, col: 9 },
+            room.version,
+            old_turn,
+        )
+        .unwrap();
+        assert!(
+            room.expire_turn(old_turn, current, old_deadline, old_deadline)
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn a_normal_attack_resets_the_attacking_players_consecutive_timeouts() {
+        let (mut room, first, second) = playing_room();
+        let timed_out_player = room.game.as_ref().unwrap().current_player_id;
+        let timed_out_session = if room.player_for_session(first.id).unwrap().id == timed_out_player
+        {
+            first.id
+        } else {
+            second.id
+        };
+        let opponent_session = if timed_out_session == first.id {
+            second.id
+        } else {
+            first.id
+        };
+
+        let game = room.game.as_ref().unwrap();
+        let deadline = game.turn_deadline_at.unwrap();
+        room.expire_turn(game.turn_number, timed_out_player, deadline, deadline)
+            .unwrap()
+            .unwrap();
+
+        let opponent_id = room.player_for_session(opponent_session).unwrap().id;
+        let turn = room.game.as_ref().unwrap().turn_number;
+        room.fire(
+            opponent_session,
+            Uuid::new_v4(),
+            opponent_id,
+            Coordinate { row: 9, col: 9 },
+            room.version,
+            turn,
+        )
+        .unwrap();
+
+        let turn = room.game.as_ref().unwrap().turn_number;
+        room.fire(
+            timed_out_session,
+            Uuid::new_v4(),
+            timed_out_player,
+            Coordinate { row: 9, col: 8 },
+            room.version,
+            turn,
+        )
+        .unwrap();
+
+        assert_eq!(
+            room.game
+                .as_ref()
+                .unwrap()
+                .consecutive_timeout_counts
+                .get(&timed_out_player),
+            Some(&0)
+        );
+        assert_eq!(
+            room.game
+                .as_ref()
+                .unwrap()
+                .total_timeout_counts
+                .get(&timed_out_player),
+            Some(&1)
         );
     }
 

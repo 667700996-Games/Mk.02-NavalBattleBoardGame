@@ -20,6 +20,14 @@ pub enum ConnectionState {
     Offline,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum PlayerReadyState {
+    #[default]
+    NotReady,
+    Ready,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Player {
@@ -29,6 +37,8 @@ pub struct Player {
     pub is_host: bool,
     pub is_ready: bool,
     pub placement_confirmed: bool,
+    #[serde(default)]
+    pub ready_state: PlayerReadyState,
     pub connection_state: ConnectionState,
 }
 
@@ -41,6 +51,7 @@ impl Player {
             is_host,
             is_ready: false,
             placement_confirmed: false,
+            ready_state: PlayerReadyState::NotReady,
             connection_state: ConnectionState::Online,
         }
     }

@@ -4,12 +4,76 @@ use uuid::Uuid;
 
 pub const MAX_CHAT_MESSAGE_CHARS: usize = 300;
 pub const MAX_CHAT_HISTORY: usize = 100;
+pub const ALLOWED_EMOJIS: [&str; 10] = ["👍", "👏", "😅", "😮", "🔥", "🎯", "🚢", "💥", "🫡", "🤝"];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum ChatMessageKind {
-    Player,
+pub enum ChatMessageType {
+    #[serde(rename = "TEXT", alias = "PLAYER")]
+    Text,
+    #[serde(rename = "QUICK_COMMAND")]
+    QuickCommand,
+    #[serde(rename = "EMOJI")]
+    Emoji,
+    #[serde(rename = "SYSTEM")]
     System,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum QuickCommandId {
+    GoodGame,
+    WaitAMoment,
+    Ready,
+    NiceShot,
+    Lucky,
+    GoFirst,
+    Rematch,
+    ThankYou,
+}
+
+impl QuickCommandId {
+    pub const ALL: [Self; 8] = [
+        Self::GoodGame,
+        Self::WaitAMoment,
+        Self::Ready,
+        Self::NiceShot,
+        Self::Lucky,
+        Self::GoFirst,
+        Self::Rematch,
+        Self::ThankYou,
+    ];
+
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::GoodGame => "굿게임",
+            Self::WaitAMoment => "잠시만요",
+            Self::Ready => "교전 준비 완료",
+            Self::NiceShot => "나이스 샷",
+            Self::Lucky => "운이 좋았군요",
+            Self::GoFirst => "제가 먼저 가겠습니다",
+            Self::Rematch => "다시 한 판?",
+            Self::ThankYou => "감사합니다",
+        }
+    }
+
+    pub fn from_wire(value: &str) -> Option<Self> {
+        Self::ALL
+            .into_iter()
+            .find(|command| command.wire_name() == value)
+    }
+
+    pub const fn wire_name(self) -> &'static str {
+        match self {
+            Self::GoodGame => "GOOD_GAME",
+            Self::WaitAMoment => "WAIT_A_MOMENT",
+            Self::Ready => "READY",
+            Self::NiceShot => "NICE_SHOT",
+            Self::Lucky => "LUCKY",
+            Self::GoFirst => "GO_FIRST",
+            Self::Rematch => "REMATCH",
+            Self::ThankYou => "THANK_YOU",
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -19,9 +83,13 @@ pub struct ChatMessage {
     pub room_id: Uuid,
     pub player_id: Option<Uuid>,
     pub nickname: String,
-    pub message: String,
+    #[serde(alias = "message")]
+    pub content: String,
     pub timestamp: DateTime<Utc>,
-    pub kind: ChatMessageKind,
+    #[serde(rename = "type", alias = "kind")]
+    pub message_type: ChatMessageType,
+    #[serde(default)]
+    pub command_id: Option<QuickCommandId>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

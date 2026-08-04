@@ -28,6 +28,8 @@ export const sounds = {
     setTimeout(() => tone(80, 0.44, 0.04, 38), 120);
   },
   turn: () => tone(560, 0.12, 0.025, 760),
+  countdown: (seconds: number) =>
+    tone(seconds <= 3 ? 740 : seconds <= 5 ? 660 : 590, 0.075, 0.018, 520),
   victory: () => {
     [440, 554, 659].forEach((frequency, index) =>
       setTimeout(() => tone(frequency, 0.35, 0.035), index * 130)

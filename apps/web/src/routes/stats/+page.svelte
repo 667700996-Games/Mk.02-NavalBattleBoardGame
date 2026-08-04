@@ -26,6 +26,7 @@
   const winTypeLabel = (game: HistoryItem) => {
     if (game.result.winType === 'SURRENDER') return 'SURRENDER';
     if (game.result.winType === 'DISCONNECT') return 'DISCONNECT';
+    if (game.result.winType === 'TIMEOUT') return 'TIMEOUT';
     return 'NORMAL VICTORY';
   };
   let wins = $derived(games.filter(won).length);

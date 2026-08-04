@@ -1,8 +1,15 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
-  import { ChevronDown, MessageSquare, Radio, Send, X } from '@lucide/svelte';
+  import { ChevronDown, MessageSquare, Radio, Send, Smile, X, Zap } from '@lucide/svelte';
   import { realtime } from '$lib/realtime';
   import { chatHistoryLoaded, chatMessages, chatTyping } from '$lib/stores';
+  import { Modal } from '$lib/ui';
+  import {
+    CHAT_EMOJIS,
+    QUICK_COMMANDS,
+    type ChatMessageType,
+    type QuickCommandId
+  } from '$lib/types';
 
   interface Props {
     roomId: string;
@@ -22,6 +29,18 @@
   let historyReady = false;
   let typingSent = false;
   let typingTimer: ReturnType<typeof setTimeout> | null = null;
+  let actionCooldownTimer: ReturnType<typeof setTimeout> | null = null;
+  let showActions = $state(false);
+  let actionTab = $state<'commands' | 'emoji'>('commands');
+  let actionCooling = $state(false);
+  let recentActions = $state<
+    Array<{
+      type: 'QUICK_COMMAND' | 'EMOJI';
+      content: string | null;
+      commandId: QuickCommandId | null;
+      label: string;
+    }>
+  >([]);
 
   $effect(() => {
     const messages = $chatMessages;
@@ -92,7 +111,19 @@
       notice = 'HTML 문법은 채팅에 사용할 수 없습니다.';
       return;
     }
-    if (!online || !realtime.send({ type: 'chat:send', payload: { roomId, message } })) {
+    if (
+      !online ||
+      !realtime.send({
+        type: 'chat:send',
+        payload: {
+          roomId,
+          clientMessageId: crypto.randomUUID(),
+          type: 'TEXT',
+          content: message,
+          commandId: null
+        }
+      })
+    ) {
       notice = '실시간 연결이 복구된 뒤 다시 전송해 주세요.';
       return;
     }
@@ -100,6 +131,46 @@
     notice = '';
     sendTyping(false);
   }
+
+  function openActions(tab: 'commands' | 'emoji') {
+    actionTab = tab;
+    showActions = true;
+  }
+
+  function sendAction(
+    type: 'QUICK_COMMAND' | 'EMOJI',
+    label: string,
+    content: string | null,
+    commandId: QuickCommandId | null
+  ) {
+    if (!online || readOnly || actionCooling) return;
+    const sent = realtime.send({
+      type: 'chat:send',
+      payload: {
+        roomId,
+        clientMessageId: crypto.randomUUID(),
+        type,
+        content,
+        commandId
+      }
+    });
+    if (!sent) {
+      notice = '실시간 연결이 복구된 뒤 다시 전송해 주세요.';
+      return;
+    }
+    const next = { type, content, commandId, label };
+    recentActions = [
+      next,
+      ...recentActions.filter((action) => action.type !== type || action.label !== label)
+    ].slice(0, 4);
+    showActions = false;
+    actionCooling = true;
+    if (actionCooldownTimer) clearTimeout(actionCooldownTimer);
+    actionCooldownTimer = setTimeout(() => (actionCooling = false), 700);
+  }
+
+  const messageLabel = (type: ChatMessageType) =>
+    type === 'QUICK_COMMAND' ? 'QUICK COMMAND' : type === 'EMOJI' ? 'TACTICAL SIGNAL' : '';
 
   function handleKeydown(event: KeyboardEvent) {
     if (event.key === 'Enter' && !event.shiftKey) {
@@ -117,6 +188,7 @@
 
   onDestroy(() => {
     if (typingTimer) clearTimeout(typingTimer);
+    if (actionCooldownTimer) clearTimeout(actionCooldownTimer);
     if (typingSent) {
       realtime.send({ type: 'chat:typing', payload: { roomId, isTyping: false } });
     }
@@ -161,12 +233,14 @@
           {#each $chatMessages as item (item.messageId)}
             <article
               class:chat-message--self={item.playerId === selfPlayerId}
-              class:chat-message--system={item.kind === 'SYSTEM'}
+              class:chat-message--system={item.type === 'SYSTEM'}
+              class:chat-message--quick={item.type === 'QUICK_COMMAND'}
+              class:chat-message--emoji={item.type === 'EMOJI'}
               class="chat-message"
             >
               <div>
                 <strong
-                  >{item.kind === 'SYSTEM'
+                  >{item.type === 'SYSTEM'
                     ? 'SYSTEM'
                     : item.playerId === selfPlayerId
                       ? 'YOU'
@@ -174,7 +248,8 @@
                 >
                 <time datetime={item.timestamp}>{formatTime(item.timestamp)}</time>
               </div>
-              <p>{item.message}</p>
+              {#if messageLabel(item.type)}<small>{messageLabel(item.type)}</small>{/if}
+              <p>{item.content}</p>
             </article>
           {/each}
         {/if}
@@ -194,6 +269,20 @@
           <em>{draft.length}/300</em>
         </div>
         <div class="chat-input-row">
+          <button
+            type="button"
+            class="chat-action"
+            aria-label="이모지 선택"
+            disabled={readOnly || !online || actionCooling}
+            onclick={() => openActions('emoji')}><Smile size={15} /></button
+          >
+          <button
+            type="button"
+            class="chat-action"
+            aria-label="빠른 명령 선택"
+            disabled={readOnly || !online || actionCooling}
+            onclick={() => openActions('commands')}><Zap size={15} /></button
+          >
           <textarea
             bind:value={draft}
             aria-label="채팅 메시지"
@@ -228,6 +317,73 @@
     </button>
   {/if}
 </div>
+
+<Modal
+  open={showActions}
+  eyebrow="ROOM SIGNAL PROTOCOL"
+  title="전술 신호 선택"
+  description="선택한 신호는 현재 작전실에 즉시 전송됩니다."
+  onclose={() => (showActions = false)}
+>
+  <div class="signal-picker">
+    <div class="signal-tabs" role="tablist" aria-label="전술 신호 종류">
+      <button
+        type="button"
+        role="tab"
+        aria-selected={actionTab === 'commands'}
+        class:active={actionTab === 'commands'}
+        onclick={() => (actionTab = 'commands')}><Zap size={14} /> 빠른 명령</button
+      >
+      <button
+        type="button"
+        role="tab"
+        aria-selected={actionTab === 'emoji'}
+        class:active={actionTab === 'emoji'}
+        onclick={() => (actionTab = 'emoji')}><Smile size={14} /> 이모지</button
+      >
+    </div>
+    {#if recentActions.length}
+      <section class="recent-signals" aria-label="최근 사용">
+        <small>RECENT SIGNALS</small>
+        <div>
+          {#each recentActions as action (`${action.type}-${action.label}`)}
+            <button
+              type="button"
+              disabled={actionCooling}
+              onclick={() =>
+                sendAction(action.type, action.label, action.content, action.commandId)}
+              >{action.label}</button
+            >
+          {/each}
+        </div>
+      </section>
+    {/if}
+    {#if actionTab === 'commands'}
+      <div class="command-grid" role="tabpanel">
+        {#each QUICK_COMMANDS as command (command.id)}
+          <button
+            type="button"
+            disabled={actionCooling}
+            onclick={() => sendAction('QUICK_COMMAND', command.label, null, command.id)}
+            ><Zap size={12} /><span>{command.label}</span><small>{command.id}</small></button
+          >
+        {/each}
+      </div>
+    {:else}
+      <div class="emoji-grid" role="tabpanel">
+        {#each CHAT_EMOJIS as emoji (emoji)}
+          <button
+            type="button"
+            aria-label={`${emoji} 이모지 전송`}
+            disabled={actionCooling}
+            onclick={() => sendAction('EMOJI', emoji, emoji, null)}>{emoji}</button
+          >
+        {/each}
+      </div>
+    {/if}
+    {#if actionCooling}<p class="signal-cooldown"><Radio size={12} /> SIGNAL COOLDOWN</p>{/if}
+  </div>
+</Modal>
 
 <style>
   .chat-shell {
@@ -420,6 +576,20 @@
     color: var(--ink-400);
     font-size: 10px;
   }
+  .chat-message > small {
+    color: var(--amber-500);
+    font-family: var(--font-display);
+    font-size: 7px;
+    letter-spacing: 0.14em;
+  }
+  .chat-message--quick {
+    border-left: 2px solid rgba(255, 180, 60, 0.36);
+    background: rgba(255, 180, 60, 0.025);
+  }
+  .chat-message--emoji p {
+    font-size: 24px;
+    line-height: 1.2;
+  }
   .chat-loading,
   .chat-empty {
     display: grid;
@@ -489,7 +659,7 @@
   }
   .chat-input-row {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 38px;
+    grid-template-columns: 34px 34px minmax(0, 1fr) 38px;
     gap: 7px;
   }
   .chat-input-row textarea {
@@ -526,6 +696,25 @@
     box-shadow: 0 0 20px rgba(40, 223, 232, 0.09);
     cursor: pointer;
   }
+  .chat-action {
+    display: grid;
+    height: 40px;
+    place-items: center;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    color: var(--cyan-300);
+    background: rgba(7, 29, 40, 0.72);
+    cursor: pointer;
+    transition: 180ms var(--ease-out);
+  }
+  .chat-action:hover:not(:disabled) {
+    border-color: var(--line-hot);
+    background: rgba(40, 223, 232, 0.08);
+  }
+  .chat-action:disabled {
+    cursor: not-allowed;
+    opacity: 0.35;
+  }
   .chat-send:disabled {
     cursor: not-allowed;
     filter: saturate(0.2);
@@ -541,6 +730,123 @@
       opacity: 0;
       transform: translateY(12px) scale(0.98);
     }
+  }
+  .signal-picker {
+    display: grid;
+    gap: 16px;
+    margin-top: 18px;
+  }
+  .signal-tabs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    padding: 4px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: rgba(2, 13, 21, 0.68);
+  }
+  .signal-tabs button {
+    display: flex;
+    min-height: 38px;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    border: 0;
+    border-radius: 8px;
+    color: var(--ink-500);
+    background: transparent;
+    cursor: pointer;
+    font-size: 10px;
+  }
+  .signal-tabs button.active {
+    color: var(--cyan-200);
+    background: rgba(40, 223, 232, 0.09);
+    box-shadow: inset 0 0 0 1px rgba(40, 223, 232, 0.16);
+  }
+  .recent-signals {
+    display: grid;
+    gap: 8px;
+  }
+  .recent-signals > small {
+    color: var(--ink-500);
+    font-family: var(--font-display);
+    font-size: 8px;
+    letter-spacing: 0.14em;
+  }
+  .recent-signals > div {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .recent-signals button {
+    padding: 6px 9px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    color: var(--ink-300);
+    background: rgba(6, 25, 35, 0.7);
+    cursor: pointer;
+    font-size: 9px;
+  }
+  .command-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 7px;
+  }
+  .command-grid button {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 2px 7px;
+    padding: 11px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    color: var(--amber-500);
+    background: rgba(7, 26, 36, 0.66);
+    cursor: pointer;
+    text-align: left;
+  }
+  .command-grid button:hover {
+    border-color: rgba(255, 180, 60, 0.28);
+    transform: translateY(-1px);
+  }
+  .command-grid span {
+    color: var(--ink-200);
+    font-size: 10px;
+  }
+  .command-grid small {
+    grid-column: 2;
+    color: var(--ink-600);
+    font-family: var(--font-display);
+    font-size: 7px;
+  }
+  .emoji-grid {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 7px;
+  }
+  .emoji-grid button {
+    display: grid;
+    min-height: 52px;
+    place-items: center;
+    border: 1px solid var(--line);
+    border-radius: 11px;
+    background: rgba(7, 26, 36, 0.66);
+    cursor: pointer;
+    font-size: 24px;
+    transition: 180ms var(--ease-out);
+  }
+  .emoji-grid button:hover {
+    border-color: var(--line-hot);
+    transform: translateY(-2px) scale(1.03);
+  }
+  .signal-cooldown {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    margin: 0;
+    color: var(--amber-500);
+    font-family: var(--font-display);
+    font-size: 8px;
+    letter-spacing: 0.12em;
   }
   @media (max-width: 640px) {
     .chat-shell {

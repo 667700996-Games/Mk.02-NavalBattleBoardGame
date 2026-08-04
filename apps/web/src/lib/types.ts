@@ -3,12 +3,23 @@ export type RoomStatus =
 
 export type RoomVisibility = 'PUBLIC' | 'PRIVATE';
 export type ConnectionState = 'ONLINE' | 'RECONNECTING' | 'OFFLINE';
+export type PlayerReadyState = 'NOT_READY' | 'READY';
 export type ShipKind = 'CARRIER' | 'BATTLESHIP' | 'CRUISER' | 'SUBMARINE' | 'DESTROYER';
 export type Orientation = 'HORIZONTAL' | 'VERTICAL';
 export type AttackOutcome = 'MISS' | 'HIT' | 'SUNK';
-export type FinishReason = 'FLEET_DESTROYED' | 'SURRENDER' | 'DISCONNECT_TIMEOUT' | 'PLAYER_LEFT';
-export type WinType = 'NORMAL_VICTORY' | 'SURRENDER' | 'DISCONNECT';
-export type ChatMessageKind = 'PLAYER' | 'SYSTEM';
+export type FinishReason =
+  'FLEET_DESTROYED' | 'SURRENDER' | 'TURN_TIMEOUT' | 'DISCONNECT_TIMEOUT' | 'PLAYER_LEFT';
+export type WinType = 'NORMAL_VICTORY' | 'SURRENDER' | 'DISCONNECT' | 'TIMEOUT';
+export type ChatMessageType = 'TEXT' | 'QUICK_COMMAND' | 'EMOJI' | 'SYSTEM';
+export type QuickCommandId =
+  | 'GOOD_GAME'
+  | 'WAIT_A_MOMENT'
+  | 'READY'
+  | 'NICE_SHOT'
+  | 'LUCKY'
+  | 'GO_FIRST'
+  | 'REMATCH'
+  | 'THANK_YOU';
 
 export interface Coordinate {
   row: number;
@@ -44,6 +55,9 @@ export interface PlayerPublic {
   isHost: boolean;
   isReady: boolean;
   placementConfirmed: boolean;
+  readyState: PlayerReadyState;
+  consecutiveTimeoutCount: number;
+  totalTimeoutCount: number;
   connectionState: ConnectionState;
 }
 
@@ -80,6 +94,7 @@ export interface PlayerStatistics {
   hits: number;
   shipsSunk: number;
   accuracy: number;
+  totalTimeouts: number;
 }
 
 export interface GameResult {
@@ -98,9 +113,10 @@ export interface ChatMessage {
   roomId: string;
   playerId: string | null;
   nickname: string;
-  message: string;
+  content: string;
   timestamp: string;
-  kind: ChatMessageKind;
+  type: ChatMessageType;
+  commandId: QuickCommandId | null;
 }
 
 export interface ChatTypingEvent {
@@ -118,6 +134,37 @@ export interface SurrenderRecord {
   timestamp: string;
 }
 
+export interface UnreadyRecord {
+  requestId: string;
+  roomId: string;
+  playerId: string;
+  version: number;
+  acceptedAt: string;
+}
+
+export interface GameTimerState {
+  gameId: string;
+  turnNumber: number;
+  activePlayerId: string;
+  gameStartedAt: string;
+  turnStartedAt: string | null;
+  turnDeadlineAt: string | null;
+  turnDurationSeconds: number;
+  serverTimestamp: string;
+}
+
+export interface TurnExpiredRecord {
+  gameId: string;
+  expiredTurnNumber: number;
+  expiredPlayerId: string;
+  nextPlayerId: string | null;
+  consecutiveTimeoutCount: number;
+  totalTimeoutCount: number;
+  winnerId: string | null;
+  expiredAt: string;
+  serverTimestamp: string;
+}
+
 export interface GameSnapshot {
   room: RoomSummary;
   version: number;
@@ -131,6 +178,12 @@ export interface GameSnapshot {
   reconnectDeadline: string | null;
   rematchRequestedBy: string[];
   placement: ShipPlacement[] | null;
+  gameStartedAt: string | null;
+  gameFinishedAt: string | null;
+  turnStartedAt: string | null;
+  turnDeadlineAt: string | null;
+  turnDurationSeconds: number | null;
+  serverTimestamp: string;
 }
 
 export interface AttackRecord {
@@ -181,7 +234,14 @@ export type ClientEvent =
       type: 'ships:place';
       payload: { roomId: string; playerId: string; placements: ShipPlacement[] };
     }
-  | { type: 'ships:confirm'; payload: { roomId: string; playerId: string } }
+  | {
+      type: 'ships:confirm';
+      payload: { roomId: string; playerId: string; placements: ShipPlacement[] };
+    }
+  | {
+      type: 'player:unready';
+      payload: { requestId: string; roomId: string; playerId: string };
+    }
   | {
       type: 'attack:fire';
       payload: {
@@ -194,7 +254,16 @@ export type ClientEvent =
       };
     }
   | { type: 'game:surrender'; payload: { roomId: string; playerId: string } }
-  | { type: 'chat:send'; payload: { roomId: string; message: string } }
+  | {
+      type: 'chat:send';
+      payload: {
+        roomId: string;
+        clientMessageId: string;
+        type: Exclude<ChatMessageType, 'SYSTEM'>;
+        content: string | null;
+        commandId: QuickCommandId | null;
+      };
+    }
   | { type: 'chat:typing'; payload: { roomId: string; isTyping: boolean } }
   | { type: 'game:rematch'; payload: { roomId: string } }
   | { type: 'game:sync'; payload: { roomId: string } }
@@ -217,12 +286,29 @@ export type ServerEvent =
       payload: GameSnapshot;
     }
   | { type: 'placement:rejected' | 'error'; payload: ProtocolError }
+  | { type: 'player:unready:accepted'; payload: UnreadyRecord }
+  | { type: 'player:unready:rejected' | 'chat:rejected'; payload: ProtocolError }
   | { type: 'attack:result' | 'ship:sunk'; payload: AttackRecord }
   | { type: 'game:surrendered'; payload: SurrenderRecord }
   | { type: 'chat:message'; payload: ChatMessage }
   | { type: 'chat:history'; payload: { roomId: string; messages: ChatMessage[] } }
   | { type: 'chat:typing'; payload: ChatTypingEvent }
+  | { type: 'turn:started' | 'game:timer-sync'; payload: GameTimerState }
+  | { type: 'turn:expired'; payload: TurnExpiredRecord }
   | { type: 'heartbeat'; payload: { serverTime: string } };
+
+export const QUICK_COMMANDS: ReadonlyArray<{ id: QuickCommandId; label: string }> = [
+  { id: 'GOOD_GAME', label: '굿게임' },
+  { id: 'WAIT_A_MOMENT', label: '잠시만요' },
+  { id: 'READY', label: '교전 준비 완료' },
+  { id: 'NICE_SHOT', label: '나이스 샷' },
+  { id: 'LUCKY', label: '운이 좋았군요' },
+  { id: 'GO_FIRST', label: '제가 먼저 가겠습니다' },
+  { id: 'REMATCH', label: '다시 한 판?' },
+  { id: 'THANK_YOU', label: '감사합니다' }
+] as const;
+
+export const CHAT_EMOJIS = ['👍', '👏', '😅', '😮', '🔥', '🎯', '🚢', '💥', '🫡', '🤝'] as const;
 
 export const FLEET: ReadonlyArray<{ kind: ShipKind; size: number; name: string }> = [
   { kind: 'CARRIER', size: 5, name: '항공모함' },

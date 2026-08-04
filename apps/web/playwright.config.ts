@@ -17,7 +17,12 @@ export default defineConfig({
       command: 'cargo run -p mk01-server',
       cwd: '../..',
       url: 'http://127.0.0.1:8080/api/health',
-      env: { STORAGE_MODE: 'memory', SERVER_PORT: '8080', RUST_LOG: 'warn' },
+      env: {
+        STORAGE_MODE: 'memory',
+        SERVER_PORT: '8080',
+        TURN_DURATION_SECONDS: '10',
+        RUST_LOG: 'warn'
+      },
       reuseExistingServer: !process.env.CI,
       timeout: 120_000
     },

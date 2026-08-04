@@ -33,6 +33,8 @@
         return won ? 'Victory by Surrender' : 'Defeat by Surrender';
       case 'DISCONNECT':
         return won ? 'Victory by Disconnect' : 'Defeat by Disconnect';
+      case 'TIMEOUT':
+        return won ? 'Victory by Timeout' : 'Defeat by Timeout';
       default:
         return won ? 'Normal Victory' : 'Normal Defeat';
     }
@@ -46,12 +48,24 @@
         ? '적 지휘관의 연결 복구 시간이 만료되었습니다.'
         : '연결 복구 시간이 만료되어 작전이 종료되었습니다.';
     }
+    if (snapshot.result?.winType === 'TIMEOUT') {
+      return won
+        ? '적 지휘관이 3회 연속 작전 시간을 초과했습니다.'
+        : '3회 연속 작전 시간 초과로 교전이 종료되었습니다.';
+    }
     return won
       ? '상대 함대 전력을 모두 무력화했습니다.'
       : '아군 함대가 전투 불능 상태에 도달했습니다.';
   });
   let shared = $state(false);
-  const formatDuration = (seconds: number) => `${Math.floor(seconds / 60)}분 ${seconds % 60}초`;
+  const formatDuration = (seconds: number) => {
+    const hours = Math.floor(seconds / 3_600);
+    const minutes = Math.floor((seconds % 3_600) / 60);
+    const rest = seconds % 60;
+    return hours > 0
+      ? `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(rest).padStart(2, '0')}`
+      : `${String(minutes).padStart(2, '0')}:${String(rest).padStart(2, '0')}`;
+  };
 
   async function shareResult() {
     const title = `${won ? '작전 승리' : '작전 완료'} · Mk.01`;
@@ -103,6 +117,11 @@
       <Timer size={19} /><span>작전 시간</span><strong
         >{formatDuration(snapshot.result?.durationSeconds ?? 0)}</strong
       ><small>{snapshot.result?.totalTurns ?? 0} 총 턴</small>
+    </article>
+    <article>
+      <Flag size={19} /><span>시간 초과</span><strong>{stats?.totalTimeouts ?? 0}</strong><small
+        >연속 3회 시 자동 패배</small
+      >
     </article>
   </div>
 
@@ -257,7 +276,7 @@
   }
   .stats-grid {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(4, 1fr);
     gap: 10px;
   }
   .stats-grid article {
@@ -301,9 +320,6 @@
     }
     .stats-grid {
       grid-template-columns: 1fr 1fr;
-    }
-    .stats-grid article:last-child {
-      grid-column: 1/-1;
     }
     .result-actions {
       display: grid;

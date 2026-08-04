@@ -23,6 +23,7 @@ fn test_app() -> Router {
         secure_cookies: false,
         session_ttl: Duration::from_secs(3_600),
         reconnect_grace: Duration::from_secs(1),
+        turn_duration_seconds: 60,
         public_base_url: "http://localhost:5173".to_string(),
     };
     build_router(AppState::with_store(

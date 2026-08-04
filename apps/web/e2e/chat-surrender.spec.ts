@@ -58,7 +58,8 @@ test('room chat restores after refresh and surrender ends both clients immediate
   const firstComposer = first.getByLabel('채팅 메시지');
   await firstComposer.fill('Hold position');
   await expect(second.getByText('Alpha 입력 중…')).toBeVisible();
-  await second.getByRole('button', { name: '채팅 닫기' }).click();
+  await second.keyboard.press('Escape');
+  await expect(second.getByRole('button', { name: '전술 채팅 열기' })).toBeVisible();
   await firstComposer.fill('Hold position\nSector C4');
   await first.getByRole('button', { name: '채팅 전송' }).click();
   await expect(first.getByText('Hold position\nSector C4')).toBeVisible();

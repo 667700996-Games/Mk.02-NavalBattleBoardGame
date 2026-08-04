@@ -16,6 +16,7 @@ pub struct Settings {
     pub secure_cookies: bool,
     pub session_ttl: Duration,
     pub reconnect_grace: Duration,
+    pub turn_duration_seconds: u32,
     pub public_base_url: String,
 }
 
@@ -59,6 +60,8 @@ impl Settings {
                 .unwrap_or(false),
             session_ttl: Duration::from_secs(env_u64("SESSION_TTL_SECONDS", 60 * 60 * 24 * 30)),
             reconnect_grace: Duration::from_secs(env_u64("RECONNECT_GRACE_SECONDS", 90)),
+            turn_duration_seconds: env_u64("TURN_DURATION_SECONDS", 60).min(u64::from(u32::MAX))
+                as u32,
             public_base_url: env::var("PUBLIC_BASE_URL")
                 .unwrap_or_else(|_| "http://localhost:5173".to_string()),
         })

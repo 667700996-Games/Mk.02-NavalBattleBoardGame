@@ -55,6 +55,7 @@ class RealtimeClient {
     if (
       event.type !== 'attack:fire' &&
       event.type !== 'game:surrender' &&
+      event.type !== 'player:unready' &&
       event.type !== 'chat:send' &&
       event.type !== 'chat:typing'
     ) {
@@ -159,9 +160,70 @@ class RealtimeClient {
         hudNotifications.update((notifications) => [...notifications, notification].slice(-3));
         setTimeout(() => dismissHudNotification(notification.id), 6_000);
       }
-    } else if (event.type === 'error' || event.type === 'placement:rejected') {
+    } else if (event.type === 'player:unready:accepted') {
+      const snapshot = get(gameSnapshot);
+      if (snapshot?.room.id === event.payload.roomId) {
+        const notification = {
+          id: `unready-${event.payload.requestId}`,
+          title: '함대 배치 잠금 해제',
+          message: '준비 상태를 해제했습니다. 함선 배치를 다시 수정할 수 있습니다.',
+          tone: 'warning' as const
+        };
+        hudNotifications.update((notifications) => [...notifications, notification].slice(-3));
+        setTimeout(() => dismissHudNotification(notification.id), 5_000);
+      }
+    } else if (event.type === 'turn:started' || event.type === 'game:timer-sync') {
+      gameSnapshot.update((snapshot) => {
+        if (!snapshot || snapshot.room.id !== event.payload.gameId) return snapshot;
+        return {
+          ...snapshot,
+          turnNumber: event.payload.turnNumber,
+          currentPlayerId: event.payload.activePlayerId,
+          gameStartedAt: event.payload.gameStartedAt,
+          turnStartedAt: event.payload.turnStartedAt,
+          turnDeadlineAt: event.payload.turnDeadlineAt,
+          turnDurationSeconds: event.payload.turnDurationSeconds,
+          serverTimestamp: event.payload.serverTimestamp
+        };
+      });
+    } else if (event.type === 'turn:expired') {
+      const snapshot = get(gameSnapshot);
+      if (snapshot?.room.id === event.payload.gameId) {
+        const expiredSelf = snapshot.selfPlayerId === event.payload.expiredPlayerId;
+        const automaticDefeat = event.payload.winnerId !== null;
+        const notification = {
+          id: `timeout-${event.payload.gameId}-${event.payload.expiredTurnNumber}`,
+          title: automaticDefeat
+            ? expiredSelf
+              ? '시간 초과 자동 패배'
+              : '적 작전 지연 종료'
+            : expiredSelf
+              ? '작전 시간 만료'
+              : '상대 시간 만료',
+          message: automaticDefeat
+            ? expiredSelf
+              ? '3회 연속 시간 초과로 자동 기권 처리되었습니다.'
+              : '상대 지휘관이 3회 연속 시간 초과로 패배했습니다.'
+            : expiredSelf
+              ? '공격 기회가 소멸되어 상대 턴으로 전환됩니다.'
+              : '상대 지휘관의 공격 기회가 소멸했습니다.',
+          tone: automaticDefeat || expiredSelf ? ('danger' as const) : ('warning' as const)
+        };
+        hudNotifications.update((notifications) => [...notifications, notification].slice(-3));
+        setTimeout(() => dismissHudNotification(notification.id), 6_000);
+      }
+    } else if (
+      event.type === 'error' ||
+      event.type === 'placement:rejected' ||
+      event.type === 'player:unready:rejected' ||
+      event.type === 'chat:rejected'
+    ) {
       gameError.set(event.payload);
-      if (event.payload.code === 'VERSION_CONFLICT' || event.payload.code === 'TURN_CONFLICT') {
+      if (
+        event.payload.code === 'VERSION_CONFLICT' ||
+        event.payload.code === 'TURN_CONFLICT' ||
+        event.payload.code === 'TURN_EXPIRED'
+      ) {
         const roomId = get(gameSnapshot)?.room.id;
         if (roomId) this.sync(roomId);
       }
