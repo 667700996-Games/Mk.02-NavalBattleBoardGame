@@ -4,6 +4,8 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   plugins: [sveltekit()],
   server: {
+    host: true,
+    allowedHosts: true,
     port: 5173,
     strictPort: true,
     proxy: {
