@@ -238,7 +238,11 @@
     justify-content: space-between;
     gap: 20px;
     margin-bottom: 18px;
-    padding-inline: 3px;
+    padding: 12px 16px;
+    border: 1px solid var(--line);
+    border-radius: 13px;
+    background: linear-gradient(90deg, rgba(8, 29, 41, 0.72), rgba(3, 15, 23, 0.46));
+    box-shadow: 0 14px 40px rgba(0, 0, 0, 0.18);
   }
   .room-meta > div:first-child {
     display: flex;
@@ -261,6 +265,14 @@
     color: var(--green-500);
     font-size: 10px;
   }
+  .connection-indicator::before {
+    width: 5px;
+    height: 5px;
+    content: '';
+    border-radius: 50%;
+    background: currentColor;
+    box-shadow: 0 0 9px currentColor;
+  }
   .connection-indicator.offline {
     color: var(--amber-500);
   }
@@ -272,6 +284,17 @@
     gap: 16px;
     color: #7895a5;
     font-size: 12px;
+  }
+  .loading-view::before {
+    width: 86px;
+    height: 86px;
+    content: '';
+    border: 1px solid rgba(40, 223, 232, 0.22);
+    border-radius: 50%;
+    background:
+      conic-gradient(from 0deg, transparent, rgba(40, 223, 232, 0.38), transparent 25%),
+      repeating-radial-gradient(circle, transparent 0 14px, rgba(40, 223, 232, 0.08) 15px 16px);
+    animation: radar 2s linear infinite;
   }
   .load-error {
     width: min(520px, 100%);

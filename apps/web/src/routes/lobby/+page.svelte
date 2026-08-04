@@ -4,19 +4,21 @@
   import { onMount } from 'svelte';
   import {
     ArrowRight,
-    Clock3,
     DoorOpen,
+    History,
+    KeyRound,
     LockKeyhole,
     Plus,
     Radio,
     RefreshCw,
     Search,
-    Users,
+    ShieldCheck,
     X
   } from '@lucide/svelte';
   import { api, ApiError } from '$lib/api';
   import { realtime } from '$lib/realtime';
-  import { gameSnapshot, session } from '$lib/stores';
+  import { gameSnapshot, session, socketStatus } from '$lib/stores';
+  import { Avatar, Badge, Button, Field, Modal, Skeleton, Surface } from '$lib/ui';
   import type { RoomSummary, RoomVisibility } from '$lib/types';
 
   let rooms: RoomSummary[] = [];
@@ -46,9 +48,7 @@
           await goto(resolve('/room/[code]', { code: recovered.room.code }));
           return;
         }
-        if (recovered?.room.status === 'CANCELLED') {
-          await api.leaveRoom(recovered.room.id);
-        }
+        if (recovered?.room.status === 'CANCELLED') await api.leaveRoom(recovered.room.id);
         realtime.connect();
         await loadRooms();
         refreshTimer = setInterval(loadRooms, 7_500);
@@ -142,40 +142,83 @@
 <div class="lobby shell">
   <header class="lobby-heading">
     <div>
+      <div class="heading-signal">
+        <Badge tone="success" pulse>COMMAND NETWORK ONLINE</Badge><span
+          >SECTOR ACCESS / PACIFIC FLEET</span
+        >
+      </div>
       <p class="eyebrow">OPERATIONS LOBBY</p>
       <h1 class="page-title">작전 로비</h1>
-      <p>{$session?.nickname} 지휘관, 참가할 해역을 선택하십시오.</p>
+      <p><strong>{$session?.nickname}</strong> 지휘관, 신호를 선택하거나 새 작전을 편성하십시오.</p>
     </div>
     <div class="lobby-heading__actions">
-      <button class="button" onclick={() => (showJoin = true)}
-        ><DoorOpen size={17} /> 코드 참가</button
+      <Button variant="outline" onclick={() => (showJoin = true)}
+        ><DoorOpen size={17} /> 코드 참가</Button
       >
-      <button class="button button--primary" onclick={() => (showCreate = true)}
-        ><Plus size={17} /> 작전실 생성</button
+      <Button variant="primary" onclick={() => (showCreate = true)}
+        ><Plus size={17} /> 작전실 생성</Button
       >
     </div>
   </header>
 
-  {#if error}<div class="alert" role="alert">{error}</div>{/if}
+  {#if error}<div class="lobby-alert" role="alert">
+      <span><Radio size={17} /></span>
+      <div>
+        <strong>CHANNEL ERROR</strong>
+        <p>{error}</p>
+      </div>
+    </div>{/if}
 
-  <section class="quick-match panel">
-    <div class="quick-match__signal"><Radio size={28} /></div>
-    <div>
-      <span class="status-pill"><span class="status-dot"></span> AUTOMATED MATCHING</span>
-      <h2>{matching ? '상대 지휘관 탐색 중' : '빠른 교전'}</h2>
-      <p>
-        {matching
-          ? `${elapsed}초 경과 · 대기 중에도 취소할 수 있습니다.`
-          : '대기 중인 지휘관과 즉시 1:1 비공개 작전실을 편성합니다.'}
-      </p>
+  <section class="command-dashboard" aria-label="작전 현황">
+    <Surface tone="elevated" padding="lg" class="quick-match">
+      <div class="quick-match__radar" class:searching={matching}>
+        <div class="quick-match__sweep"></div>
+        <Radio size={32} /><span></span>
+      </div>
+      <div class="quick-match__copy">
+        <Badge tone={matching ? 'warning' : 'cyan'} pulse={matching}
+          >{matching ? 'SEARCHING SIGNALS' : 'QUICK DEPLOYMENT'}</Badge
+        >
+        <h2>{matching ? '상대 지휘관 탐색 중' : '빠른 교전'}</h2>
+        <p>
+          {matching
+            ? `${elapsed}초 경과 · 안전한 매칭 채널에서 대기 중입니다.`
+            : '같은 신호를 기다리는 지휘관과 즉시 1:1 비공개 작전을 편성합니다.'}
+        </p>
+        <div class="matching-telemetry">
+          <span><i></i> ENCRYPTED LINK</span><span>2 PLAYERS</span><span>RANDOM INITIATIVE</span>
+        </div>
+      </div>
+      <Button variant={matching ? 'danger' : 'primary'} size="lg" onclick={toggleMatchmaking}>
+        {#if matching}<X size={17} /> 매칭 취소{:else}<Search size={17} /> 상대 찾기{/if}
+      </Button>
+    </Surface>
+
+    <div class="dashboard-side">
+      <Surface tone="interactive" padding="md">
+        <a class="dashboard-action" href={resolve('/stats')}>
+          <span><History size={19} /></span>
+          <div>
+            <small>OPERATION ARCHIVE</small><strong>전투 기록</strong>
+            <p>완료한 교전과 명중 통계</p>
+          </div>
+          <ArrowRight size={16} />
+        </a>
+      </Surface>
+      <Surface tone="quiet" padding="md">
+        <div class="network-card">
+          <ShieldCheck size={19} />
+          <div>
+            <small>TACTICAL NETWORK</small><strong
+              >{$socketStatus === 'online' ? '실시간 동기화 중' : '채널 준비 중'}</strong
+            >
+          </div>
+          <Badge tone={$socketStatus === 'online' ? 'success' : 'warning'}
+            >{$socketStatus.toUpperCase()}</Badge
+          >
+        </div>
+      </Surface>
     </div>
-    <button
-      class:button--danger={matching}
-      class="button button--primary"
-      onclick={toggleMatchmaking}
-    >
-      {#if matching}<X size={17} /> 매칭 취소{:else}<Search size={17} /> 상대 찾기{/if}
-    </button>
   </section>
 
   <section class="room-section" aria-labelledby="public-room-title">
@@ -183,318 +226,519 @@
       <div>
         <p class="eyebrow">OPEN CHANNELS</p>
         <h2 id="public-room-title">공개 작전실</h2>
+        <p>{rooms.length}개 채널이 신규 지휘관을 기다리고 있습니다.</p>
       </div>
-      <button class="icon-button" onclick={loadRooms} aria-label="방 목록 새로고침" title="새로고침"
-        ><RefreshCw size={16} /></button
+      <Button variant="ghost" size="sm" onclick={loadRooms}
+        ><RefreshCw size={15} /> 채널 스캔</Button
       >
     </div>
 
-    <div class="room-list panel">
-      <div class="room-list__head">
-        <span>작전실</span><span>지휘관</span><span>생성</span><span></span>
-      </div>
+    <div class="room-grid">
       {#if loading}
-        <div class="empty-state"><div class="spinner" aria-label="방 목록 불러오는 중"></div></div>
+        {#each Array.from({ length: 3 }) as _, index (index)}
+          <Surface tone="quiet" padding="md"
+            ><div class="room-skeleton">
+              <Skeleton width="46%" height="12px" /><Skeleton width="72%" height="22px" /><Skeleton
+                height="74px"
+              /><Skeleton width="100%" height="40px" />
+            </div></Surface
+          >
+        {/each}
       {:else if rooms.length === 0}
-        <div class="empty-state">
-          <div>
-            <Radio size={30} class="muted" />
-            <h3>현재 열린 작전실이 없습니다</h3>
-            <p class="muted">첫 작전실을 만들거나 빠른 교전을 시작해 보세요.</p>
-          </div>
-        </div>
+        <Surface tone="quiet" padding="lg" class="rooms-empty">
+          <div class="empty-radar"><Radio size={27} /></div>
+          <h3>현재 열린 작전실이 없습니다</h3>
+          <p>첫 채널을 편성하거나 빠른 교전을 시작해 보세요.</p>
+          <Button variant="outline" onclick={() => (showCreate = true)}
+            ><Plus size={15} /> 첫 채널 편성</Button
+          >
+        </Surface>
       {:else}
         {#each rooms as room (room.id)}
-          <article class="room-row">
-            <div class="room-name">
-              <span class="room-signal"></span>
-              <div><strong>{room.name}</strong><small>CODE {room.code}</small></div>
-            </div>
-            <span><Users size={15} /> {room.playerCount}/{room.capacity}</span>
-            <span><Clock3 size={15} /> {age(room.createdAt)}</span>
-            <button
-              class="button button--small"
-              onclick={() => joinRoom(room.code)}
-              disabled={submitting}>참가 <ArrowRight size={14} /></button
-            >
-          </article>
+          <Surface tone="interactive" padding="md" class="room-card">
+            <article>
+              <div class="room-card__top">
+                <Badge tone="success" pulse>OPEN</Badge><span>{age(room.createdAt)}</span>
+              </div>
+              <div class="room-card__title">
+                <small>OPERATION / {room.code}</small>
+                <h3>{room.name}</h3>
+              </div>
+              <div class="room-card__crew">
+                <Avatar name="HOST" status="online" />
+                <div>
+                  <small>COMMAND CREW</small><strong
+                    >{room.playerCount} / {room.capacity} 지휘관</strong
+                  >
+                </div>
+                <div class="crew-slots">
+                  <i class="filled"></i><i class:filled={room.playerCount > 1}></i>
+                </div>
+              </div>
+              <div class="room-card__meta">
+                <span><Radio size={13} /> PUBLIC CHANNEL</span><span
+                  ><KeyRound size={13} /> {room.code}</span
+                >
+              </div>
+              <Button
+                variant="secondary"
+                full
+                onclick={() => joinRoom(room.code)}
+                disabled={submitting}>채널 참가 <ArrowRight size={15} /></Button
+              >
+            </article>
+          </Surface>
         {/each}
       {/if}
     </div>
   </section>
 </div>
 
-{#if showCreate}
-  <div
-    class="modal-backdrop"
-    role="presentation"
-    onclick={(event) => event.currentTarget === event.target && (showCreate = false)}
+<Modal
+  open={showCreate}
+  title="새 작전실 편성"
+  eyebrow="NEW OPERATION"
+  description="작전 이름과 보안 범위를 지정하십시오. 편성 후 초대 코드가 즉시 발급됩니다."
+  onclose={() => (showCreate = false)}
+>
+  <form
+    class="operation-form"
+    onsubmit={(event) => {
+      event.preventDefault();
+      createRoom();
+    }}
   >
-    <div class="modal panel" role="dialog" aria-modal="true" aria-labelledby="create-title">
-      <button
-        class="icon-button modal__close"
-        onclick={() => (showCreate = false)}
-        aria-label="닫기"><X size={16} /></button
-      >
-      <p class="eyebrow">NEW OPERATION</p>
-      <h2 id="create-title">새 작전실 생성</h2>
-      <form
-        onsubmit={(event) => {
-          event.preventDefault();
-          createRoom();
-        }}
-      >
-        <div class="field">
-          <label for="room-name">작전실 이름</label><input
-            id="room-name"
-            class="input"
-            bind:value={roomName}
-            minlength="2"
-            maxlength="32"
-            required
-          />
-        </div>
-        <fieldset>
-          <legend>공개 범위</legend><label class="choice"
-            ><input type="radio" bind:group={visibility} value="PUBLIC" /><span
-              ><Radio size={17} /><strong>공개</strong><small>로비 목록에서 누구나 참가</small
-              ></span
-            ></label
-          ><label class="choice"
-            ><input type="radio" bind:group={visibility} value="PRIVATE" /><span
-              ><LockKeyhole size={17} /><strong>비공개</strong><small
-                >초대 링크와 코드로만 참가</small
-              ></span
-            ></label
-          >
-        </fieldset>
-        <button class="button button--primary button--wide" type="submit" disabled={submitting}
-          >{submitting ? '편성 중…' : '작전실 편성'} <ArrowRight size={17} /></button
+    <Field
+      id="room-name"
+      label="작전실 이름"
+      bind:value={roomName}
+      minlength={2}
+      maxlength={32}
+      required
+    />
+    <fieldset>
+      <legend>공개 범위</legend>
+      <div class="visibility-grid">
+        <label class="choice"
+          ><input type="radio" bind:group={visibility} value="PUBLIC" /><span
+            ><Radio size={18} /><strong>공개</strong><small>OPEN CHANNEL</small><em
+              >로비에서 누구나 참가</em
+            ></span
+          ></label
         >
-      </form>
-    </div>
-  </div>
-{/if}
+        <label class="choice"
+          ><input type="radio" bind:group={visibility} value="PRIVATE" /><span
+            ><LockKeyhole size={18} /><strong>비공개</strong><small>SECURE CHANNEL</small><em
+              >초대 링크와 코드로만 참가</em
+            ></span
+          ></label
+        >
+      </div>
+    </fieldset>
+    <Button variant="primary" size="lg" type="submit" loading={submitting} full
+      >작전실 편성 <ArrowRight size={17} /></Button
+    >
+  </form>
+</Modal>
 
-{#if showJoin}
-  <div
-    class="modal-backdrop"
-    role="presentation"
-    onclick={(event) => event.currentTarget === event.target && (showJoin = false)}
+<Modal
+  open={showJoin}
+  title="보안 코드로 참가"
+  eyebrow="SECURE CHANNEL"
+  description="초대받은 6자리 작전 코드를 입력하십시오."
+  onclose={() => (showJoin = false)}
+>
+  <form
+    class="operation-form"
+    onsubmit={(event) => {
+      event.preventDefault();
+      joinRoom();
+    }}
   >
-    <div class="modal panel" role="dialog" aria-modal="true" aria-labelledby="join-title">
-      <button class="icon-button modal__close" onclick={() => (showJoin = false)} aria-label="닫기"
-        ><X size={16} /></button
-      >
-      <p class="eyebrow">SECURE CHANNEL</p>
-      <h2 id="join-title">코드로 참가</h2>
-      <p class="muted">초대받은 6자리 작전 코드를 입력하십시오.</p>
-      <form
-        onsubmit={(event) => {
-          event.preventDefault();
-          joinRoom();
-        }}
-      >
-        <div class="field">
-          <label for="room-code">작전 코드</label><input
-            id="room-code"
-            class="input input-code"
-            bind:value={roomCode}
-            minlength="6"
-            maxlength="6"
-            placeholder="ABC123"
-            autocomplete="off"
-            required
-          />
-        </div>
-        <button
-          class="button button--primary button--wide"
-          type="submit"
-          disabled={submitting || roomCode.length !== 6}>채널 접속 <ArrowRight size={17} /></button
-        >
-      </form>
-    </div>
-  </div>
-{/if}
+    <Field
+      id="room-code"
+      label="작전 코드"
+      bind:value={roomCode}
+      minlength={6}
+      maxlength={6}
+      placeholder="ABC123"
+      autocomplete="off"
+      code
+      required
+    />
+    <Button
+      variant="primary"
+      size="lg"
+      type="submit"
+      loading={submitting}
+      disabled={roomCode.length !== 6}
+      full><KeyRound size={17} /> 채널 접속</Button
+    >
+  </form>
+</Modal>
 
 <style>
   .lobby {
-    padding: 64px 0 100px;
+    padding: 64px 0 112px;
   }
   .lobby-heading {
     display: flex;
     align-items: end;
     justify-content: space-between;
-    gap: 30px;
-    margin-bottom: 34px;
+    gap: 40px;
+    margin-bottom: 40px;
+  }
+  .heading-signal {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 30px;
+    color: var(--ink-500);
+    font-family: var(--font-display);
+    font-size: 8px;
+    letter-spacing: 0.12em;
   }
   .lobby-heading h1 {
-    margin-bottom: 8px;
+    margin-bottom: 10px;
   }
-  .lobby-heading p:last-child {
+  .lobby-heading > div:first-child > p:last-child {
     margin: 0;
-    color: var(--steel-300);
+    color: var(--ink-300);
+    font-size: 13px;
+  }
+  .lobby-heading > div:first-child > p:last-child strong {
+    color: var(--ink-100);
   }
   .lobby-heading__actions {
     display: flex;
     gap: 10px;
   }
-  .alert {
-    margin-bottom: 18px;
-    padding: 12px 15px;
-    border: 1px solid rgba(255, 83, 100, 0.35);
-    border-radius: 10px;
-    color: #ffb2bc;
-    background: rgba(100, 18, 31, 0.24);
-    font-size: 13px;
+  .lobby-alert {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 12px;
+    margin-bottom: 20px;
+    padding: 15px;
+    border: 1px solid rgba(255, 114, 128, 0.28);
+    border-radius: 14px;
+    color: var(--red-400);
+    background: rgba(91, 18, 32, 0.22);
   }
-  .quick-match {
+  .lobby-alert > span {
+    display: grid;
+    width: 34px;
+    height: 34px;
+    place-items: center;
+    border-radius: 9px;
+    background: rgba(240, 72, 94, 0.1);
+  }
+  .lobby-alert strong {
+    font-family: var(--font-display);
+    font-size: 9px;
+    letter-spacing: 0.12em;
+  }
+  .lobby-alert p {
+    margin: 3px 0 0;
+    color: #e1aab1;
+    font-size: 11px;
+  }
+  .command-dashboard {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 330px;
+    gap: 16px;
+  }
+  :global(.quick-match) :global(.ui-surface__content) {
     display: grid;
     grid-template-columns: auto 1fr auto;
     align-items: center;
-    gap: 20px;
-    padding: 24px;
-    border-color: rgba(57, 224, 235, 0.25);
-    overflow: hidden;
+    gap: 24px;
   }
-  .quick-match__signal {
+  .quick-match__radar {
     position: relative;
     display: grid;
-    width: 64px;
-    height: 64px;
+    width: 92px;
+    height: 92px;
     place-items: center;
-    border: 1px solid rgba(57, 224, 235, 0.34);
+    overflow: hidden;
+    border: 1px solid rgba(40, 223, 232, 0.3);
     border-radius: 50%;
-    color: var(--cyan-400);
-    background: radial-gradient(circle, rgba(57, 224, 235, 0.14), transparent 65%);
+    color: var(--cyan-300);
+    background: radial-gradient(circle, rgba(23, 132, 150, 0.21), transparent 68%);
   }
-  .quick-match__signal::after {
+  .quick-match__radar::before,
+  .quick-match__radar::after {
     position: absolute;
-    inset: -8px;
+    inset: 50% 0 auto;
+    height: 1px;
     content: '';
-    border: 1px solid rgba(57, 224, 235, 0.09);
+    background: rgba(40, 223, 232, 0.16);
+  }
+  .quick-match__radar::after {
+    transform: rotate(90deg);
+  }
+  .quick-match__radar > span {
+    position: absolute;
+    top: 26%;
+    right: 25%;
+    width: 6px;
+    height: 6px;
     border-radius: 50%;
+    background: var(--cyan-300);
+    box-shadow: 0 0 10px var(--cyan-300);
   }
-  .quick-match h2 {
-    margin: 10px 0 3px;
-    font-size: 19px;
+  .quick-match__sweep {
+    position: absolute;
+    inset: 50% 50% 0 0;
+    transform-origin: 100% 0;
+    background: conic-gradient(from 270deg at 100% 0, rgba(40, 223, 232, 0.38), transparent 42deg);
+    animation: radar 3.8s linear infinite;
   }
-  .quick-match p {
+  .quick-match__radar.searching {
+    border-color: rgba(255, 209, 107, 0.42);
+    color: var(--amber-400);
+  }
+  .quick-match__copy h2 {
+    margin: 10px 0 5px;
+    font-family: var(--font-display);
+    font-size: 27px;
+    font-weight: 600;
+  }
+  .quick-match__copy > p {
     margin: 0;
-    color: #819cac;
+    color: var(--ink-300);
+    font-size: 12px;
+    line-height: 1.7;
+  }
+  .matching-telemetry {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 13px;
+    margin-top: 15px;
+    color: var(--ink-500);
+    font-family: var(--font-display);
+    font-size: 7px;
+    letter-spacing: 0.12em;
+  }
+  .matching-telemetry span {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .matching-telemetry i {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--green-400);
+    box-shadow: 0 0 6px var(--green-400);
+  }
+  .dashboard-side {
+    display: grid;
+    gap: 16px;
+  }
+  .dashboard-action {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
+    gap: 12px;
+  }
+  .dashboard-action > span {
+    display: grid;
+    width: 44px;
+    height: 44px;
+    place-items: center;
+    border: 1px solid var(--line);
+    border-radius: 11px;
+    color: var(--cyan-300);
+    background: rgba(40, 223, 232, 0.06);
+  }
+  .dashboard-action > div {
+    display: grid;
+    gap: 2px;
+  }
+  .dashboard-action small,
+  .network-card small {
+    color: var(--ink-500);
+    font-family: var(--font-display);
+    font-size: 7px;
+    letter-spacing: 0.14em;
+  }
+  .dashboard-action strong,
+  .network-card strong {
     font-size: 12px;
   }
+  .dashboard-action p {
+    margin: 0;
+    color: var(--ink-400);
+    font-size: 9px;
+  }
+  .network-card {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
+    gap: 11px;
+    color: var(--green-400);
+  }
+  .network-card > div {
+    display: grid;
+    gap: 2px;
+  }
+  .network-card strong {
+    color: var(--ink-200);
+  }
   .room-section {
-    margin-top: 50px;
+    margin-top: 56px;
   }
   .section-heading {
     display: flex;
     align-items: end;
     justify-content: space-between;
-    margin-bottom: 16px;
+    gap: 24px;
+    margin-bottom: 20px;
   }
   .section-heading h2 {
+    margin: 0 0 5px;
+    font-family: var(--font-display);
+    font-size: 30px;
+    font-weight: 600;
+  }
+  .section-heading p:last-child {
     margin: 0;
-    font-size: 24px;
+    color: var(--ink-400);
+    font-size: 11px;
   }
-  .room-list {
+  .room-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 16px;
+  }
+  :global(.room-card) article {
+    display: grid;
+    gap: 18px;
+  }
+  .room-card__top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .room-card__top > span {
+    color: var(--ink-500);
+    font-size: 9px;
+  }
+  .room-card__title small {
+    color: var(--ink-500);
+    font-family: var(--font-display);
+    font-size: 8px;
+    letter-spacing: 0.13em;
+  }
+  .room-card__title h3 {
+    margin: 5px 0 0;
     overflow: hidden;
-    border-radius: var(--radius-md);
+    font-size: 17px;
+    white-space: nowrap;
+    text-overflow: ellipsis;
   }
-  .room-list__head,
-  .room-row {
+  .room-card__crew {
     display: grid;
-    grid-template-columns: minmax(240px, 1fr) 130px 130px 90px;
+    grid-template-columns: auto 1fr auto;
     align-items: center;
-    gap: 15px;
-    padding: 14px 20px;
+    gap: 11px;
+    padding: 13px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: rgba(3, 15, 23, 0.5);
   }
-  .room-list__head {
-    min-height: 44px;
-    color: #698697;
-    background: rgba(4, 15, 24, 0.72);
-    font-size: 10px;
-    font-weight: 700;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-  }
-  .room-row {
-    min-height: 75px;
-    border-top: 1px solid var(--line);
-  }
-  .room-row:hover {
-    background: rgba(38, 109, 135, 0.07);
-  }
-  .room-row > span {
-    display: flex;
-    align-items: center;
-    gap: 7px;
-    color: #8da8b7;
-    font-size: 12px;
-  }
-  .room-name {
-    display: flex;
-    align-items: center;
-    gap: 13px;
-  }
-  .room-name div {
+  .room-card__crew > div:nth-child(2) {
     display: grid;
-    gap: 3px;
+    gap: 2px;
   }
-  .room-name small {
-    color: #627f90;
-    font-family: Rajdhani;
-    font-size: 10px;
+  .room-card__crew small {
+    color: var(--ink-500);
+    font-family: var(--font-display);
+    font-size: 7px;
     letter-spacing: 0.12em;
   }
-  .room-signal {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: var(--green-500);
-    box-shadow: 0 0 10px rgba(61, 226, 161, 0.7);
+  .room-card__crew strong {
+    font-size: 11px;
   }
-  .modal-backdrop {
-    position: fixed;
-    z-index: 80;
-    inset: 0;
+  .crew-slots {
+    display: flex;
+    gap: 4px;
+  }
+  .crew-slots i {
+    width: 5px;
+    height: 18px;
+    border-radius: 3px;
+    background: #1d3743;
+  }
+  .crew-slots i.filled {
+    background: var(--green-400);
+    box-shadow: 0 0 7px rgba(79, 226, 173, 0.35);
+  }
+  .room-card__meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    color: var(--ink-500);
+    font-family: var(--font-display);
+    font-size: 8px;
+    letter-spacing: 0.07em;
+  }
+  .room-card__meta span {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .room-skeleton {
     display: grid;
+    gap: 16px;
+  }
+  :global(.rooms-empty) {
+    grid-column: 1 / -1;
+    text-align: center;
+  }
+  :global(.rooms-empty) :global(.ui-surface__content) {
+    display: grid;
+    min-height: 280px;
     place-items: center;
-    padding: 20px;
-    background: rgba(0, 6, 10, 0.76);
-    backdrop-filter: blur(8px);
+    align-content: center;
+    gap: 12px;
   }
-  .modal {
-    position: relative;
-    width: min(500px, 100%);
-    padding: 30px;
+  :global(.rooms-empty) h3,
+  :global(.rooms-empty) p {
+    margin: 0;
   }
-  .modal h2 {
-    margin-bottom: 12px;
-    font-size: 26px;
+  :global(.rooms-empty) p {
+    color: var(--ink-400);
+    font-size: 11px;
   }
-  .modal__close {
-    position: absolute;
-    top: 18px;
-    right: 18px;
-  }
-  .modal form {
+  .empty-radar {
     display: grid;
-    gap: 20px;
-    margin-top: 24px;
+    width: 62px;
+    height: 62px;
+    place-items: center;
+    border: 1px solid var(--line-strong);
+    border-radius: 50%;
+    color: var(--cyan-300);
+    background: radial-gradient(circle, rgba(40, 223, 232, 0.11), transparent 68%);
   }
-  .modal fieldset {
+  .operation-form {
     display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 10px;
+    gap: 22px;
+  }
+  .operation-form fieldset {
     padding: 0;
     border: 0;
   }
-  .modal legend {
-    margin-bottom: 8px;
-    color: #c9dce6;
-    font-size: 13px;
-    font-weight: 650;
+  .operation-form legend {
+    margin-bottom: 9px;
+    color: var(--ink-200);
+    font-size: 12px;
+    font-weight: 700;
+  }
+  .visibility-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
   }
   .choice {
     position: relative;
@@ -506,63 +750,104 @@
   .choice span {
     display: grid;
     grid-template-columns: auto 1fr;
-    gap: 3px 8px;
-    min-height: 88px;
+    gap: 3px 9px;
+    min-height: 112px;
     align-content: center;
-    padding: 14px;
+    padding: 15px;
     border: 1px solid var(--line);
-    border-radius: 10px;
+    border-radius: 12px;
+    background: rgba(3, 15, 23, 0.55);
     cursor: pointer;
+    transition: 180ms var(--ease-out);
   }
   .choice :global(svg) {
-    grid-row: 1/3;
-    color: var(--cyan-400);
+    grid-row: 1 / 4;
+    color: var(--cyan-300);
+  }
+  .choice strong {
+    font-size: 12px;
   }
   .choice small {
-    color: #708c9c;
-    font-size: 10px;
+    color: var(--ink-500);
+    font-family: var(--font-display);
+    font-size: 7px;
+    letter-spacing: 0.1em;
+  }
+  .choice em {
+    color: var(--ink-400);
+    font-size: 9px;
+    font-style: normal;
+    line-height: 1.5;
   }
   .choice input:checked + span {
-    border-color: var(--cyan-400);
-    background: rgba(22, 199, 217, 0.1);
-    box-shadow: 0 0 0 2px rgba(22, 199, 217, 0.08);
+    border-color: var(--cyan-300);
+    background: rgba(17, 95, 106, 0.15);
+    box-shadow:
+      0 0 0 3px rgba(40, 223, 232, 0.07),
+      var(--glow-cyan);
+  }
+  .choice input:focus-visible + span {
+    outline: 2px solid var(--cyan-300);
+    outline-offset: 3px;
+  }
+  @media (max-width: 1050px) {
+    .command-dashboard {
+      grid-template-columns: 1fr;
+    }
+    .dashboard-side {
+      grid-template-columns: 1fr 1fr;
+    }
+    .room-grid {
+      grid-template-columns: repeat(2, 1fr);
+    }
   }
   @media (max-width: 720px) {
     .lobby {
-      padding-top: 40px;
+      padding: 44px 0 88px;
     }
     .lobby-heading {
       display: block;
     }
-    .lobby-heading__actions {
-      margin-top: 22px;
+    .heading-signal > span {
+      display: none;
     }
-    .lobby-heading__actions .button {
+    .lobby-heading__actions {
+      margin-top: 24px;
+    }
+    .lobby-heading__actions :global(.ui-button) {
       flex: 1;
       padding-inline: 10px;
     }
-    .quick-match {
+    :global(.quick-match) :global(.ui-surface__content) {
       grid-template-columns: auto 1fr;
+      gap: 16px;
     }
-    .quick-match > .button {
-      grid-column: 1/-1;
+    :global(.quick-match) :global(.ui-button) {
+      grid-column: 1 / -1;
       width: 100%;
     }
-    .room-list__head {
-      display: none;
+    .quick-match__radar {
+      width: 68px;
+      height: 68px;
     }
-    .room-row {
-      grid-template-columns: 1fr auto;
-      gap: 10px;
-      padding: 16px;
+    .quick-match__copy h2 {
+      font-size: 22px;
     }
-    .room-row > span {
-      display: none;
+    .dashboard-side,
+    .room-grid {
+      grid-template-columns: 1fr;
     }
-    .modal {
-      padding: 25px 20px;
+    .section-heading {
+      align-items: start;
     }
-    .modal fieldset {
+    .section-heading :global(.ui-button) {
+      min-width: 40px;
+      padding-inline: 10px;
+    }
+    .section-heading :global(.ui-button) :global(span) {
+      font-size: 0;
+    }
+    .visibility-grid {
       grid-template-columns: 1fr;
     }
   }

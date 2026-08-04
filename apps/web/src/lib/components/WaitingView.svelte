@@ -57,17 +57,29 @@
     >
   </div>
 
-  <div class="player-slots">
-    <article class="player-slot player-slot--online">
-      <span><UserRound size={21} /></span>
-      <div><small>HOST COMMANDER</small><strong>{snapshot.players[0]?.nickname}</strong></div>
-      <em><Wifi size={13} /> 온라인</em>
-    </article>
-    <article class="player-slot player-slot--pending">
-      <span><UserRound size={21} /></span>
-      <div><small>OPPONENT</small><strong>연결 대기 중</strong></div>
-      <em><span class="pending-dot"></span> 탐색 중</em>
-    </article>
+  <div class="room-command-grid">
+    <div class="player-slots">
+      <article class="player-slot player-slot--online">
+        <span><UserRound size={21} /></span>
+        <div><small>HOST COMMANDER</small><strong>{snapshot.players[0]?.nickname}</strong></div>
+        <em><Wifi size={13} /> 온라인</em>
+      </article>
+      <article class="player-slot player-slot--pending">
+        <span><UserRound size={21} /></span>
+        <div><small>OPPONENT</small><strong>연결 대기 중</strong></div>
+        <em><span class="pending-dot"></span> 탐색 중</em>
+      </article>
+    </div>
+    <aside class="secure-comms" aria-label="보안 통신 상태">
+      <header><Radio size={14} /><span>SECURE COMMS</span><em>LIVE</em></header>
+      <ol>
+        <li><time>SYS</time><span>암호화 채널이 활성화되었습니다.</span></li>
+        <li><time>AUTH</time><span>{snapshot.players[0]?.nickname} 지휘관 인증 완료.</span></li>
+        <li class="pending">
+          <time>SCAN</time><span>상대 지휘관의 접속 신호를 탐색 중입니다.</span>
+        </li>
+      </ol>
+    </aside>
   </div>
 
   <button class="button button--ghost button--small leave-button" onclick={onleave}
@@ -77,7 +89,7 @@
 
 <style>
   .waiting {
-    width: min(750px, 100%);
+    width: min(930px, 100%);
     margin: 0 auto;
     padding: 46px;
     text-align: center;
@@ -179,6 +191,10 @@
   }
   .player-slots {
     display: grid;
+    gap: 10px;
+  }
+  .room-command-grid {
+    display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 10px;
     margin-top: 25px;
@@ -238,6 +254,57 @@
     background: var(--amber-500);
     animation: pulse 1.2s infinite;
   }
+  .secure-comms {
+    overflow: hidden;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    text-align: left;
+    background: rgba(2, 13, 21, 0.56);
+  }
+  .secure-comms header {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--line);
+    color: var(--cyan-300);
+    font-family: var(--font-display);
+    font-size: 9px;
+    letter-spacing: 0.14em;
+  }
+  .secure-comms header em {
+    color: var(--green-400);
+    font-size: 7px;
+    font-style: normal;
+  }
+  .secure-comms ol {
+    display: grid;
+    gap: 0;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .secure-comms li {
+    display: grid;
+    grid-template-columns: 38px 1fr;
+    gap: 8px;
+    padding: 9px 12px;
+    border-bottom: 1px solid rgba(132, 191, 211, 0.07);
+    color: var(--ink-300);
+    font-size: 9px;
+  }
+  .secure-comms li:last-child {
+    border: 0;
+  }
+  .secure-comms time {
+    color: var(--cyan-500);
+    font-family: var(--font-mono);
+    font-size: 8px;
+  }
+  .secure-comms li.pending span {
+    animation: pulse 1.8s ease-in-out infinite;
+  }
   .leave-button {
     margin-top: 25px;
     color: #7893a2;
@@ -250,7 +317,7 @@
       font-size: 28px;
     }
     .room-identity,
-    .player-slots {
+    .room-command-grid {
       grid-template-columns: 1fr;
     }
     .room-identity > div:first-child {

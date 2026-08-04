@@ -115,6 +115,7 @@
 </script>
 
 <div class:board-disabled={disabled} class="board-wrap">
+  <span class="board-wrap__bezel" aria-hidden="true"></span>
   <div
     class="board-grid"
     role="grid"
@@ -165,9 +166,9 @@
           }}
         >
           {#if kind}<span class="ship-segment" title={shipName(kind)}></span>{/if}
-          {#if attack === 'MISS'}<span class="miss-marker"><Waves size={13} /></span>{/if}
+          {#if attack === 'MISS'}<span class="miss-marker"><i></i><Waves size={13} /></span>{/if}
           {#if attack === 'HIT' || attack === 'SUNK'}<span class="hit-marker"
-              ><Flame size={14} /></span
+              ><i></i><Flame size={14} /></span
             >{/if}
         </button>
       {/each}
@@ -177,11 +178,54 @@
 
 <style>
   .board-wrap {
+    position: relative;
     width: 100%;
     max-width: 590px;
+    padding: 8px;
     container-type: inline-size;
+    isolation: isolate;
+    perspective: 1100px;
+  }
+  .board-wrap::before,
+  .board-wrap::after {
+    position: absolute;
+    z-index: -1;
+    content: '';
+    pointer-events: none;
+  }
+  .board-wrap::before {
+    inset: 2px;
+    border: 1px solid rgba(91, 226, 237, 0.18);
+    border-radius: 18px;
+    background: linear-gradient(145deg, rgba(26, 89, 108, 0.19), rgba(1, 8, 15, 0.82));
+    box-shadow:
+      0 28px 70px rgba(0, 0, 0, 0.42),
+      0 0 50px rgba(24, 208, 226, 0.055);
+  }
+  .board-wrap::after {
+    inset: 12% 12% -4%;
+    border-radius: 50%;
+    background: rgba(25, 200, 218, 0.14);
+    filter: blur(38px);
+    opacity: 0.26;
+  }
+  .board-wrap__bezel {
+    position: absolute;
+    z-index: 4;
+    inset: 2px;
+    border-radius: 18px;
+    pointer-events: none;
+    background:
+      linear-gradient(var(--cyan-300), var(--cyan-300)) 14px 14px / 28px 1px no-repeat,
+      linear-gradient(var(--cyan-300), var(--cyan-300)) 14px 14px / 1px 28px no-repeat,
+      linear-gradient(var(--cyan-300), var(--cyan-300)) calc(100% - 14px) calc(100% - 14px) / 28px
+        1px no-repeat,
+      linear-gradient(var(--cyan-300), var(--cyan-300)) calc(100% - 14px) calc(100% - 14px) / 1px
+        28px no-repeat;
+    opacity: 0.36;
   }
   .board-grid {
+    position: relative;
     display: grid;
     grid-template-columns: 28px repeat(10, 1fr);
     grid-template-rows: 28px repeat(10, 1fr);
@@ -189,8 +233,11 @@
     aspect-ratio: 1;
     padding: 5px;
     border: 1px solid rgba(74, 179, 209, 0.28);
-    border-radius: 12px;
-    background: linear-gradient(135deg, rgba(5, 34, 50, 0.98), rgba(3, 20, 32, 0.98));
+    overflow: hidden;
+    border-radius: 11px;
+    background:
+      radial-gradient(circle at 32% 20%, rgba(25, 181, 204, 0.12), transparent 32%),
+      linear-gradient(135deg, rgba(5, 35, 52, 0.99), rgba(2, 18, 29, 0.99));
     box-shadow:
       inset 0 0 45px rgba(30, 166, 190, 0.055),
       0 18px 48px rgba(0, 0, 0, 0.2);
@@ -218,7 +265,9 @@
     border-top: 1px solid rgba(73, 155, 184, 0.15);
     border-left: 1px solid rgba(73, 155, 184, 0.15);
     color: white;
-    background: rgba(8, 45, 63, 0.5);
+    background:
+      radial-gradient(circle at 30% 24%, rgba(108, 219, 232, 0.025), transparent 42%),
+      rgba(8, 45, 63, 0.5);
     cursor: default;
     transition:
       background 0.12s ease,
@@ -237,6 +286,15 @@
     content: '';
     border: 1px solid transparent;
     border-radius: 3px;
+    pointer-events: none;
+  }
+  .board-cell::before {
+    position: absolute;
+    z-index: 6;
+    inset: 8%;
+    content: '';
+    border: 1px solid transparent;
+    border-radius: 50%;
     pointer-events: none;
   }
   .cell--interactive:not(:disabled) {
@@ -282,6 +340,10 @@
       inset 0 0 0 2px var(--amber-500),
       0 0 15px rgba(255, 180, 60, 0.2);
   }
+  .cell--selected::before {
+    border-color: rgba(255, 190, 77, 0.8);
+    animation: target-lock 900ms var(--ease-out) infinite;
+  }
   .miss-marker,
   .hit-marker {
     position: absolute;
@@ -294,6 +356,14 @@
     color: #83cce0;
     background: radial-gradient(circle, rgba(96, 184, 207, 0.18), transparent 65%);
   }
+  .miss-marker i {
+    position: absolute;
+    width: 36%;
+    aspect-ratio: 1;
+    border: 1px solid rgba(144, 230, 244, 0.72);
+    border-radius: 50%;
+    animation: water-ring 1.8s ease-out infinite;
+  }
   .hit-marker {
     color: #fff0d8;
     background: radial-gradient(
@@ -303,6 +373,22 @@
       transparent 70%
     );
     filter: drop-shadow(0 0 5px #ff5e3b);
+  }
+  .hit-marker i {
+    position: absolute;
+    width: 34%;
+    aspect-ratio: 1;
+    border-radius: 50%;
+    background: #fff3cf;
+    box-shadow:
+      0 0 8px #fff0c2,
+      0 0 16px #ff7b3e,
+      0 0 24px rgba(255, 70, 33, 0.75);
+    animation: impact-core 1.7s ease-in-out infinite;
+  }
+  .hit-marker :global(svg) {
+    position: relative;
+    z-index: 2;
   }
   .cell--sunk .ship-segment {
     background: #492832;
@@ -314,6 +400,28 @@
   .board-disabled {
     filter: saturate(0.72);
     opacity: 0.86;
+  }
+  @keyframes target-lock {
+    50% {
+      inset: 20%;
+      opacity: 0.28;
+    }
+  }
+  @keyframes water-ring {
+    from {
+      transform: scale(0.4);
+      opacity: 0.85;
+    }
+    to {
+      transform: scale(2.6);
+      opacity: 0;
+    }
+  }
+  @keyframes impact-core {
+    50% {
+      transform: scale(1.35);
+      opacity: 0.65;
+    }
   }
   @container (max-width:430px) {
     .board-grid {

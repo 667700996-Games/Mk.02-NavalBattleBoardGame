@@ -1,4 +1,5 @@
 <script lang="ts">
+  import '../app.css';
   import '@fontsource/ibm-plex-sans-kr/korean-400.css';
   import '@fontsource/ibm-plex-sans-kr/korean-700.css';
   import '@fontsource/ibm-plex-sans-kr/latin-400.css';
@@ -6,20 +7,27 @@
   import '@fontsource/rajdhani/latin-500.css';
   import '@fontsource/rajdhani/latin-600.css';
   import '@fontsource/rajdhani/latin-700.css';
+  import { page } from '$app/state';
   import { onMount } from 'svelte';
   import { resolve } from '$app/paths';
-  import { Crosshair, History, Radio, Settings, UserRound, X } from '@lucide/svelte';
+  import { Crosshair, History, Radio, Settings } from '@lucide/svelte';
   import { api } from '$lib/api';
-  import { gameError, session, socketStatus } from '$lib/stores';
+  import { gameError, preferences, session, socketStatus } from '$lib/stores';
+  import { Avatar, Status, Toast, Tooltip } from '$lib/ui';
 
   let { children } = $props();
+  let clock = $state('00:00');
 
-  onMount(async () => {
-    try {
-      session.set(await api.currentSession());
-    } catch {
-      session.set(null);
-    }
+  onMount(() => {
+    const updateClock = () =>
+      (clock = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }));
+    updateClock();
+    const timer = setInterval(updateClock, 30_000);
+    api
+      .currentSession()
+      .then((current) => session.set(current))
+      .catch(() => session.set(null));
+    return () => clearInterval(timer);
   });
 
   const connectionText = (status: string) =>
@@ -29,6 +37,23 @@
       reconnecting: '재연결 중',
       offline: '연결 끊김'
     })[status] ?? '대기';
+
+  const statusState = (status: string) =>
+    status === 'online'
+      ? 'online'
+      : status === 'offline'
+        ? 'danger'
+        : status === 'idle'
+          ? 'idle'
+          : 'warning';
+
+  const active = (path: string) => page.url.pathname.startsWith(path);
+
+  $effect(() => {
+    if (typeof document === 'undefined') return;
+    document.documentElement.dataset.motion = $preferences.reducedMotion ? 'reduced' : 'full';
+    document.documentElement.dataset.contrast = $preferences.highContrast ? 'high' : 'standard';
+  });
 </script>
 
 <svelte:head>
@@ -44,10 +69,10 @@
     property="og:description"
     content="함선을 배치하고 좌표를 추론하며 맞붙는 2인 실시간 해전 전략 게임"
   />
-  <meta property="og:image" content="/og-mk01.png" />
+  <meta property="og:image" content="/og-mk01-command-v2.png" />
   <meta property="og:image:width" content="1200" />
   <meta property="og:image:height" content="630" />
-  <meta property="og:image:alt" content="시안과 주황 함대가 대치하는 해군 작전 지도" />
+  <meta property="og:image:alt" content="시안과 주황 함대가 대치하는 Mk.01 해군 전술 지도" />
   <meta name="twitter:card" content="summary_large_image" />
 </svelte:head>
 
@@ -63,18 +88,52 @@
 
     <nav class="nav-links" aria-label="주 메뉴">
       {#if $session}
-        <a class="nav-link" href={resolve('/lobby')}><Radio size={17} /><span>작전 로비</span></a>
-        <a class="nav-link" href={resolve('/stats')}><History size={17} /><span>전투 기록</span></a>
+        <Tooltip text="작전 로비" side="bottom">
+          <a
+            class:active={active('/lobby') || active('/room')}
+            class="nav-link"
+            href={resolve('/lobby')}><Radio size={17} /><span>작전 로비</span></a
+          >
+        </Tooltip>
+        <Tooltip text="전투 기록" side="bottom">
+          <a class:active={active('/stats')} class="nav-link" href={resolve('/stats')}
+            ><History size={17} /><span>전투 기록</span></a
+          >
+        </Tooltip>
       {/if}
-      <a class="nav-link" href={resolve('/settings')}><Settings size={17} /><span>설정</span></a>
+      <Tooltip text="환경 설정" side="bottom">
+        <a class:active={active('/settings')} class="nav-link" href={resolve('/settings')}
+          ><Settings size={17} /><span>설정</span></a
+        >
+      </Tooltip>
     </nav>
 
-    {#if $session}
-      <span class="user-chip" title={`${$session.nickname} · ${connectionText($socketStatus)}`}>
-        <UserRound size={14} />
-        {$session.nickname}
-      </span>
-    {/if}
+    <div class="header-operator">
+      <div class="header-clock" aria-label={`현재 시간 ${clock}`}>
+        <small>LOCAL</small><strong>{clock}</strong>
+      </div>
+      {#if $session}
+        <Status
+          label="TACTICAL LINK"
+          value={connectionText($socketStatus)}
+          state={statusState($socketStatus)}
+        />
+        <span class="user-chip" title={`${$session.nickname} · ${connectionText($socketStatus)}`}>
+          <Avatar
+            name={$session.nickname}
+            size="sm"
+            status={$socketStatus === 'online'
+              ? 'online'
+              : $socketStatus === 'offline'
+                ? 'offline'
+                : 'reconnecting'}
+          />
+          <span>{$session.nickname}</span>
+        </span>
+      {:else}
+        <Status label="SYSTEM" value="STANDBY" state="idle" />
+      {/if}
+    </div>
   </div>
 </header>
 
@@ -82,15 +141,38 @@
 
 {#if $gameError}
   <div class="toast-stack" aria-live="assertive">
-    <div class="toast">
-      <span class="danger"><Radio size={18} /></span>
-      <div>
-        <strong>{$gameError.code}</strong>
-        <p>{$gameError.message}</p>
-      </div>
-      <button class="icon-button" aria-label="오류 닫기" onclick={() => gameError.set(null)}>
-        <X size={16} />
-      </button>
-    </div>
+    <Toast
+      tone="danger"
+      title={$gameError.code}
+      message={$gameError.message}
+      onclose={() => gameError.set(null)}
+    />
   </div>
 {/if}
+
+<style>
+  .header-clock {
+    display: grid;
+    justify-items: end;
+    line-height: 1;
+  }
+  .header-clock small {
+    color: var(--ink-500);
+    font-family: var(--font-display);
+    font-size: 7px;
+    letter-spacing: 0.16em;
+  }
+  .header-clock strong {
+    margin-top: 3px;
+    color: var(--ink-300);
+    font-family: var(--font-display);
+    font-size: 12px;
+    letter-spacing: 0.08em;
+  }
+  @media (max-width: 880px) {
+    .header-clock,
+    .header-operator :global(.ui-status) {
+      display: none;
+    }
+  }
+</style>

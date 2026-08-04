@@ -27,9 +27,11 @@
     <p class="eyebrow">SIGNAL INTERRUPTED</p>
     <h2 id="disconnect-title">상대 지휘관 재접속 대기</h2>
     <p>전장 상태와 현재 턴은 서버에 안전하게 보존되어 있습니다.</p>
-    <strong class="countdown">{remaining}<small>SEC</small></strong><span
-      ><RefreshCw size={13} /> 연결 상태를 자동으로 확인하고 있습니다.</span
-    >
+    <strong class="countdown">{remaining}<small>SEC</small></strong>
+    <div class="reconnect-track" aria-hidden="true">
+      <i style={`width:${Math.min(100, (remaining / 90) * 100)}%`}></i>
+    </div>
+    <span><RefreshCw size={13} /> 연결 상태를 자동으로 확인하고 있습니다.</span>
   </section>
 </div>
 
@@ -48,6 +50,9 @@
     width: min(450px, 100%);
     padding: 35px;
     text-align: center;
+    background:
+      radial-gradient(circle at 50% 12%, rgba(246, 173, 53, 0.1), transparent 38%),
+      rgba(5, 18, 27, 0.95);
   }
   .disconnect-icon {
     display: grid;
@@ -78,6 +83,20 @@
   .countdown small {
     margin-left: 5px;
     font-size: 12px;
+  }
+  .reconnect-track {
+    height: 2px;
+    margin: -10px 0 22px;
+    overflow: hidden;
+    background: rgba(246, 173, 53, 0.12);
+  }
+  .reconnect-track i {
+    display: block;
+    height: 100%;
+    margin-left: auto;
+    background: var(--amber-400);
+    box-shadow: 0 0 9px var(--amber-400);
+    transition: width 1s linear;
   }
   .disconnect-card > span {
     display: flex;

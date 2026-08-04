@@ -136,12 +136,22 @@
     >
   </header>
 
+  <div class="deployment-steps" aria-label="함대 배치 진행 단계">
+    <span class="active"><i>01</i><strong>함선 선택</strong><small>SELECT VESSEL</small></span>
+    <span class:active={placements.length > 0}
+      ><i>02</i><strong>해역 배치</strong><small>MAP SECTOR</small></span
+    >
+    <span class:active={fleet.valid}
+      ><i>03</i><strong>작전 확정</strong><small>LOCK FORMATION</small></span
+    >
+  </div>
+
   <div class="placement__layout">
     <div class="placement__board panel">
       <div class="board-toolbar">
-        <span>{orientation === 'HORIZONTAL' ? '가로 방향' : '세로 방향'}</span><small
-          >단축키 R · 회전</small
-        >
+        <span
+          ><i></i> SECTOR 10 × 10 / {orientation === 'HORIZONTAL' ? '가로 방향' : '세로 방향'}</span
+        ><small>R · 회전 &nbsp; ESC · 선택 해제</small>
       </div>
       <GridBoard
         mode="placement"
@@ -241,21 +251,88 @@
     color: var(--steel-300);
     font-size: 12px;
   }
+  .deployment-steps {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    margin-bottom: 16px;
+    overflow: hidden;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: rgba(2, 12, 20, 0.5);
+  }
+  .deployment-steps span {
+    position: relative;
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 1px 10px;
+    align-items: center;
+    min-height: 58px;
+    padding: 10px 16px;
+    border-right: 1px solid var(--line);
+    color: var(--ink-500);
+    transition: 280ms var(--ease-out);
+  }
+  .deployment-steps span:last-child {
+    border-right: 0;
+  }
+  .deployment-steps span.active {
+    color: var(--cyan-300);
+    background: linear-gradient(90deg, rgba(40, 223, 232, 0.09), transparent);
+  }
+  .deployment-steps span.active::after {
+    position: absolute;
+    inset: auto 12% 0;
+    height: 1px;
+    content: '';
+    background: var(--cyan-300);
+    box-shadow: 0 0 10px var(--cyan-400);
+  }
+  .deployment-steps i {
+    grid-row: 1 / 3;
+    font-family: var(--font-display);
+    font-size: 18px;
+    font-style: normal;
+  }
+  .deployment-steps strong {
+    color: var(--ink-200);
+    font-size: 10px;
+  }
+  .deployment-steps small {
+    font-family: var(--font-display);
+    font-size: 7px;
+    letter-spacing: 0.16em;
+  }
   .placement__layout {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 330px;
+    grid-template-columns: minmax(0, 1fr) 352px;
     gap: 20px;
     align-items: start;
   }
   .placement__board {
-    padding: 17px;
+    position: relative;
+    padding: 18px;
+    background: linear-gradient(145deg, rgba(9, 31, 44, 0.88), rgba(4, 15, 24, 0.9));
   }
   .board-toolbar {
     display: flex;
     justify-content: space-between;
     margin: 0 3px 12px;
-    color: #a9c4d1;
+    color: var(--ink-300);
+    font-family: var(--font-display);
     font-size: 11px;
+    letter-spacing: 0.07em;
+  }
+  .board-toolbar span {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+  }
+  .board-toolbar i {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--green-400);
+    box-shadow: 0 0 8px var(--green-400);
   }
   .board-toolbar small {
     color: #617e8e;
@@ -268,6 +345,7 @@
   }
   .fleet-dock {
     padding: 20px;
+    background: linear-gradient(160deg, rgba(10, 32, 44, 0.94), rgba(3, 14, 22, 0.94));
   }
   .fleet-dock__heading {
     display: flex;
@@ -302,19 +380,25 @@
     align-items: center;
     gap: 12px;
     width: 100%;
-    min-height: 60px;
-    padding: 10px 12px;
+    min-height: 66px;
+    padding: 11px 13px;
     border: 1px solid var(--line);
     border-radius: 9px;
     color: #b9ced8;
     text-align: left;
     background: rgba(5, 21, 31, 0.6);
     cursor: grab;
+    transition:
+      transform 240ms var(--ease-out),
+      border-color 240ms ease,
+      background 240ms ease;
   }
   .fleet-item:hover,
   .fleet-item.selected {
     border-color: rgba(57, 224, 235, 0.55);
     background: rgba(22, 199, 217, 0.08);
+    transform: translateX(-3px);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
   }
   .fleet-item.placed {
     border-left: 2px solid var(--green-500);
@@ -345,7 +429,8 @@
     height: 8px;
     border: 1px solid rgba(132, 198, 211, 0.42);
     border-radius: 2px;
-    background: #38677a;
+    background: linear-gradient(180deg, #59869a, #244f63);
+    box-shadow: inset 0 1px rgba(255, 255, 255, 0.15);
   }
   .placed-check {
     position: absolute;
@@ -417,6 +502,18 @@
     }
     .placement__board {
       padding: 8px;
+    }
+    .deployment-steps span {
+      min-height: 48px;
+      padding: 8px;
+    }
+    .deployment-steps strong,
+    .deployment-steps small {
+      display: none;
+    }
+    .deployment-steps i {
+      grid-row: auto;
+      text-align: center;
     }
     .fleet-dock {
       display: block;

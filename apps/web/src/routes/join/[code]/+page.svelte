@@ -6,6 +6,7 @@
   import { ArrowRight, KeyRound, Radio } from '@lucide/svelte';
   import { api, ApiError } from '$lib/api';
   import { gameSnapshot, session } from '$lib/stores';
+  import { Button, Field, Surface } from '$lib/ui';
 
   const code = (page.params.code ?? '').toUpperCase();
   let nickname = '';
@@ -48,7 +49,9 @@
 <svelte:head><title>작전 초대 {code} · Mk.01</title></svelte:head>
 
 <div class="join-page shell">
-  <section class="invite-card panel">
+  <div class="join-orbit" aria-hidden="true"><i></i><i></i><i></i></div>
+  <Surface class="invite-card" tone="elevated" padding="lg">
+    <div class="secure-rail"><span></span> SECURE CHANNEL / AES-256 <em>VERIFIED</em></div>
     <div class="invite-icon"><Radio size={28} /></div>
     <p class="eyebrow">ENCRYPTED INVITATION</p>
     <h1>작전 참가 요청</h1>
@@ -64,43 +67,108 @@
         }}
       >
         {#if needsSession}
-          <div class="field">
-            <label for="nickname">지휘관 호출부호</label><input
-              id="nickname"
-              class="input"
-              bind:value={nickname}
-              minlength="2"
-              maxlength="16"
-              placeholder="닉네임 입력"
-              required
-            />
-          </div>
+          <Field
+            id="nickname"
+            label="지휘관 호출부호"
+            bind:value={nickname}
+            minlength={2}
+            maxlength={16}
+            placeholder="호출부호를 입력하십시오"
+            autocomplete="nickname"
+            required
+          />
         {/if}
         {#if error}<p class="join-error" role="alert">{error}</p>{/if}
-        <button
-          class="button button--primary button--wide"
+        <Button
+          variant="primary"
+          size="lg"
+          full
           type="submit"
+          loading={joining}
           disabled={joining || (needsSession && nickname.length < 2)}
-          ><KeyRound size={17} />
-          {joining ? '접속 중…' : '초대 수락'}
-          <ArrowRight size={17} /></button
+          ><KeyRound size={17} /> 초대 수락 <ArrowRight size={17} /></Button
         >
       </form>
     {/if}
-  </section>
+  </Surface>
 </div>
 
 <style>
   .join-page {
+    position: relative;
     display: grid;
     min-height: calc(100vh - 68px);
     place-items: center;
     padding-block: 50px;
   }
-  .invite-card {
+  :global(.invite-card) {
+    position: relative;
     width: min(480px, 100%);
-    padding: 38px;
     text-align: center;
+    z-index: 2;
+  }
+  .join-orbit {
+    position: absolute;
+    width: min(720px, 86vw);
+    aspect-ratio: 1;
+    border: 1px solid rgba(40, 223, 232, 0.06);
+    border-radius: 50%;
+    background: repeating-radial-gradient(
+      circle,
+      transparent 0 78px,
+      rgba(40, 223, 232, 0.045) 79px 80px
+    );
+    animation: radar 26s linear infinite;
+  }
+  .join-orbit::after {
+    position: absolute;
+    inset: 50% 50% 0 0;
+    content: '';
+    transform-origin: 100% 0;
+    background: conic-gradient(from 270deg at 100% 0, rgba(40, 223, 232, 0.14), transparent 30deg);
+  }
+  .join-orbit i {
+    position: absolute;
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--cyan-300);
+    box-shadow: 0 0 12px var(--cyan-300);
+  }
+  .join-orbit i:nth-child(1) {
+    top: 18%;
+    left: 33%;
+  }
+  .join-orbit i:nth-child(2) {
+    top: 64%;
+    left: 78%;
+  }
+  .join-orbit i:nth-child(3) {
+    top: 74%;
+    left: 24%;
+  }
+  .secure-rail {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 22px;
+    color: var(--ink-500);
+    font-family: var(--font-display);
+    font-size: 8px;
+    letter-spacing: 0.12em;
+    text-align: left;
+  }
+  .secure-rail span {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--green-400);
+    box-shadow: 0 0 8px var(--green-400);
+  }
+  .secure-rail em {
+    color: var(--green-400);
+    font-style: normal;
   }
   .invite-icon {
     display: grid;
@@ -114,7 +182,7 @@
     background: rgba(22, 199, 217, 0.08);
     box-shadow: 0 0 40px rgba(22, 199, 217, 0.08);
   }
-  .invite-card h1 {
+  :global(.invite-card) h1 {
     font-family: Rajdhani, sans-serif;
     font-size: 32px;
   }
@@ -139,9 +207,12 @@
     font-size: 28px;
     letter-spacing: 0.22em;
   }
-  .invite-card form {
+  :global(.invite-card) form {
     display: grid;
     gap: 18px;
+    text-align: left;
+  }
+  :global(.invite-card) form :global(.ui-field) {
     text-align: left;
   }
   .join-error {
@@ -157,8 +228,8 @@
       min-height: calc(100vh - 60px);
       padding-block: 25px;
     }
-    .invite-card {
-      padding: 30px 20px;
+    :global(.invite-card) {
+      width: 100%;
     }
   }
 </style>

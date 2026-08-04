@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Check, Crosshair, Radio, Shield, X } from '@lucide/svelte';
+  import { Activity, Check, Crosshair, Radio, Shield, Waves, X } from '@lucide/svelte';
   import GridBoard from './GridBoard.svelte';
   import { sounds } from '$lib/sound';
   import {
@@ -38,6 +38,12 @@
         .filter((attack) => attack.sunkShip)
         .map((attack) => attack.sunkShip) ?? []
     )
+  );
+  let battleLog = $derived(
+    (snapshot.targetBoard?.attacks ?? [])
+      .map((attack, index) => ({ ...attack, sequence: index + 1 }))
+      .slice(-5)
+      .reverse()
   );
 
   function choose(coordinate: Coordinate) {
@@ -177,6 +183,37 @@
         </div>
       </div>
     </aside>
+
+    <section class="battle-log panel" aria-labelledby="battle-log-title">
+      <header>
+        <div class="battle-log__signal"><Activity size={16} /></div>
+        <div>
+          <small>TACTICAL EVENT STREAM</small>
+          <h2 id="battle-log-title">Battle Log</h2>
+        </div>
+        <span>LIVE / {String(snapshot.version).padStart(3, '0')}</span>
+      </header>
+      {#if battleLog.length}
+        <ol>
+          {#each battleLog as entry (coordinateKey(entry.coordinate))}
+            <li class:log-hit={entry.outcome !== 'MISS'} class:log-sunk={entry.outcome === 'SUNK'}>
+              <span>{String(entry.sequence).padStart(2, '0')}</span>
+              {#if entry.outcome === 'MISS'}<Waves size={14} />{:else}<Crosshair size={14} />{/if}
+              <strong>SECTOR {coordinateLabel(entry.coordinate)}</strong>
+              <em
+                >{entry.outcome === 'MISS'
+                  ? '빗나감'
+                  : entry.outcome === 'HIT'
+                    ? '명중'
+                    : `${entry.sunkShip ? shipName(entry.sunkShip) : '함선'} 격침`}</em
+              >
+            </li>
+          {/each}
+        </ol>
+      {:else}
+        <p>사격 명령을 기다리고 있습니다. 첫 공격 이후 전술 이벤트가 기록됩니다.</p>
+      {/if}
+    </section>
   </div>
 </section>
 
@@ -310,6 +347,99 @@
   .fire-control {
     padding: 17px;
     border-radius: 15px;
+  }
+  .battle-log {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: 250px 1fr;
+    gap: 20px;
+    padding: 14px 18px;
+    overflow: hidden;
+  }
+  .battle-log header {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
+    gap: 10px;
+    border-right: 1px solid var(--line);
+    padding-right: 18px;
+  }
+  .battle-log header small {
+    color: var(--ink-500);
+    font-family: var(--font-display);
+    font-size: 8px;
+    letter-spacing: 0.15em;
+  }
+  .battle-log header h2 {
+    margin: 2px 0 0;
+    font-size: 13px;
+  }
+  .battle-log header > span {
+    color: var(--success-400);
+    font-family: var(--font-mono);
+    font-size: 8px;
+  }
+  .battle-log__signal {
+    display: grid;
+    width: 34px;
+    height: 34px;
+    place-items: center;
+    border: 1px solid rgba(40, 223, 232, 0.24);
+    border-radius: 9px;
+    color: var(--cyan-300);
+    background: rgba(40, 223, 232, 0.06);
+  }
+  .battle-log ol {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(130px, 1fr);
+    gap: 6px;
+    margin: 0;
+    padding: 0;
+    overflow-x: auto;
+    list-style: none;
+  }
+  .battle-log li {
+    display: grid;
+    grid-template-columns: auto auto 1fr;
+    align-items: center;
+    gap: 6px;
+    min-height: 48px;
+    padding: 7px 10px;
+    border: 1px solid var(--line);
+    border-radius: 9px;
+    color: var(--cyan-300);
+    background: rgba(4, 18, 28, 0.52);
+  }
+  .battle-log li > span {
+    color: var(--ink-600);
+    font-family: var(--font-mono);
+    font-size: 8px;
+  }
+  .battle-log li strong {
+    color: var(--ink-200);
+    font-family: var(--font-display);
+    font-size: 9px;
+    letter-spacing: 0.05em;
+  }
+  .battle-log li em {
+    grid-column: 2 / -1;
+    color: var(--ink-500);
+    font-size: 8px;
+    font-style: normal;
+  }
+  .battle-log li.log-hit {
+    color: var(--warning-400);
+  }
+  .battle-log li.log-sunk {
+    color: var(--danger-400);
+    border-color: rgba(255, 94, 74, 0.24);
+  }
+  .battle-log > p {
+    align-self: center;
+    margin: 0;
+    color: var(--ink-500);
+    font-size: 10px;
   }
   .fire-control__title {
     display: flex;
@@ -488,6 +618,9 @@
     .commanders {
       display: none;
     }
+    .battle-log {
+      grid-template-columns: 210px 1fr;
+    }
     .clear-selection {
       display: none;
     }
@@ -580,6 +713,9 @@
     }
     .board-legend {
       margin-bottom: 3px;
+    }
+    .battle-log {
+      display: none;
     }
   }
 </style>

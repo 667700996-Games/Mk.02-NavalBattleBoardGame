@@ -11,61 +11,84 @@
     <h1 class="page-title">환경 설정</h1>
     <p>이 장치에만 적용되는 표시와 사운드 옵션입니다.</p>
   </header>
-  <section class="settings-panel panel">
-    <div class="setting-row">
-      <span class="setting-icon"><Volume2 size={20} /></span>
-      <div>
-        <strong>작전 사운드</strong>
-        <p>좌표 선택, 명중, 격침, 승리 신호음을 재생합니다.</p>
-      </div>
-      <label class="switch"
-        ><input
-          type="checkbox"
-          bind:checked={$preferences.sound}
-          onchange={() => $preferences.sound && sounds.select()}
-        /><span></span><em>{$preferences.sound ? '켜짐' : '꺼짐'}</em></label
-      >
+  <div class="settings-layout">
+    <aside class="system-profile panel" aria-label="시스템 프로필">
+      <div class="profile-radar"><i></i><span></span></div>
+      <p class="eyebrow">LOCAL CONTROL PROFILE</p>
+      <h2>COMMAND DISPLAY</h2>
+      <p>이 장치의 작전 인터페이스를 지휘 환경에 맞게 조정하십시오.</p>
+      <dl>
+        <div>
+          <dt>RENDER MODE</dt>
+          <dd>TACTICAL / WEB</dd>
+        </div>
+        <div>
+          <dt>SECURITY</dt>
+          <dd>SERVER AUTHORITATIVE</dd>
+        </div>
+        <div>
+          <dt>PROFILE SCOPE</dt>
+          <dd>THIS DEVICE</dd>
+        </div>
+      </dl>
+    </aside>
+    <div class="settings-main">
+      <section class="settings-panel panel">
+        <div class="setting-row">
+          <span class="setting-icon"><Volume2 size={20} /></span>
+          <div>
+            <strong>작전 사운드</strong>
+            <p>좌표 선택, 명중, 격침, 승리 신호음을 재생합니다.</p>
+          </div>
+          <label class="switch"
+            ><input
+              type="checkbox"
+              bind:checked={$preferences.sound}
+              onchange={() => $preferences.sound && sounds.select()}
+            /><span></span><em>{$preferences.sound ? '켜짐' : '꺼짐'}</em></label
+          >
+        </div>
+        <div class="setting-row">
+          <span class="setting-icon"><Gauge size={20} /></span>
+          <div>
+            <strong>동작 줄이기</strong>
+            <p>레이더 회전과 전투 효과 등 비필수 애니메이션을 최소화합니다.</p>
+          </div>
+          <label class="switch"
+            ><input type="checkbox" bind:checked={$preferences.reducedMotion} /><span></span><em
+              >{$preferences.reducedMotion ? '켜짐' : '꺼짐'}</em
+            ></label
+          >
+        </div>
+        <div class="setting-row">
+          <span class="setting-icon"><Contrast size={20} /></span>
+          <div>
+            <strong>고대비 모드</strong>
+            <p>격자선과 텍스트의 대비를 높여 전장 정보를 더 명확하게 표시합니다.</p>
+          </div>
+          <label class="switch"
+            ><input type="checkbox" bind:checked={$preferences.highContrast} /><span></span><em
+              >{$preferences.highContrast ? '켜짐' : '꺼짐'}</em
+            ></label
+          >
+        </div>
+      </section>
+      <aside class="security-note">
+        <ShieldCheck size={18} />
+        <div>
+          <strong>공정한 전장을 위한 서버 검증</strong>
+          <p>
+            표시 설정은 게임 판정에 영향을 주지 않습니다. 함선 위치, 공격, 턴, 승패는 서버에서만
+            검증됩니다.
+          </p>
+        </div>
+      </aside>
     </div>
-    <div class="setting-row">
-      <span class="setting-icon"><Gauge size={20} /></span>
-      <div>
-        <strong>동작 줄이기</strong>
-        <p>레이더 회전과 전투 효과 등 비필수 애니메이션을 최소화합니다.</p>
-      </div>
-      <label class="switch"
-        ><input type="checkbox" bind:checked={$preferences.reducedMotion} /><span></span><em
-          >{$preferences.reducedMotion ? '켜짐' : '꺼짐'}</em
-        ></label
-      >
-    </div>
-    <div class="setting-row">
-      <span class="setting-icon"><Contrast size={20} /></span>
-      <div>
-        <strong>고대비 모드</strong>
-        <p>격자선과 텍스트의 대비를 높여 전장 정보를 더 명확하게 표시합니다.</p>
-      </div>
-      <label class="switch"
-        ><input type="checkbox" bind:checked={$preferences.highContrast} /><span></span><em
-          >{$preferences.highContrast ? '켜짐' : '꺼짐'}</em
-        ></label
-      >
-    </div>
-  </section>
-  <aside class="security-note">
-    <ShieldCheck size={18} />
-    <div>
-      <strong>공정한 전장을 위한 서버 검증</strong>
-      <p>
-        표시 설정은 게임 판정에 영향을 주지 않습니다. 함선 위치, 공격, 턴, 승패는 서버에서만
-        검증됩니다.
-      </p>
-    </div>
-  </aside>
+  </div>
 </div>
 
 <style>
   .settings-page {
-    width: min(820px, calc(100% - 40px));
     padding: 64px 0 100px;
   }
   .settings-page header {
@@ -79,6 +102,90 @@
   }
   .settings-panel {
     overflow: hidden;
+  }
+  .settings-layout {
+    display: grid;
+    grid-template-columns: 310px minmax(0, 1fr);
+    gap: 18px;
+    align-items: start;
+  }
+  .settings-main {
+    min-width: 0;
+  }
+  .system-profile {
+    position: sticky;
+    top: 92px;
+    padding: 26px;
+    overflow: hidden;
+    background:
+      radial-gradient(circle at 50% 14%, rgba(40, 223, 232, 0.1), transparent 34%),
+      rgba(5, 18, 28, 0.85);
+  }
+  .profile-radar {
+    position: relative;
+    width: 136px;
+    height: 136px;
+    margin: 0 auto 26px;
+    overflow: hidden;
+    border: 1px solid rgba(40, 223, 232, 0.2);
+    border-radius: 50%;
+    background:
+      linear-gradient(rgba(40, 223, 232, 0.08) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(40, 223, 232, 0.08) 1px, transparent 1px),
+      repeating-radial-gradient(circle, transparent 0 21px, rgba(40, 223, 232, 0.09) 22px 23px);
+    background-size:
+      34px 34px,
+      34px 34px,
+      auto;
+  }
+  .profile-radar i {
+    position: absolute;
+    inset: 50% 50% 0 0;
+    transform-origin: 100% 0;
+    background: conic-gradient(from 270deg at 100% 0, rgba(40, 223, 232, 0.4), transparent 36deg);
+    animation: radar 3s linear infinite;
+  }
+  .profile-radar span {
+    position: absolute;
+    top: 35%;
+    left: 68%;
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--cyan-300);
+    box-shadow: 0 0 10px var(--cyan-300);
+  }
+  .system-profile h2 {
+    margin: 4px 0 8px;
+    font-size: 20px;
+  }
+  .system-profile > p:not(.eyebrow) {
+    color: var(--ink-400);
+    font-size: 10px;
+    line-height: 1.7;
+  }
+  .system-profile dl {
+    display: grid;
+    gap: 10px;
+    margin: 22px 0 0;
+  }
+  .system-profile dl div {
+    display: grid;
+    gap: 3px;
+    padding-top: 10px;
+    border-top: 1px solid var(--line);
+  }
+  .system-profile dt {
+    color: var(--ink-500);
+    font-family: var(--font-display);
+    font-size: 7px;
+    letter-spacing: 0.15em;
+  }
+  .system-profile dd {
+    margin: 0;
+    color: var(--cyan-300);
+    font-family: var(--font-display);
+    font-size: 9px;
   }
   .setting-row {
     display: grid;
@@ -194,6 +301,30 @@
     }
     .setting-row p {
       line-height: 1.6;
+    }
+  }
+  @media (max-width: 860px) {
+    .settings-layout {
+      grid-template-columns: 1fr;
+    }
+    .system-profile {
+      position: relative;
+      top: auto;
+    }
+    .profile-radar {
+      width: 96px;
+      height: 96px;
+      float: right;
+      margin: 0 0 0 16px;
+    }
+    .system-profile dl {
+      grid-template-columns: repeat(3, 1fr);
+      clear: both;
+    }
+  }
+  @media (max-width: 600px) {
+    .system-profile dl {
+      grid-template-columns: 1fr;
     }
   }
 </style>

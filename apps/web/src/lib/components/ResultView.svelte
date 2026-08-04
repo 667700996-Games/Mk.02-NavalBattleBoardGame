@@ -1,5 +1,15 @@
 <script lang="ts">
-  import { ArrowLeft, Crosshair, Medal, RotateCcw, Target, Timer, Trophy } from '@lucide/svelte';
+  import {
+    ArrowLeft,
+    Check,
+    Crosshair,
+    Medal,
+    RotateCcw,
+    Share2,
+    Target,
+    Timer,
+    Trophy
+  } from '@lucide/svelte';
   import type { GameSnapshot } from '$lib/types';
 
   interface Props {
@@ -16,10 +26,22 @@
     snapshot.result?.players.find((player) => player.playerId !== snapshot.selfPlayerId)
   );
   let rematchRequested = $derived(snapshot.rematchRequestedBy.includes(snapshot.selfPlayerId));
+  let shared = $state(false);
   const formatDuration = (seconds: number) => `${Math.floor(seconds / 60)}분 ${seconds % 60}초`;
+
+  async function shareResult() {
+    const title = `${won ? '작전 승리' : '작전 완료'} · Mk.01`;
+    const text = `${snapshot.room.name}에서 ${stats?.hits ?? 0}회 명중, ${Math.round((stats?.accuracy ?? 0) * 100)}% 명중률을 기록했습니다.`;
+    if (navigator.share) await navigator.share({ title, text, url: location.origin });
+    else await navigator.clipboard.writeText(`${title}\n${text}\n${location.origin}`);
+    shared = true;
+    setTimeout(() => (shared = false), 1800);
+  }
 </script>
 
 <section class:result--loss={!won} class="result panel">
+  <span class="result__watermark" aria-hidden="true">{won ? 'VICTORY' : 'DEFEAT'}</span>
+  <div class="result__classification"><span></span> AFTER ACTION REPORT <span></span></div>
   <div class="result__emblem">
     {#if won}<Trophy size={42} />{:else}<Medal size={42} />{/if}
   </div>
@@ -64,22 +86,67 @@
   <div class="result-actions">
     <button class="button button--primary" onclick={onrematch} disabled={rematchRequested}
       ><RotateCcw size={16} /> {rematchRequested ? '상대 응답 대기 중' : '재대결 요청'}</button
-    ><button class="button" onclick={onlobby}><ArrowLeft size={16} /> 로비로 복귀</button>
+    ><button class="button" onclick={shareResult}
+      >{#if shared}<Check size={16} /> 공유 정보 복사됨{:else}<Share2 size={16} /> 결과 공유{/if}</button
+    ><button class="button button--ghost" onclick={onlobby}
+      ><ArrowLeft size={16} /> 로비로 복귀</button
+    >
   </div>
 </section>
 
 <style>
   .result {
+    position: relative;
     width: min(780px, 100%);
     margin: 0 auto;
     padding: 42px;
     text-align: center;
     border-color: rgba(57, 224, 235, 0.28);
+    overflow: hidden;
+    background:
+      radial-gradient(circle at 50% 0%, rgba(40, 223, 232, 0.12), transparent 38%),
+      linear-gradient(155deg, rgba(10, 32, 44, 0.96), rgba(3, 13, 21, 0.96));
+    box-shadow:
+      0 40px 100px rgba(0, 0, 0, 0.45),
+      0 0 80px rgba(40, 223, 232, 0.055);
   }
   .result--loss {
     border-color: rgba(255, 83, 100, 0.22);
   }
+  .result__watermark {
+    position: absolute;
+    top: 10px;
+    left: 50%;
+    color: rgba(111, 244, 246, 0.035);
+    font-family: var(--font-display);
+    font-size: clamp(74px, 13vw, 142px);
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    line-height: 1;
+    transform: translateX(-50%);
+    pointer-events: none;
+  }
+  .result--loss .result__watermark {
+    color: rgba(255, 114, 128, 0.035);
+  }
+  .result__classification {
+    position: relative;
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 24px;
+    color: var(--ink-500);
+    font-family: var(--font-display);
+    font-size: 8px;
+    letter-spacing: 0.22em;
+  }
+  .result__classification span {
+    height: 1px;
+    background: var(--line);
+  }
   .result__emblem {
+    position: relative;
     display: grid;
     width: 88px;
     height: 88px;
@@ -90,6 +157,14 @@
     color: var(--amber-500);
     background: radial-gradient(circle, rgba(255, 180, 60, 0.16), transparent 66%);
     box-shadow: 0 0 45px rgba(255, 180, 60, 0.08);
+  }
+  .result__emblem::after {
+    position: absolute;
+    inset: -9px;
+    content: '';
+    border: 1px dashed rgba(255, 209, 107, 0.2);
+    border-radius: 50%;
+    animation: radar 12s linear infinite;
   }
   .result--loss .result__emblem {
     border-color: rgba(255, 83, 100, 0.4);
@@ -150,6 +225,11 @@
     border: 1px solid var(--line);
     border-radius: 10px;
     background: rgba(4, 18, 28, 0.5);
+    transition: 240ms var(--ease-out);
+  }
+  .stats-grid article:hover {
+    border-color: var(--line-strong);
+    transform: translateY(-2px);
   }
   .stats-grid :global(svg) {
     color: var(--cyan-400);

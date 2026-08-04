@@ -2,13 +2,13 @@
   import { goto } from '$app/navigation';
   import { resolve } from '$app/paths';
   import { onMount } from 'svelte';
-  import { Crosshair, History, Medal, Target, Timer, Trophy } from '@lucide/svelte';
+  import { Activity, Crosshair, History, Medal, Target, Timer, Trophy } from '@lucide/svelte';
   import { api } from '$lib/api';
   import { session } from '$lib/stores';
   import type { HistoryItem } from '$lib/types';
 
-  let games: HistoryItem[] = [];
-  let loading = true;
+  let games = $state<HistoryItem[]>([]);
+  let loading = $state(true);
   onMount(async () => {
     try {
       const current = await api.currentSession();
@@ -23,15 +23,60 @@
   const won = (game: HistoryItem) => game.result.winnerId === game.selfPlayerId;
   const duration = (seconds: number) =>
     `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+  let wins = $derived(games.filter(won).length);
+  let averageAccuracy = $derived(
+    games.length
+      ? Math.round(
+          (games.reduce(
+            (total, game) =>
+              total +
+              (game.result.players.find((player) => player.playerId === game.selfPlayerId)
+                ?.accuracy ?? 0),
+            0
+          ) /
+            games.length) *
+            100
+        )
+      : 0
+  );
+  let totalSunk = $derived(
+    games.reduce(
+      (total, game) =>
+        total +
+        (game.result.players.find((player) => player.playerId === game.selfPlayerId)?.shipsSunk ??
+          0),
+      0
+    )
+  );
 </script>
 
 <svelte:head><title>전투 기록 · Mk.01</title></svelte:head>
 <div class="stats-page shell">
   <header>
-    <p class="eyebrow">OPERATION ARCHIVE</p>
-    <h1 class="page-title">전투 기록</h1>
-    <p>완료된 교전 결과와 명중 통계를 확인합니다.</p>
+    <div>
+      <p class="eyebrow">OPERATION ARCHIVE / AFTER ACTION DATABASE</p>
+      <h1 class="page-title">전투 기록</h1>
+      <p>완료된 교전 결과와 명중 통계를 확인합니다.</p>
+    </div>
+    <span><Activity size={14} /> ARCHIVE SYNCHRONIZED</span>
   </header>
+  {#if !loading && games.length > 0}
+    <section class="archive-overview" aria-label="전투 기록 요약">
+      <article class="panel">
+        <small>TOTAL OPERATIONS</small><strong>{games.length}</strong><span>누적 작전</span>
+      </article>
+      <article class="panel">
+        <small>MISSION SUCCESS</small><strong>{Math.round((wins / games.length) * 100)}%</strong
+        ><span>{wins}회 승리</span>
+      </article>
+      <article class="panel">
+        <small>AVERAGE ACCURACY</small><strong>{averageAccuracy}%</strong><span>평균 명중률</span>
+      </article>
+      <article class="panel">
+        <small>HOSTILES NEUTRALIZED</small><strong>{totalSunk}</strong><span>누적 격침</span>
+      </article>
+    </section>
+  {/if}
   {#if loading}<div class="empty-state">
       <div class="spinner"></div>
     </div>{:else if games.length === 0}<section class="empty-state panel">
@@ -76,13 +121,66 @@
     padding: 64px 0 100px;
   }
   .stats-page header {
+    display: flex;
+    align-items: end;
+    justify-content: space-between;
+    gap: 20px;
     margin-bottom: 28px;
   }
   .stats-page header h1 {
     margin-bottom: 7px;
   }
-  .stats-page header > p:last-child {
+  .stats-page header > div > p:last-child {
     color: var(--steel-300);
+  }
+  .stats-page header > span {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    color: var(--green-400);
+    font-family: var(--font-display);
+    font-size: 8px;
+    letter-spacing: 0.13em;
+  }
+  .archive-overview {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+    margin-bottom: 24px;
+  }
+  .archive-overview article {
+    position: relative;
+    display: grid;
+    gap: 4px;
+    min-height: 122px;
+    padding: 18px;
+    overflow: hidden;
+  }
+  .archive-overview article::after {
+    position: absolute;
+    right: -25px;
+    bottom: -55px;
+    width: 100px;
+    height: 100px;
+    content: '';
+    border: 1px solid rgba(40, 223, 232, 0.11);
+    border-radius: 50%;
+    box-shadow: 0 0 30px rgba(40, 223, 232, 0.05);
+  }
+  .archive-overview small {
+    color: var(--ink-500);
+    font-family: var(--font-display);
+    font-size: 8px;
+    letter-spacing: 0.14em;
+  }
+  .archive-overview strong {
+    color: var(--cyan-300);
+    font-family: var(--font-display);
+    font-size: 31px;
+  }
+  .archive-overview span {
+    color: var(--ink-400);
+    font-size: 9px;
   }
   .history-list {
     display: grid;
@@ -95,6 +193,11 @@
     gap: 18px;
     padding: 18px;
     border-radius: 13px;
+    transition: 250ms var(--ease-out);
+  }
+  .history-row:hover {
+    border-color: var(--line-strong);
+    transform: translateX(3px);
   }
   .result-mark {
     display: grid;
@@ -153,6 +256,12 @@
     .history-row {
       grid-template-columns: auto 1fr repeat(3, 1fr);
       gap: 11px;
+    }
+    .archive-overview {
+      grid-template-columns: 1fr 1fr;
+    }
+    .stats-page header > span {
+      display: none;
     }
     .history-row > div:not(.history-name) {
       grid-row: 2;
