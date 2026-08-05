@@ -95,6 +95,7 @@ pub enum RoomStatus {
     WaitingForReady,
     #[serde(alias = "READY")]
     ReadyToStart,
+    #[serde(alias = "DISCONNECTED")]
     Placement,
     Playing,
     Finished,
@@ -608,6 +609,27 @@ impl GameRoom {
             }
             if player.ready_state == PlayerReadyState::NotReady && player.ready_at.take().is_some()
             {
+                changed = true;
+            }
+        }
+        if self.game_id.is_none() {
+            if let Some(game) = &self.game {
+                self.game_id = Some(Uuid::new_v4());
+                self.placement_started_at.get_or_insert(game.started_at);
+                self.status = if game.result.is_some() {
+                    RoomStatus::Finished
+                } else {
+                    RoomStatus::Playing
+                };
+                changed = true;
+            } else if self.status == RoomStatus::Placement {
+                self.pending_placements.clear();
+                for player in &mut self.players {
+                    player.ready_state = PlayerReadyState::NotReady;
+                    player.ready_at = None;
+                    player.placement_confirmed = false;
+                }
+                self.refresh_lobby_status();
                 changed = true;
             }
         }
@@ -1631,6 +1653,35 @@ mod tests {
             assert_eq!(room.status, RoomStatus::WaitingForReady);
             assert_eq!(start_result.unwrap_err(), GameError::PlayersNotReady);
         }
+    }
+
+    #[test]
+    fn legacy_auto_placement_state_is_migrated_back_to_the_lobby() {
+        let host = session("Alpha");
+        let guest = session("Bravo");
+        let mut room = GameRoom::new(
+            "ABC234".to_string(),
+            "Test operation".to_string(),
+            RoomVisibility::Private,
+            &host,
+        )
+        .unwrap();
+        room.join(&guest).unwrap();
+        room.status = serde_json::from_str::<RoomStatus>("\"DISCONNECTED\"").unwrap();
+        room.pending_placements.insert(room.players[0].id, fleet(0));
+        room.players[0].placement_confirmed = true;
+        room.players[0].ready_state = PlayerReadyState::Ready;
+        room.players[0].ready_at = Some(Utc::now());
+
+        assert!(room.ensure_runtime_state(60, Utc::now()));
+        assert_eq!(room.status, RoomStatus::WaitingForReady);
+        assert!(room.pending_placements.is_empty());
+        assert!(room.game_id.is_none());
+        assert!(room.players.iter().all(|player| {
+            player.ready_state == PlayerReadyState::NotReady
+                && !player.placement_confirmed
+                && player.ready_at.is_none()
+        }));
     }
 
     #[test]
