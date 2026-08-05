@@ -1,5 +1,10 @@
 import { defineConfig, devices } from '@playwright/test';
 
+const serverPort = Number(process.env.E2E_SERVER_PORT ?? 18080);
+const webPort = Number(process.env.E2E_WEB_PORT ?? 15173);
+const serverOrigin = `http://127.0.0.1:${serverPort}`;
+const webOrigin = `http://127.0.0.1:${webPort}`;
+
 export default defineConfig({
   testDir: './e2e',
   timeout: 120_000,
@@ -9,18 +14,20 @@ export default defineConfig({
   retries: process.env.CI ? 2 : 0,
   reporter: [['list'], ['html', { open: 'never' }]],
   use: {
-    baseURL: 'http://127.0.0.1:5173',
+    baseURL: webOrigin,
     trace: 'on-first-retry'
   },
   webServer: [
     {
       command: 'cargo run -p mk01-server',
       cwd: '../..',
-      url: 'http://127.0.0.1:8080/api/health',
+      url: `${serverOrigin}/api/health`,
       env: {
         STORAGE_MODE: 'memory',
-        SERVER_PORT: '8080',
+        SERVER_PORT: String(serverPort),
         TURN_DURATION_SECONDS: '10',
+        PUBLIC_BASE_URL: webOrigin,
+        ALLOWED_ORIGINS: `${webOrigin},http://localhost:${webPort}`,
         RUST_LOG: 'warn'
       },
       reuseExistingServer: !process.env.CI,
@@ -29,7 +36,11 @@ export default defineConfig({
     {
       command: 'npm run dev',
       cwd: '.',
-      url: 'http://127.0.0.1:5173',
+      url: webOrigin,
+      env: {
+        WEB_PORT: String(webPort),
+        SERVER_ORIGIN: serverOrigin
+      },
       reuseExistingServer: !process.env.CI,
       timeout: 120_000
     }
