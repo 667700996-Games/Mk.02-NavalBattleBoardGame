@@ -110,10 +110,7 @@ async fn guest_sessions_create_join_and_recover_a_two_player_room() {
         created["snapshot"]["room"]["status"],
         "WAITING_FOR_OPPONENT"
     );
-    assert_eq!(
-        created["snapshot"]["roomState"],
-        "WAITING_FOR_OPPONENT"
-    );
+    assert_eq!(created["snapshot"]["roomState"], "WAITING_FOR_OPPONENT");
     assert_eq!(
         created["snapshot"]["hostPlayerId"],
         created["snapshot"]["selfPlayerId"]

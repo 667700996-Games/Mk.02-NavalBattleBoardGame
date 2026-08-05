@@ -411,14 +411,16 @@ mod tests {
             }) if request_id == start_request && parsed_room == room_id && parsed_player == player_id
         ));
 
-        assert!(serde_json::from_value::<ClientEvent>(serde_json::json!({
-            "type": "game:start",
-            "payload": {
-                "requestId": start_request,
-                "roomId": room_id,
-                "playerId": player_id
-            }
-        }))
-        .is_err());
+        assert!(
+            serde_json::from_value::<ClientEvent>(serde_json::json!({
+                "type": "game:start",
+                "payload": {
+                    "requestId": start_request,
+                    "roomId": room_id,
+                    "playerId": player_id
+                }
+            }))
+            .is_err()
+        );
     }
 }

@@ -45,8 +45,12 @@ test('ready cancellation, tactical signals, deadline recovery and timeout defeat
   await second.goto(`/join/${roomCode}`);
   await second.getByLabel('지휘관 호출부호').fill('TimerBravo');
   await second.getByRole('button', { name: '초대 수락' }).click();
-  await expect(first.getByRole('heading', { name: '모든 지휘관이 준비를 완료해야 합니다.' })).toBeVisible();
-  await expect(second.getByRole('heading', { name: '모든 지휘관이 준비를 완료해야 합니다.' })).toBeVisible();
+  await expect(
+    first.getByRole('heading', { name: '모든 지휘관이 준비를 완료해야 합니다.' })
+  ).toBeVisible();
+  await expect(
+    second.getByRole('heading', { name: '모든 지휘관이 준비를 완료해야 합니다.' })
+  ).toBeVisible();
   await expect(first.getByRole('button', { name: '작전 시작' })).toBeDisabled();
   await expect(second.getByRole('button', { name: '작전 시작' })).toHaveCount(0);
 
@@ -77,7 +81,10 @@ test('ready cancellation, tactical signals, deadline recovery and timeout defeat
     return new Promise<string>((resolve, reject) => {
       const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
       const socket = new WebSocket(`${protocol}//${location.host}/ws`);
-      const timeout = window.setTimeout(() => reject(new Error('game:start rejection timeout')), 5_000);
+      const timeout = window.setTimeout(
+        () => reject(new Error('game:start rejection timeout')),
+        5_000
+      );
       socket.addEventListener('open', () => {
         socket.send(
           JSON.stringify({
@@ -107,7 +114,9 @@ test('ready cancellation, tactical signals, deadline recovery and timeout defeat
 
   await first.getByRole('button', { name: '작전 시작' }).click();
   const startDialog = first.getByRole('dialog');
-  await expect(startDialog.getByRole('heading', { name: '작전을 시작하시겠습니까?' })).toBeVisible();
+  await expect(
+    startDialog.getByRole('heading', { name: '작전을 시작하시겠습니까?' })
+  ).toBeVisible();
   await expect(
     startDialog.getByText('두 지휘관의 준비가 완료되었습니다.', { exact: false })
   ).toBeVisible();

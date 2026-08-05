@@ -26,8 +26,12 @@ async function deploy(page: Page) {
 }
 
 async function startOperation(host: Page, guest: Page) {
-  await expect(host.getByRole('heading', { name: '모든 지휘관이 준비를 완료해야 합니다.' })).toBeVisible();
-  await expect(guest.getByRole('heading', { name: '모든 지휘관이 준비를 완료해야 합니다.' })).toBeVisible();
+  await expect(
+    host.getByRole('heading', { name: '모든 지휘관이 준비를 완료해야 합니다.' })
+  ).toBeVisible();
+  await expect(
+    guest.getByRole('heading', { name: '모든 지휘관이 준비를 완료해야 합니다.' })
+  ).toBeVisible();
   await host.getByRole('button', { name: '준비 완료' }).click();
   await expect(host.getByRole('button', { name: '작전 시작' })).toBeDisabled();
   await guest.getByRole('button', { name: '준비 완료' }).click();

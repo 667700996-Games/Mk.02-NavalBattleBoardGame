@@ -7,12 +7,12 @@
 ## 제공 기능
 
 - 안전한 익명 게스트 세션, 공개·비공개 방, 6자리 방 코드와 초대 링크
-- 실시간 로비, 빠른 매칭, 참가·준비·배치·턴·결과 동기화
+- 실시간 대기실, 빠른 매칭, 참가·양쪽 준비·방장 승인·배치·턴·결과 동기화
 - 드래그 앤 드롭, 클릭/터치, `R` 회전, 자동 배치, 초기화가 가능한 함대 배치기
 - 서버 권위형 규칙 검증, 턴/버전 순서 검증, UUID 요청 멱등성
 - 새로고침 복구, 지수 백오프 재연결, 재접속 유예 시간과 자동 기권승 처리
 - 서버 검증형 기권과 `Normal Victory`/`Surrender`/`Disconnect` 승리 원인 기록
-- 게임 시작 전 서버 승인형 준비 취소와 함대 재편집, 요청 UUID 기반 멱등 처리
+- `HOST`/`GUEST` 역할과 서버 승인형 준비 토글, 방장 전용 명시적 작전 시작, 요청 UUID 기반 멱등 처리
 - 방 단위 실시간 전술 채팅, 타입화된 빠른 명령·Unicode 이모지, 입력 중 표시, 최근 100개 메시지 복구
 - 서버 UTC 기준 전체 작전 시간과 턴 마감, 시간 초과 턴 자동 교대와 3회 연속 초과 자동 패배
 - `NORMAL`/`SURRENDER`/`DISCONNECT`/`TIMEOUT` 종료 원인과 시간 초과 통계 기록
@@ -22,11 +22,11 @@
 
 ## 게임 규칙
 
-세로축은 A–J, 가로축은 1–10입니다. 각 플레이어는 항공모함 5칸, 전함 4칸, 순양함 3칸, 잠수함 3칸, 구축함 2칸을 가로 또는 세로로 겹치지 않게 배치합니다. 두 플레이어가 모두 배치를 확정하면 서버가 선공을 무작위로 선택합니다.
+세로축은 A–J, 가로축은 1–10입니다. 방에 두 플레이어가 입장하고 양쪽이 대기실 준비를 완료해도 자동으로 진행되지 않으며, 방장이 `작전 시작`을 승인해야 함선 배치 단계로 이동합니다. 각 플레이어는 항공모함 5칸, 전함 4칸, 순양함 3칸, 잠수함 3칸, 구축함 2칸을 가로 또는 세로로 겹치지 않게 배치합니다. 두 플레이어가 모두 배치를 확정하면 서버가 선공을 무작위로 선택합니다.
 
 한 턴에 좌표 하나만 공격할 수 있고, 이미 공격한 좌표는 다시 선택할 수 없습니다. 결과는 `MISS`, `HIT`, `SUNK`로 구분됩니다. 모든 함선의 17칸을 먼저 명중시킨 플레이어가 승리합니다.
 
-기본 턴 제한은 60초입니다. 마감까지 공격하지 않으면 공격 없이 상대 턴으로 넘어가며, 같은 플레이어가 3회 연속으로 시간을 초과하면 `TIMEOUT` 패배가 확정됩니다. 정상 공격을 수행하면 해당 플레이어의 연속 초과 횟수는 0으로 초기화됩니다. 먼저 준비를 확정한 플레이어는 상대의 최종 확정으로 게임이 시작되기 전까지만 준비를 취소하고 배치를 다시 편집할 수 있습니다.
+기본 턴 제한은 60초입니다. 마감까지 공격하지 않으면 공격 없이 상대 턴으로 넘어가며, 같은 플레이어가 3회 연속으로 시간을 초과하면 `TIMEOUT` 패배가 확정됩니다. 정상 공격을 수행하면 해당 플레이어의 연속 초과 횟수는 0으로 초기화됩니다. 대기실 준비는 방장이 작전을 시작하기 전까지만 취소할 수 있고, 함선 배치 확정은 대기실 준비와 별개의 서버 상태입니다.
 
 ## 기술 스택
 
@@ -56,13 +56,18 @@ flowchart LR
 상태 머신은 다음 전이만 허용합니다.
 
 ```text
-WAITING → PLACEMENT ⇄ READY → PLAYING → FINISHED
-    └──→ CANCELLED      ↑          ↓
-PLACEMENT → CANCELLED      └─ DISCONNECTED ─┘
-FINISHED → PLACEMENT  (두 명 모두 재경기 동의)
+WAITING_FOR_OPPONENT
+  → WAITING_FOR_READY
+  ⇄ READY_TO_START
+  → PLACEMENT          (방장의 유효한 game:start만 허용)
+  → PLAYING            (양쪽 함선 배치 확정)
+  → FINISHED
+
+대기실/배치/전투 → CANCELLED  (정책에 따른 방 종료)
+FINISHED → WAITING_FOR_READY   (두 명 모두 재경기 동의)
 ```
 
-`READY`는 배치 확정 상태를 표현합니다. 시작 확정 전 `player:unready`가 승인되면 `PLACEMENT`로 돌아가며, 두 번째 확정과 시작 판정은 방 단위 잠금 안에서 원자적으로 수행되므로 시작 이후 취소가 끼어들 수 없습니다.
+`readyState`는 대기실 준비, `placementConfirmed`는 함선 배치 확정을 표현합니다. 두 플레이어가 준비되면 상태만 `READY_TO_START`가 되며 게임 객체나 배치 단계는 생성되지 않습니다. `game:start`와 `player:unready`는 같은 방 단위 Tokio 잠금에서 직렬화되므로 먼저 승인된 유효 전이 하나만 성공합니다. 연결 끊김은 별도 방 상태를 만들지 않고 각 플레이어의 `connectionState`로 표현합니다.
 
 ## 디렉터리 구조
 
@@ -164,10 +169,11 @@ POSTGRES_PASSWORD='replace-this-local-password' docker compose up --build
 | `room:create`     | `name`, `visibility`                                                             |
 | `room:join`       | `code`                                                                           |
 | `room:leave`      | `roomId`                                                                         |
-| `player:ready`    | `roomId`, `playerId`, `ready`                                                    |
+| `player:ready`    | `requestId`, `roomId`, `playerId`                                                |
 | `ships:place`     | `roomId`, `playerId`, `placements[]`                                             |
 | `ships:confirm`   | `roomId`, `playerId`, `placements[]`                                             |
 | `player:unready`  | `requestId`, `roomId`, `playerId`                                                |
+| `game:start`      | `requestId`, `roomId`, `playerId`, `roomVersion`                                 |
 | `attack:fire`     | `requestId`, `roomId`, `playerId`, `coordinate`, `expectedVersion`, `turnNumber` |
 | `game:surrender`  | `roomId`, `playerId`                                                             |
 | `chat:send`       | `roomId`, `clientMessageId`, `type`, `content`, `commandId`                      |
@@ -178,10 +184,13 @@ POSTGRES_PASSWORD='replace-this-local-password' docker compose up --build
 
 | 서버 이벤트                                 | 용도                                            |
 | ------------------------------------------- | ----------------------------------------------- |
-| `room:created`, `room:updated`              | 방 생성/상태 갱신                               |
+| `room:created`, `room:updated`              | 방 생성/상태·역할·준비·연결 갱신                |
 | `player:joined`, `player:left`              | 참가자 변경                                     |
+| `player:ready:accepted/rejected`            | 대기실 준비 승인/거절과 멱등 결과               |
+| `player:unready:accepted/rejected`          | 대기실 준비 취소 승인/거절과 멱등 결과          |
+| `game:start:accepted/rejected`              | 방장 시작 요청의 검증 결과                      |
+| `game:placement-started`                    | 양쪽 클라이언트의 함선 배치 단계 개시           |
 | `placement:accepted`, `placement:rejected`  | 배치 검증 결과                                  |
-| `player:unready:accepted/rejected`          | 준비 취소 승인/거절과 요청 멱등 결과            |
 | `game:started`, `turn:started/changed`      | 선공/턴과 UTC 마감 시각 동기화                  |
 | `turn:expired`, `game:timer-sync`           | 시간 초과 판정과 재접속 타이머 보정             |
 | `attack:result`, `ship:sunk`                | 공격·격침 결과                                  |
@@ -196,7 +205,9 @@ POSTGRES_PASSWORD='replace-this-local-password' docker compose up --build
 | `heartbeat`                                 | 연결 생존 확인                                  |
 | `error`                                     | `code`, 사용자 메시지, `retryable`, `requestId` |
 
-`row`/`col`은 0–9입니다. `ships:place`는 항공모함·전함·순양함·잠수함·구축함을 각각 한 번씩 정확히 포함해야 합니다. 확정 시 같은 배치를 다시 보내며 서버 저장본과 일치해야 합니다. 서버는 세션으로 실제 `playerId`를 다시 확인하며, 공격·준비 취소·채팅 UUID가 중복되면 기존 결과만 재전송합니다. 공격은 현재 `turnNumber`와 서버 마감 시각을 모두 통과해야 합니다.
+`room:updated`/`game:snapshot`은 `roomId`, `roomState`, `hostPlayerId`, `players`, `canStartGame`, `roomVersion`, `gameId`, `serverTimestamp`를 포함합니다. 플레이어 공개 상태에는 `role`, `readyState`, `connectionState`, `joinedAt`, `readyAt`이 포함되지만 세션 토큰과 `sessionId`는 포함되지 않습니다. `canStartGame`은 UI 힌트일 뿐이며 서버는 방장·인원·양쪽 준비·연결·상태·버전·중복 요청을 잠금 안에서 다시 검증합니다.
+
+`row`/`col`은 0–9입니다. `ships:place`는 항공모함·전함·순양함·잠수함·구축함을 각각 한 번씩 정확히 포함해야 합니다. 확정 시 같은 배치를 다시 보내며 서버 저장본과 일치해야 합니다. 서버는 세션으로 실제 `playerId`와 방장 ID를 다시 확인하며, 준비·시작·공격·채팅 UUID가 중복되면 기존 결과만 재전송합니다. 공격은 현재 `turnNumber`와 서버 마감 시각을 모두 통과해야 합니다.
 
 채팅 `type`은 클라이언트가 보낼 수 있는 `TEXT`, `QUICK_COMMAND`, `EMOJI`와 서버 전용 `SYSTEM`으로 나뉩니다. 빠른 명령은 `GOOD_GAME`, `WAIT_A_MOMENT`, `READY`, `NICE_SHOT`, `LUCKY`, `GO_FIRST`, `REMATCH`, `THANK_YOU` ID만 허용하고 표시 문구는 서버가 결정합니다. 이모지는 저장소의 공유 허용 목록에 있는 Unicode 값만 받습니다. `chat:send`와 `chat:typing`은 현재 방 멤버에게만 전달됩니다.
 
@@ -204,10 +215,10 @@ POSTGRES_PASSWORD='replace-this-local-password' docker compose up --build
 
 ## 재접속과 게임 복구 정책
 
-- WebSocket이 끊기면 방은 `DISCONNECTED`로 전이하고 기존 상태와 절대 마감 시각을 저장합니다.
+- WebSocket이 끊기면 해당 플레이어를 `RECONNECTING`으로 표시하고 현재 방 상태, 준비 상태, 배치와 절대 마감 시각을 그대로 저장합니다.
 - 클라이언트는 0.6–10초 지수 백오프로 재연결하고, 연결 즉시 `game:sync`로 자신에게 허용된 스냅샷과 `chat:history`를 받습니다.
-- 기본 90초 안에 같은 HttpOnly 세션으로 복귀하면 이전 `WAITING`/`PLACEMENT`/`PLAYING` 상태를 복원합니다.
-- 전투 중 마감 시각이 지나면 온라인 상대의 기권승, 전투 전이면 `CANCELLED`로 처리합니다.
+- 기본 90초 안에 같은 HttpOnly 세션으로 복귀하면 역할·준비·연결·방 버전을 서버 스냅샷에서 복원합니다. 준비가 유지되더라도 연결이 복구되기 전에는 시작할 수 없습니다.
+- 대기실 참가자의 유예 시간이 끝나면 슬롯에서 제거하고 방장을 `NOT_READY`로 초기화합니다. 대기실 방장의 유예 시간이 끝나면 방을 종료합니다. 전투 중에는 온라인 상대의 기권승으로 처리합니다.
 - 서버 재시작 시 활성 방, 재접속 마감, `turnDeadlineAt`을 PostgreSQL JSONB에서 다시 불러옵니다. 이미 지난 턴은 턴 번호·활성 플레이어·마감 키를 대조해 한 번만 즉시 만료 처리합니다.
 
 ## 보안 설계
@@ -234,7 +245,7 @@ npm run test:e2e    # 독립 브라우저 2개의 전체 경기 + 모바일
 npm run build       # Rust release + SvelteKit adapter-node
 ```
 
-Rust 테스트는 배치, 준비 취소 멱등성·시작 경쟁, 명중/격침, 오래된 턴, 공격/만료 경쟁, 3회 만료 패배, 정상 공격 후 연속 횟수 초기화, 재시작 만료 복구, 타입별 채팅 허용 목록·XSS·속도 제한·100개 보존, 재접속, JSON 영속화, 클라이언트 정보 비공개를 검증합니다. Playwright는 두 브라우저의 전체 경기와 별도로 준비 취소→재배치→빠른 명령/이모지→정상 공격→새로고침→3회 만료 `TIMEOUT` 결과를 검증합니다.
+Rust 테스트는 대기실 7단계 상태 머신, 준비 멱등성, 방장 권한, 오래된 버전, 연결 끊김, 시작/준비 취소 경쟁, 참가자 이탈 초기화, 배치, 명중/격침, 공격/만료 경쟁, 3회 만료 패배, 재시작 복구, 채팅 검증, JSON 영속화와 공개 정보 필터를 검증합니다. Playwright는 두 브라우저가 참가 후 대기실에 머무르는지, 양쪽 준비 후에도 자동 시작되지 않는지, 참가자의 변조된 `game:start`가 `NOT_HOST`로 거부되는지, 새로고침 후 준비가 복구되는지와 이후 전체 게임 회귀를 검증합니다.
 
 ## 프로덕션 빌드·배포
 

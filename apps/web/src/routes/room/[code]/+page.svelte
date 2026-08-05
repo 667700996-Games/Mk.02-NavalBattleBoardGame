@@ -298,7 +298,8 @@
           <p class="eyebrow">DEPLOYMENT LOCKED</p>
           <h1>함대 배치 확정 완료</h1>
           <p>
-            상대 지휘관의 배치 확정을 기다리고 있습니다. 양쪽 함대가 배치되면 선공을 무작위로 결정합니다.
+            상대 지휘관의 배치 확정을 기다리고 있습니다. 양쪽 함대가 배치되면 선공을 무작위로
+            결정합니다.
           </p>
           <div class="player-ready-list">
             {#each snapshot.players as player (player.id)}<div>

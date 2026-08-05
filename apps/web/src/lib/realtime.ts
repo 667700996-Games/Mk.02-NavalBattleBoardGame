@@ -163,10 +163,7 @@ class RealtimeClient {
         hudNotifications.update((notifications) => [...notifications, notification].slice(-3));
         setTimeout(() => dismissHudNotification(notification.id), 6_000);
       }
-    } else if (
-      event.type === 'player:ready:accepted' ||
-      event.type === 'player:unready:accepted'
-    ) {
+    } else if (event.type === 'player:ready:accepted' || event.type === 'player:unready:accepted') {
       const snapshot = get(gameSnapshot);
       if (snapshot?.room.id === event.payload.roomId) {
         const ready = event.payload.readyState === 'READY';

@@ -344,7 +344,8 @@ impl GameRoom {
         if player.id != self.host_player_id {
             return Err(GameError::NotHost);
         }
-        if self.game_id.is_some() || matches!(self.status, RoomStatus::Placement | RoomStatus::Playing)
+        if self.game_id.is_some()
+            || matches!(self.status, RoomStatus::Placement | RoomStatus::Playing)
         {
             return Err(GameError::GameAlreadyStarted);
         }
@@ -400,9 +401,7 @@ impl GameRoom {
         let player_id = leaving_player.id;
         let is_lobby = matches!(
             self.status,
-            RoomStatus::WaitingForOpponent
-                | RoomStatus::WaitingForReady
-                | RoomStatus::ReadyToStart
+            RoomStatus::WaitingForOpponent | RoomStatus::WaitingForReady | RoomStatus::ReadyToStart
         ) && self.game_id.is_none();
 
         if is_lobby {
@@ -607,7 +606,8 @@ impl GameRoom {
                 player.is_host = expected_role == PlayerRole::Host;
                 changed = true;
             }
-            if player.ready_state == PlayerReadyState::NotReady && player.ready_at.take().is_some() {
+            if player.ready_state == PlayerReadyState::NotReady && player.ready_at.take().is_some()
+            {
                 changed = true;
             }
         }
@@ -791,9 +791,7 @@ impl GameRoom {
             .map(|player| player.id);
         let is_lobby = matches!(
             self.status,
-            RoomStatus::WaitingForOpponent
-                | RoomStatus::WaitingForReady
-                | RoomStatus::ReadyToStart
+            RoomStatus::WaitingForOpponent | RoomStatus::WaitingForReady | RoomStatus::ReadyToStart
         ) && self.game_id.is_none();
         if is_lobby && player_id != self.host_player_id {
             self.players.retain(|player| player.id != player_id);
@@ -1236,7 +1234,7 @@ impl GameRoom {
             room_state: self.status,
             host_player_id: self.host_player_id,
             game_id: self.game_id,
-            can_start_game: self.can_start_game(),
+            can_start_game: self.can_start_game() && me.id == self.host_player_id,
             room_version: self.version,
             version: self.version,
             self_player_id: me.id,
@@ -1495,13 +1493,8 @@ mod tests {
             .unwrap();
         room.set_lobby_ready(guest.id, Uuid::new_v4(), guest_player_id, true)
             .unwrap();
-        room.start_placement(
-            host.id,
-            Uuid::new_v4(),
-            host_player_id,
-            room.version,
-        )
-        .unwrap();
+        room.start_placement(host.id, Uuid::new_v4(), host_player_id, room.version)
+            .unwrap();
     }
 
     #[test]
@@ -1528,13 +1521,10 @@ mod tests {
         assert_eq!(room.status, RoomStatus::ReadyToStart);
         assert!(room.game_id.is_none());
         assert!(room.game.is_none());
-        room.start_placement(
-            host.id,
-            Uuid::new_v4(),
-            host_player_id,
-            room.version,
-        )
-        .unwrap();
+        assert!(room.snapshot_for(host.id).unwrap().can_start_game);
+        assert!(!room.snapshot_for(guest.id).unwrap().can_start_game);
+        room.start_placement(host.id, Uuid::new_v4(), host_player_id, room.version)
+            .unwrap();
         assert_eq!(room.status, RoomStatus::Placement);
         assert_eq!(
             room.confirm_placement(host.id, &fleet(0), 60).unwrap_err(),
@@ -1833,23 +1823,13 @@ mod tests {
             .unwrap();
         let ready_version = room.version;
         assert_eq!(
-            room.start_placement(
-                guest.id,
-                Uuid::new_v4(),
-                guest_player_id,
-                ready_version,
-            )
+            room.start_placement(guest.id, Uuid::new_v4(), guest_player_id, ready_version,)
                 .unwrap_err(),
             GameError::NotHost
         );
         assert_eq!(
-            room.start_placement(
-                host.id,
-                Uuid::new_v4(),
-                host_player_id,
-                ready_version - 1,
-            )
-            .unwrap_err(),
+            room.start_placement(host.id, Uuid::new_v4(), host_player_id, ready_version - 1,)
+                .unwrap_err(),
             GameError::StaleRoomVersion
         );
 

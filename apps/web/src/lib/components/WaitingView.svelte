@@ -45,7 +45,8 @@
   let guestPlayer = $derived(snapshot.players.find((player) => player.role === 'GUEST'));
   let isHost = $derived(snapshot.selfPlayerId === snapshot.hostPlayerId);
   let allReady = $derived(
-    snapshot.players.length === 2 && snapshot.players.every((player) => player.readyState === 'READY')
+    snapshot.players.length === 2 &&
+      snapshot.players.every((player) => player.readyState === 'READY')
   );
   let startDisabledReason = $derived.by(() => {
     if (snapshot.gameId || snapshot.roomState === 'PLACEMENT') return '게임이 이미 시작되었습니다.';
@@ -99,9 +100,15 @@
 
 <section class="waiting panel" aria-labelledby="waiting-title">
   <header class="waiting-heading">
-    <div class:ready={snapshot.roomState === 'READY_TO_START'} class="waiting__radar" aria-hidden="true">
+    <div
+      class:ready={snapshot.roomState === 'READY_TO_START'}
+      class="waiting__radar"
+      aria-hidden="true"
+    >
       <div class="waiting__sweep"></div>
-      {#if snapshot.roomState === 'READY_TO_START'}<ShieldCheck size={27} />{:else}<Radio size={25} />{/if}
+      {#if snapshot.roomState === 'READY_TO_START'}<ShieldCheck size={27} />{:else}<Radio
+          size={25}
+        />{/if}
     </div>
     <div>
       <p class="eyebrow">PRE-OPERATION COMMAND ROOM</p>
@@ -149,13 +156,17 @@
                   {player.role === 'HOST' ? 'HOST' : 'GUEST'}
                 </Badge>
                 <span class:offline={player.connectionState !== 'ONLINE'} class="connection-state">
-                  {#if player.connectionState === 'ONLINE'}<Wifi size={11} /> 연결됨{:else}<WifiOff size={11} />
+                  {#if player.connectionState === 'ONLINE'}<Wifi size={11} /> 연결됨{:else}<WifiOff
+                      size={11}
+                    />
                     {player.connectionState === 'RECONNECTING' ? '재접속 중' : '오프라인'}{/if}
                 </span>
               </div>
             </div>
             <div class:ready={player.readyState === 'READY'} class="ready-state">
-              {#if player.readyState === 'READY'}<Check size={17} />{:else}<CircleDot size={15} />{/if}
+              {#if player.readyState === 'READY'}<Check size={17} />{:else}<CircleDot
+                  size={15}
+                />{/if}
               <span>
                 <strong>{player.readyState === 'READY' ? '준비 완료' : '준비 대기'}</strong>
                 <small>{readyTime(player)}</small>
@@ -180,7 +191,8 @@
       <div class="action-body">
         <div class="self-readiness">
           <small>YOUR READINESS</small>
-          <strong>{selfPlayer?.readyState === 'READY' ? '작전 준비 완료' : '준비 승인 필요'}</strong>
+          <strong>{selfPlayer?.readyState === 'READY' ? '작전 준비 완료' : '준비 승인 필요'}</strong
+          >
           <p>준비 상태는 서버에 저장되며 새로고침하거나 잠시 재접속해도 복구됩니다.</p>
         </div>
         <Button
@@ -207,7 +219,8 @@
             <Rocket size={17} /> 작전 시작
           </Button>
           <p class:available={!startDisabledReason} class="start-reason">
-            {startDisabledReason || '모든 시작 조건이 충족되었습니다. 최종 승인을 진행할 수 있습니다.'}
+            {startDisabledReason ||
+              '모든 시작 조건이 충족되었습니다. 최종 승인을 진행할 수 있습니다.'}
           </p>
         {:else}
           <div class:ready={allReady} class="guest-guidance">
@@ -227,7 +240,9 @@
   </div>
 
   <div class="system-log" aria-label="대기실 상태 로그">
-    <span>SYS</span><p>{heading}</p><time>V{snapshot.roomVersion}</time>
+    <span>SYS</span>
+    <p>{heading}</p>
+    <time>V{snapshot.roomVersion}</time>
   </div>
 
   <Button variant="ghost" size="sm" class="leave-button" onclick={onleave}>
@@ -286,8 +301,13 @@
     background: currentColor;
     opacity: 0.13;
   }
-  .waiting__radar::after { transform: rotate(90deg); }
-  .waiting__radar :global(svg) { position: relative; z-index: 2; }
+  .waiting__radar::after {
+    transform: rotate(90deg);
+  }
+  .waiting__radar :global(svg) {
+    position: relative;
+    z-index: 2;
+  }
   .waiting__sweep {
     position: absolute;
     inset: 50% 50% 0 0;
@@ -303,8 +323,15 @@
     border-radius: 10px;
     background: rgba(3, 15, 24, 0.58);
   }
-  .room-identity > div { display: grid; gap: 4px; padding: 14px 16px; border-right: 1px solid var(--line); }
-  .room-identity > div:last-child { border: 0; }
+  .room-identity > div {
+    display: grid;
+    gap: 4px;
+    padding: 14px 16px;
+    border-right: 1px solid var(--line);
+  }
+  .room-identity > div:last-child {
+    border: 0;
+  }
   .room-identity small,
   .self-readiness small {
     color: #638091;
@@ -312,8 +339,15 @@
     font-size: 9px;
     letter-spacing: 0.16em;
   }
-  .room-identity strong { font-size: 13px; }
-  .room-identity .code { color: var(--cyan-200); font-family: Rajdhani; font-size: 20px; letter-spacing: 0.18em; }
+  .room-identity strong {
+    font-size: 13px;
+  }
+  .room-identity .code {
+    color: var(--cyan-200);
+    font-family: Rajdhani;
+    font-size: 20px;
+    letter-spacing: 0.18em;
+  }
   .invite-bar {
     display: grid;
     grid-template-columns: 1fr auto auto;
@@ -324,9 +358,24 @@
     border-radius: 10px;
     background: rgba(2, 11, 18, 0.74);
   }
-  .invite-bar > span { overflow: hidden; padding-left: 10px; color: #7894a3; font-size: 11px; white-space: nowrap; text-overflow: ellipsis; }
-  .room-command-grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(310px, 0.85fr); gap: 14px; margin-top: 22px; }
-  .player-slots { display: grid; gap: 12px; }
+  .invite-bar > span {
+    overflow: hidden;
+    padding-left: 10px;
+    color: #7894a3;
+    font-size: 11px;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+  .room-command-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.15fr) minmax(310px, 0.85fr);
+    gap: 14px;
+    margin-top: 22px;
+  }
+  .player-slots {
+    display: grid;
+    gap: 12px;
+  }
   .player-slot {
     display: grid;
     grid-template-columns: auto 1fr auto;
@@ -338,60 +387,267 @@
     border-radius: 12px;
     text-align: left;
     background: linear-gradient(115deg, rgba(8, 28, 40, 0.74), rgba(4, 18, 27, 0.45));
-    transition: border-color 180ms ease, transform 180ms ease;
+    transition:
+      border-color 180ms ease,
+      transform 180ms ease;
   }
-  .player-slot--ready { border-color: rgba(66, 211, 146, 0.35); box-shadow: inset 3px 0 rgba(66, 211, 146, 0.45); }
-  .player-slot--offline { border-color: rgba(246, 173, 53, 0.35); }
-  .player-avatar { display: grid; width: 46px; height: 46px; place-items: center; border: 1px solid var(--line); border-radius: 50%; color: #8babb9; background: rgba(4, 16, 25, 0.72); }
-  .player-identity { display: grid; gap: 4px; }
-  .player-identity > small { color: #617e8e; font-family: Rajdhani; font-size: 9px; letter-spacing: 0.14em; }
-  .player-identity > strong { font-size: 14px; }
-  .player-badges { display: flex; gap: 8px; align-items: center; margin-top: 3px; }
-  .connection-state { display: flex; gap: 4px; align-items: center; color: var(--green-500); font-size: 9px; }
-  .connection-state.offline { color: var(--amber-500); }
-  .ready-state { display: flex; gap: 8px; align-items: center; min-width: 112px; padding: 10px; border: 1px solid rgba(130, 174, 191, 0.14); border-radius: 9px; color: #7894a3; background: rgba(2, 11, 18, 0.5); }
-  .ready-state.ready { color: var(--green-400); border-color: rgba(66, 211, 146, 0.26); }
-  .ready-state > span { display: grid; gap: 2px; }
-  .ready-state strong { font-size: 10px; }
-  .ready-state small { color: #638091; font-size: 8px; }
-  .player-slot--pending { grid-template-columns: auto 1fr; border-style: dashed; opacity: 0.74; }
-  .scanning { display: flex; gap: 6px; align-items: center; color: #7894a3; font-size: 9px; }
-  .scanning i { width: 5px; height: 5px; border-radius: 50%; background: var(--amber-500); animation: pulse 1.2s infinite; }
-  .command-actions { overflow: hidden; border: 1px solid var(--line); border-radius: 12px; background: rgba(2, 13, 21, 0.64); }
-  .command-actions > header { display: grid; grid-template-columns: auto 1fr auto; gap: 8px; align-items: center; padding: 11px 13px; border-bottom: 1px solid var(--line); color: var(--cyan-300); font-family: var(--font-display); font-size: 9px; letter-spacing: 0.12em; }
-  .command-actions header em { color: var(--green-400); font-size: 7px; font-style: normal; }
-  .action-body { display: grid; gap: 12px; padding: 18px; }
-  .self-readiness { display: grid; gap: 4px; }
-  .self-readiness strong { font-size: 15px; }
-  .self-readiness p { margin: 2px 0 5px; color: #7894a3; font-size: 10px; line-height: 1.55; }
-  .start-divider { display: flex; align-items: center; gap: 8px; margin: 3px 0; color: #587484; font-family: Rajdhani; font-size: 8px; letter-spacing: 0.14em; }
+  .player-slot--ready {
+    border-color: rgba(66, 211, 146, 0.35);
+    box-shadow: inset 3px 0 rgba(66, 211, 146, 0.45);
+  }
+  .player-slot--offline {
+    border-color: rgba(246, 173, 53, 0.35);
+  }
+  .player-avatar {
+    display: grid;
+    width: 46px;
+    height: 46px;
+    place-items: center;
+    border: 1px solid var(--line);
+    border-radius: 50%;
+    color: #8babb9;
+    background: rgba(4, 16, 25, 0.72);
+  }
+  .player-identity {
+    display: grid;
+    gap: 4px;
+  }
+  .player-identity > small {
+    color: #617e8e;
+    font-family: Rajdhani;
+    font-size: 9px;
+    letter-spacing: 0.14em;
+  }
+  .player-identity > strong {
+    font-size: 14px;
+  }
+  .player-badges {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin-top: 3px;
+  }
+  .connection-state {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+    color: var(--green-500);
+    font-size: 9px;
+  }
+  .connection-state.offline {
+    color: var(--amber-500);
+  }
+  .ready-state {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    min-width: 112px;
+    padding: 10px;
+    border: 1px solid rgba(130, 174, 191, 0.14);
+    border-radius: 9px;
+    color: #7894a3;
+    background: rgba(2, 11, 18, 0.5);
+  }
+  .ready-state.ready {
+    color: var(--green-400);
+    border-color: rgba(66, 211, 146, 0.26);
+  }
+  .ready-state > span {
+    display: grid;
+    gap: 2px;
+  }
+  .ready-state strong {
+    font-size: 10px;
+  }
+  .ready-state small {
+    color: #638091;
+    font-size: 8px;
+  }
+  .player-slot--pending {
+    grid-template-columns: auto 1fr;
+    border-style: dashed;
+    opacity: 0.74;
+  }
+  .scanning {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    color: #7894a3;
+    font-size: 9px;
+  }
+  .scanning i {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--amber-500);
+    animation: pulse 1.2s infinite;
+  }
+  .command-actions {
+    overflow: hidden;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: rgba(2, 13, 21, 0.64);
+  }
+  .command-actions > header {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    gap: 8px;
+    align-items: center;
+    padding: 11px 13px;
+    border-bottom: 1px solid var(--line);
+    color: var(--cyan-300);
+    font-family: var(--font-display);
+    font-size: 9px;
+    letter-spacing: 0.12em;
+  }
+  .command-actions header em {
+    color: var(--green-400);
+    font-size: 7px;
+    font-style: normal;
+  }
+  .action-body {
+    display: grid;
+    gap: 12px;
+    padding: 18px;
+  }
+  .self-readiness {
+    display: grid;
+    gap: 4px;
+  }
+  .self-readiness strong {
+    font-size: 15px;
+  }
+  .self-readiness p {
+    margin: 2px 0 5px;
+    color: #7894a3;
+    font-size: 10px;
+    line-height: 1.55;
+  }
+  .start-divider {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 3px 0;
+    color: #587484;
+    font-family: Rajdhani;
+    font-size: 8px;
+    letter-spacing: 0.14em;
+  }
   .start-divider::before,
-  .start-divider::after { flex: 1; height: 1px; content: ''; background: var(--line); }
-  .start-reason { min-height: 28px; margin: -3px 0 0; color: var(--amber-500); font-size: 9px; line-height: 1.5; text-align: center; }
-  .start-reason.available { color: var(--green-400); }
-  .guest-guidance { display: flex; gap: 10px; align-items: center; padding: 13px; border: 1px solid var(--line); border-radius: 9px; color: var(--amber-500); background: rgba(246, 173, 53, 0.05); }
-  .guest-guidance.ready { color: var(--green-400); border-color: rgba(66, 211, 146, 0.25); background: rgba(66, 211, 146, 0.05); }
-  .guest-guidance span { display: grid; gap: 3px; }
-  .guest-guidance strong { font-size: 10px; }
-  .guest-guidance small { color: #7894a3; font-size: 9px; line-height: 1.5; }
-  .system-log { display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: center; margin-top: 14px; padding: 10px 13px; border: 1px solid rgba(76, 169, 189, 0.12); border-radius: 8px; color: #7894a3; background: rgba(2, 11, 18, 0.48); font-size: 9px; }
-  .system-log span { color: var(--cyan-400); font-family: Rajdhani; letter-spacing: 0.12em; }
-  .system-log p { margin: 0; }
-  .system-log time { color: #587484; font-family: var(--font-mono); }
-  :global(.leave-button) { display: flex; margin: 20px auto 0; color: #7893a2; }
+  .start-divider::after {
+    flex: 1;
+    height: 1px;
+    content: '';
+    background: var(--line);
+  }
+  .start-reason {
+    min-height: 28px;
+    margin: -3px 0 0;
+    color: var(--amber-500);
+    font-size: 9px;
+    line-height: 1.5;
+    text-align: center;
+  }
+  .start-reason.available {
+    color: var(--green-400);
+  }
+  .guest-guidance {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    padding: 13px;
+    border: 1px solid var(--line);
+    border-radius: 9px;
+    color: var(--amber-500);
+    background: rgba(246, 173, 53, 0.05);
+  }
+  .guest-guidance.ready {
+    color: var(--green-400);
+    border-color: rgba(66, 211, 146, 0.25);
+    background: rgba(66, 211, 146, 0.05);
+  }
+  .guest-guidance span {
+    display: grid;
+    gap: 3px;
+  }
+  .guest-guidance strong {
+    font-size: 10px;
+  }
+  .guest-guidance small {
+    color: #7894a3;
+    font-size: 9px;
+    line-height: 1.5;
+  }
+  .system-log {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    gap: 10px;
+    align-items: center;
+    margin-top: 14px;
+    padding: 10px 13px;
+    border: 1px solid rgba(76, 169, 189, 0.12);
+    border-radius: 8px;
+    color: #7894a3;
+    background: rgba(2, 11, 18, 0.48);
+    font-size: 9px;
+  }
+  .system-log span {
+    color: var(--cyan-400);
+    font-family: Rajdhani;
+    letter-spacing: 0.12em;
+  }
+  .system-log p {
+    margin: 0;
+  }
+  .system-log time {
+    color: #587484;
+    font-family: var(--font-mono);
+  }
+  :global(.leave-button) {
+    display: flex;
+    margin: 20px auto 0;
+    color: #7893a2;
+  }
   @media (max-width: 760px) {
-    .waiting { padding: 24px 16px; }
-    .waiting-heading { grid-template-columns: auto 1fr; }
-    .waiting-heading > :global(.ui-badge) { grid-column: 2; justify-self: start; }
-    .room-command-grid { grid-template-columns: 1fr; }
+    .waiting {
+      padding: 24px 16px;
+    }
+    .waiting-heading {
+      grid-template-columns: auto 1fr;
+    }
+    .waiting-heading > :global(.ui-badge) {
+      grid-column: 2;
+      justify-self: start;
+    }
+    .room-command-grid {
+      grid-template-columns: 1fr;
+    }
   }
   @media (max-width: 560px) {
-    .waiting-heading { grid-template-columns: 1fr; text-align: center; }
-    .waiting__radar { margin: 0 auto; }
-    .waiting-heading > :global(.ui-badge) { grid-column: 1; justify-self: center; }
-    .room-identity { grid-template-columns: 1fr; }
-    .room-identity > div { border-right: 0; border-bottom: 1px solid var(--line); }
-    .player-slot { grid-template-columns: auto 1fr; }
-    .ready-state { grid-column: 1 / -1; width: 100%; }
+    .waiting-heading {
+      grid-template-columns: 1fr;
+      text-align: center;
+    }
+    .waiting__radar {
+      margin: 0 auto;
+    }
+    .waiting-heading > :global(.ui-badge) {
+      grid-column: 1;
+      justify-self: center;
+    }
+    .room-identity {
+      grid-template-columns: 1fr;
+    }
+    .room-identity > div {
+      border-right: 0;
+      border-bottom: 1px solid var(--line);
+    }
+    .player-slot {
+      grid-template-columns: auto 1fr;
+    }
+    .ready-state {
+      grid-column: 1 / -1;
+      width: 100%;
+    }
   }
 </style>

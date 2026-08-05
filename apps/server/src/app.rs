@@ -774,13 +774,8 @@ mod tests {
             .unwrap();
         room.set_lobby_ready(second.id, Uuid::new_v4(), second_player_id, true)
             .unwrap();
-        room.start_placement(
-            first.id,
-            Uuid::new_v4(),
-            first_player_id,
-            room.version,
-        )
-        .unwrap();
+        room.start_placement(first.id, Uuid::new_v4(), first_player_id, room.version)
+            .unwrap();
         room.place_ships(first.id, fleet(0)).unwrap();
         room.place_ships(second.id, fleet(5)).unwrap();
         room.confirm_placement(first.id, &fleet(0), 1).unwrap();

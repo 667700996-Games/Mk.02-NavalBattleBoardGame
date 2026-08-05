@@ -139,12 +139,8 @@ async fn handle_event(state: &AppState, session: &crate::domain::UserSession, ev
                 let mut room = room_ref.lock().await;
                 let previous_version = room.version;
                 let chat_start = room.chat_messages.len();
-                let (record, duplicate) = room.set_lobby_ready(
-                    session.id,
-                    input.request_id,
-                    input.player_id,
-                    true,
-                )?;
+                let (record, duplicate) =
+                    room.set_lobby_ready(session.id, input.request_id, input.player_id, true)?;
                 if !duplicate {
                     state.save_room(&room).await?;
                 }
@@ -218,12 +214,8 @@ async fn handle_event(state: &AppState, session: &crate::domain::UserSession, ev
                 let mut room = room_ref.lock().await;
                 let previous_version = room.version;
                 let chat_start = room.chat_messages.len();
-                let (record, duplicate) = room.set_lobby_ready(
-                    session.id,
-                    input.request_id,
-                    input.player_id,
-                    false,
-                )?;
+                let (record, duplicate) =
+                    room.set_lobby_ready(session.id, input.request_id, input.player_id, false)?;
                 if !duplicate {
                     state.save_room(&room).await?;
                 }

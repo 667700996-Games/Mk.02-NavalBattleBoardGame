@@ -25,8 +25,8 @@
   <section class="disconnect-card panel">
     <div class="disconnect-icon"><Radio size={27} /></div>
     <p class="eyebrow">SIGNAL INTERRUPTED</p>
-    <h2 id="disconnect-title">상대 지휘관 재접속 대기</h2>
-    <p>전장 상태와 현재 턴은 서버에 안전하게 보존되어 있습니다.</p>
+    <h2 id="disconnect-title">지휘관 재접속 대기</h2>
+    <p>방 상태와 준비·배치·전투 정보는 서버에 안전하게 보존되어 있습니다.</p>
     <strong class="countdown">{remaining}<small>SEC</small></strong>
     <div class="reconnect-track" aria-hidden="true">
       <i style={`width:${Math.min(100, (remaining / 90) * 100)}%`}></i>
