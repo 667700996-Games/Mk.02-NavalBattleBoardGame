@@ -13,6 +13,11 @@ import {
   type SocketStatus
 } from '$lib/stores';
 import type { ClientEvent, ServerEvent } from '$lib/types';
+import {
+  isCompatibleGameSnapshot,
+  SERVER_PROTOCOL_MISMATCH_CODE,
+  SERVER_PROTOCOL_MISMATCH_MESSAGE
+} from '$lib/protocol';
 
 class RealtimeClient {
   private socket: WebSocket | null = null;
@@ -115,9 +120,27 @@ class RealtimeClient {
       event.type === 'player:reconnected' ||
       event.type === 'game:snapshot'
     ) {
+      if (!isCompatibleGameSnapshot(event.payload)) {
+        gameError.set({
+          code: SERVER_PROTOCOL_MISMATCH_CODE,
+          message: SERVER_PROTOCOL_MISMATCH_MESSAGE,
+          retryable: false
+        });
+        this.disconnect();
+        return;
+      }
       gameSnapshot.set(event.payload);
       gameError.set(null);
     } else if (event.type === 'room:created') {
+      if (!isCompatibleGameSnapshot(event.payload.snapshot)) {
+        gameError.set({
+          code: SERVER_PROTOCOL_MISMATCH_CODE,
+          message: SERVER_PROTOCOL_MISMATCH_MESSAGE,
+          retryable: false
+        });
+        this.disconnect();
+        return;
+      }
       gameSnapshot.set(event.payload.snapshot);
     } else if (event.type === 'attack:result' || event.type === 'ship:sunk') {
       lastAttack.set(event.payload);

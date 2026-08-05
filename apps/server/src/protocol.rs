@@ -48,6 +48,7 @@ pub struct RoomCreatedResponse {
 pub struct RoomListResponse {
     pub rooms: Vec<RoomSummary>,
     pub server_time: DateTime<Utc>,
+    pub protocol_version: u16,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -56,6 +57,7 @@ pub struct HealthResponse {
     pub status: &'static str,
     pub storage: &'static str,
     pub server_time: DateTime<Utc>,
+    pub protocol_version: u16,
 }
 
 #[derive(Debug, Clone, Deserialize)]

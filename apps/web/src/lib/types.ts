@@ -191,6 +191,7 @@ export interface TurnExpiredRecord {
 }
 
 export interface GameSnapshot {
+  protocolVersion: number;
   room: RoomSummary;
   roomId: string;
   roomState: RoomStatus;

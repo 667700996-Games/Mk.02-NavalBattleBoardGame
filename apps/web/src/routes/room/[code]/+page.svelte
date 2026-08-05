@@ -289,7 +289,7 @@
         onstart={() => (showStart = true)}
         onleave={leaveRoom}
       />
-    {:else if snapshot.room.status === 'PLACEMENT'}
+    {:else if snapshot.room.status === 'PLACEMENT' && snapshot.roomState === 'PLACEMENT' && snapshot.gameId && snapshot.placementStartedAt}
       {#if selfPlayer?.placementConfirmed}
         <section class="confirmed-wait panel">
           <div class="confirmed-icon"><Check size={29} /></div>
@@ -326,12 +326,22 @@
       />
     {:else if snapshot.room.status === 'FINISHED'}
       <ResultView {snapshot} onrematch={rematch} onlobby={leaveRoom} />
-    {:else}
+    {:else if snapshot.room.status === 'CANCELLED'}
       <section class="load-error panel">
         <WifiOff size={34} />
         <h1>작전이 취소되었습니다</h1>
         <p>상대 지휘관이 이탈했거나 작전실이 종료되었습니다.</p>
         <button class="button" onclick={leaveRoom}><ArrowLeft size={16} /> 로비로 복귀</button>
+      </section>
+    {:else}
+      <section class="load-error panel" role="alert">
+        <WifiOff size={34} />
+        <h1>서버 버전을 확인해 주세요</h1>
+        <p>
+          대기실 상태 정보가 현재 화면과 호환되지 않습니다. 기존 개발 서버를 완전히
+          종료한 뒤 <code>npm run dev</code>로 다시 시작해 주세요.
+        </p>
+        <a class="button" href={resolve('/lobby')}><ArrowLeft size={16} /> 로비로 복귀</a>
       </section>
     {/if}
     <ChatDrawer

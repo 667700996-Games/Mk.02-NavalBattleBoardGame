@@ -7,6 +7,12 @@ import type {
   RoomVisibility,
   Session
 } from '$lib/types';
+import {
+  isCompatibleGameSnapshot,
+  isCompatibleProtocolEnvelope,
+  SERVER_PROTOCOL_MISMATCH_CODE,
+  SERVER_PROTOCOL_MISMATCH_MESSAGE
+} from '$lib/protocol';
 
 export class ApiError extends Error {
   constructor(
@@ -46,29 +52,64 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   return (await response.json()) as T;
 }
 
+function compatibleSnapshot(value: unknown): GameSnapshot {
+  if (!isCompatibleGameSnapshot(value)) {
+    throw new ApiError(SERVER_PROTOCOL_MISMATCH_CODE, SERVER_PROTOCOL_MISMATCH_MESSAGE, 426);
+  }
+  return value;
+}
+
+async function roomList(): Promise<{ rooms: RoomSummary[]; serverTime: string }> {
+  const response = await request<{
+    rooms: RoomSummary[];
+    serverTime: string;
+    protocolVersion?: number;
+  }>('/rooms');
+  if (!isCompatibleProtocolEnvelope(response)) {
+    throw new ApiError(SERVER_PROTOCOL_MISMATCH_CODE, SERVER_PROTOCOL_MISMATCH_MESSAGE, 426);
+  }
+  return response;
+}
+
 export const api = {
   createSession: (nickname: string) =>
     request<Session>('/sessions', { method: 'POST', body: JSON.stringify({ nickname }) }),
   currentSession: () => request<Session>('/sessions/current'),
-  listRooms: () => request<{ rooms: RoomSummary[]; serverTime: string }>('/rooms'),
-  createRoom: (name: string, visibility: RoomVisibility) =>
-    request<RoomCreatedResponse>('/rooms', {
+  listRooms: roomList,
+  createRoom: async (name: string, visibility: RoomVisibility) => {
+    const response = await request<RoomCreatedResponse>('/rooms', {
       method: 'POST',
       body: JSON.stringify({ name, visibility })
-    }),
-  joinRoom: (code: string) =>
-    request<GameSnapshot>('/rooms/join', {
+    });
+    return { ...response, snapshot: compatibleSnapshot(response.snapshot) };
+  },
+  joinRoom: async (code: string) => {
+    const snapshot = await request<unknown>('/rooms/join', {
       method: 'POST',
       body: JSON.stringify({ code: code.trim().toUpperCase() })
-    }),
-  room: (roomId: string) => request<GameSnapshot>(`/rooms/${roomId}`),
+    });
+    return compatibleSnapshot(snapshot);
+  },
+  room: async (roomId: string) => compatibleSnapshot(await request<unknown>(`/rooms/${roomId}`)),
   leaveRoom: (roomId: string) => request<void>(`/rooms/${roomId}/leave`, { method: 'POST' }),
-  recover: () => request<GameSnapshot | null>('/games/recover'),
+  recover: async () => {
+    const snapshot = await request<unknown | null>('/games/recover');
+    return snapshot === null ? null : compatibleSnapshot(snapshot);
+  },
   history: () => request<{ games: HistoryItem[] }>('/games/history'),
-  enqueueMatchmaking: () =>
-    request<{ queued: boolean; queuedAt: string | null; snapshot: GameSnapshot | null }>(
+  enqueueMatchmaking: async () => {
+    const response = await request<{
+      queued: boolean;
+      queuedAt: string | null;
+      snapshot: unknown | null;
+    }>(
       '/matchmaking',
       { method: 'POST' }
-    ),
+    );
+    return {
+      ...response,
+      snapshot: response.snapshot === null ? null : compatibleSnapshot(response.snapshot)
+    };
+  },
   cancelMatchmaking: () => request<void>('/matchmaking', { method: 'DELETE' })
 };

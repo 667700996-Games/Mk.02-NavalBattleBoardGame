@@ -49,6 +49,7 @@ async fn health(State(state): State<AppState>) -> Json<HealthResponse> {
         status: "ok",
         storage: state.store.kind(),
         server_time: Utc::now(),
+        protocol_version: crate::PROTOCOL_VERSION,
     })
 }
 
@@ -102,6 +103,7 @@ async fn list_rooms(State(state): State<AppState>) -> Result<Json<RoomListRespon
     Ok(Json(RoomListResponse {
         rooms: state.store.list_public_rooms().await?,
         server_time: Utc::now(),
+        protocol_version: crate::PROTOCOL_VERSION,
     }))
 }
 

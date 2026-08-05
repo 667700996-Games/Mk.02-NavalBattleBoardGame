@@ -1251,6 +1251,7 @@ impl GameRoom {
             };
 
         Ok(GameSnapshot {
+            protocol_version: crate::PROTOCOL_VERSION,
             room: self.summary(),
             room_id: self.id,
             room_state: self.status,
@@ -1363,6 +1364,7 @@ impl PlayerPublic {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GameSnapshot {
+    pub protocol_version: u16,
     pub room: RoomSummary,
     pub room_id: Uuid,
     pub room_state: RoomStatus,

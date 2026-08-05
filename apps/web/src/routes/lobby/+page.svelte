@@ -65,7 +65,12 @@
         queueTimer = setInterval(() => {
           elapsed = queuedAt ? Math.floor((Date.now() - queuedAt.getTime()) / 1000) : 0;
         }, 1_000);
-      } catch {
+      } catch (caught) {
+        if (caught instanceof ApiError && caught.code === 'SERVER_PROTOCOL_MISMATCH') {
+          error = caught.message;
+          loading = false;
+          return;
+        }
         await goto(resolve('/'));
       }
     })();
