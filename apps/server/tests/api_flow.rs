@@ -6,7 +6,7 @@ use axum::{
     http::{Request, Response, StatusCode, header},
 };
 use mk01_server::{
-    AppState, build_router,
+    AppState, PROTOCOL_VERSION, build_router,
     config::{Settings, StorageMode},
     store::MemoryStore,
 };
@@ -126,11 +126,10 @@ async fn guest_sessions_create_join_and_recover_a_two_player_room() {
             .unwrap(),
     )
     .await;
+    let listed = json_body(list_response).await;
+    assert_eq!(listed["protocolVersion"], PROTOCOL_VERSION);
     assert_eq!(
-        json_body(list_response).await["rooms"]
-            .as_array()
-            .unwrap()
-            .len(),
+        listed["rooms"].as_array().unwrap().len(),
         1
     );
 
@@ -148,6 +147,7 @@ async fn guest_sessions_create_join_and_recover_a_two_player_room() {
     .await;
     assert_eq!(join_response.status(), StatusCode::OK);
     let joined = json_body(join_response).await;
+    assert_eq!(joined["protocolVersion"], PROTOCOL_VERSION);
     assert_eq!(joined["room"]["status"], "WAITING_FOR_READY");
     assert!(joined["gameId"].is_null());
     assert_eq!(joined["canStartGame"], false);

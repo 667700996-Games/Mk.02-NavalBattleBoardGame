@@ -100,6 +100,8 @@ npm run dev
 
 `http://localhost:5173`에 접속합니다. 기본 `STORAGE_MODE=memory`는 DB 없이 즉시 실행하기 위한 개발 모드이며 서버 종료 시 데이터가 사라집니다.
 
+기존 개발 서버가 5173/8080 포트에 남아 있으면 새 프론트엔드가 이전 서버 계약과 혼용될 수 있습니다. 이 경우 실행 중인 `npm run dev`를 완전히 종료한 뒤 다시 시작하세요. 클라이언트는 `protocolVersion` 불일치를 감지하며, 이전 서버의 `WAITING`/자동 `PLACEMENT` 응답을 취소나 게임 시작으로 잘못 표시하지 않고 재시작 안내를 표시합니다.
+
 ### 2. 영속 로컬 스택
 
 Docker Compose 2 또는 호환되는 Podman Compose가 필요합니다.
@@ -205,7 +207,7 @@ POSTGRES_PASSWORD='replace-this-local-password' docker compose up --build
 | `heartbeat`                                 | 연결 생존 확인                                  |
 | `error`                                     | `code`, 사용자 메시지, `retryable`, `requestId` |
 
-`room:updated`/`game:snapshot`은 `roomId`, `roomState`, `hostPlayerId`, `players`, `canStartGame`, `roomVersion`, `gameId`, `serverTimestamp`를 포함합니다. 플레이어 공개 상태에는 `role`, `readyState`, `connectionState`, `joinedAt`, `readyAt`이 포함되지만 세션 토큰과 `sessionId`는 포함되지 않습니다. `canStartGame`은 UI 힌트일 뿐이며 서버는 방장·인원·양쪽 준비·연결·상태·버전·중복 요청을 잠금 안에서 다시 검증합니다.
+`room:updated`/`game:snapshot`은 `protocolVersion`, `roomId`, `roomState`, `hostPlayerId`, `players`, `canStartGame`, `roomVersion`, `gameId`, `serverTimestamp`를 포함합니다. 현재 계약 버전은 `2`이며 `/api/health`와 `/api/rooms`에서도 같은 버전을 제공합니다. 플레이어 공개 상태에는 `role`, `readyState`, `connectionState`, `joinedAt`, `readyAt`이 포함되지만 세션 토큰과 `sessionId`는 포함되지 않습니다. `canStartGame`은 UI 힌트일 뿐이며 서버는 방장·인원·양쪽 준비·연결·상태·버전·중복 요청을 잠금 안에서 다시 검증합니다.
 
 `row`/`col`은 0–9입니다. `ships:place`는 항공모함·전함·순양함·잠수함·구축함을 각각 한 번씩 정확히 포함해야 합니다. 확정 시 같은 배치를 다시 보내며 서버 저장본과 일치해야 합니다. 서버는 세션으로 실제 `playerId`와 방장 ID를 다시 확인하며, 준비·시작·공격·채팅 UUID가 중복되면 기존 결과만 재전송합니다. 공격은 현재 `turnNumber`와 서버 마감 시각을 모두 통과해야 합니다.
 
