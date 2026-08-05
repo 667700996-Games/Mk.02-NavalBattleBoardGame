@@ -128,10 +128,7 @@ async fn guest_sessions_create_join_and_recover_a_two_player_room() {
     .await;
     let listed = json_body(list_response).await;
     assert_eq!(listed["protocolVersion"], PROTOCOL_VERSION);
-    assert_eq!(
-        listed["rooms"].as_array().unwrap().len(),
-        1
-    );
+    assert_eq!(listed["rooms"].as_array().unwrap().len(), 1);
 
     let (guest_cookie, _) = create_session(&app, "Bravo").await;
     let join_response = send(
