@@ -1692,6 +1692,7 @@ mod tests {
         let first_snapshot = serde_json::to_value(room.snapshot_for(first.id).unwrap()).unwrap();
         let second_snapshot = serde_json::to_value(room.snapshot_for(second.id).unwrap()).unwrap();
 
+        assert_eq!(first_snapshot["protocolVersion"], crate::PROTOCOL_VERSION);
         assert!(first_snapshot["ownBoard"]["ships"].is_array());
         assert!(second_snapshot["ownBoard"]["ships"].is_array());
         assert!(first_snapshot["targetBoard"].get("ships").is_none());

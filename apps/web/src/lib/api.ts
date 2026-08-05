@@ -102,10 +102,7 @@ export const api = {
       queued: boolean;
       queuedAt: string | null;
       snapshot: unknown | null;
-    }>(
-      '/matchmaking',
-      { method: 'POST' }
-    );
+    }>('/matchmaking', { method: 'POST' });
     return {
       ...response,
       snapshot: response.snapshot === null ? null : compatibleSnapshot(response.snapshot)

@@ -338,8 +338,9 @@
         <WifiOff size={34} />
         <h1>서버 버전을 확인해 주세요</h1>
         <p>
-          대기실 상태 정보가 현재 화면과 호환되지 않습니다. 기존 개발 서버를 완전히
-          종료한 뒤 <code>npm run dev</code>로 다시 시작해 주세요.
+          대기실 상태 정보가 현재 화면과 호환되지 않습니다. 기존 개발 서버를 완전히 종료한 뒤 <code
+            >npm run dev</code
+          >로 다시 시작해 주세요.
         </p>
         <a class="button" href={resolve('/lobby')}><ArrowLeft size={16} /> 로비로 복귀</a>
       </section>
