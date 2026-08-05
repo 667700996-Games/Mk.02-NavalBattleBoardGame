@@ -53,7 +53,12 @@
         await loadRooms();
         refreshTimer = setInterval(loadRooms, 7_500);
         unsubscribe = gameSnapshot.subscribe((snapshot) => {
-          if (matching && snapshot?.room.status === 'PLACEMENT') {
+          if (
+            matching &&
+            snapshot?.players.length === 2 &&
+            (snapshot.room.status === 'WAITING_FOR_READY' ||
+              snapshot.room.status === 'READY_TO_START')
+          ) {
             goto(resolve('/room/[code]', { code: snapshot.room.code }));
           }
         });

@@ -42,13 +42,23 @@ pub enum GameError {
     AlreadyJoined,
     #[error("이 방의 플레이어가 아닙니다.")]
     NotRoomMember,
-    #[error("방장만 이 작업을 수행할 수 있습니다.")]
+    #[error("방장만 게임을 시작할 수 있습니다.")]
     NotHost,
+    #[error("두 플레이어가 모두 준비를 완료해야 합니다.")]
+    PlayersNotReady,
+    #[error("게임을 시작하려면 정확히 두 명의 플레이어가 필요합니다.")]
+    PlayerCountInvalid,
+    #[error("연결이 끊긴 플레이어가 있어 게임을 시작할 수 없습니다.")]
+    PlayerDisconnected,
+    #[error("방 상태가 변경되었습니다. 최신 상태를 확인해 주세요.")]
+    StaleRoomVersion,
+    #[error("현재 방 상태에서는 게임을 시작할 수 없습니다.")]
+    RoomStateInvalid,
     #[error("배치를 확정한 뒤에는 함선을 변경할 수 없습니다.")]
     PlacementLocked,
     #[error("제출한 함선 배치가 서버에 저장된 배치와 일치하지 않습니다.")]
     PlacementMismatch,
-    #[error("게임이 이미 시작되어 준비를 취소할 수 없습니다.")]
+    #[error("게임이 이미 시작되었습니다.")]
     GameAlreadyStarted,
     #[error("현재 준비 완료 상태가 아닙니다.")]
     PlayerNotReady,
@@ -98,6 +108,11 @@ impl GameError {
             Self::AlreadyJoined => "ALREADY_JOINED",
             Self::NotRoomMember => "NOT_ROOM_MEMBER",
             Self::NotHost => "NOT_HOST",
+            Self::PlayersNotReady => "PLAYERS_NOT_READY",
+            Self::PlayerCountInvalid => "PLAYER_COUNT_INVALID",
+            Self::PlayerDisconnected => "PLAYER_DISCONNECTED",
+            Self::StaleRoomVersion => "STALE_ROOM_VERSION",
+            Self::RoomStateInvalid => "ROOM_STATE_INVALID",
             Self::PlacementLocked => "PLACEMENT_LOCKED",
             Self::PlacementMismatch => "PLACEMENT_MISMATCH",
             Self::GameAlreadyStarted => "GAME_ALREADY_STARTED",
@@ -128,6 +143,7 @@ impl GameError {
             | Self::DuplicateNickname
             | Self::CoordinateAlreadyAttacked
             | Self::VersionConflict
+            | Self::StaleRoomVersion
             | Self::TurnConflict
             | Self::TurnExpired
             | Self::PlacementLocked => StatusCode::CONFLICT,

@@ -84,8 +84,18 @@ async fn handle_event(state: &AppState, session: &crate::domain::UserSession, ev
         &event,
         ClientEvent::ShipsPlace(_) | ClientEvent::ShipsConfirm(_)
     );
+    let is_ready_event = matches!(&event, ClientEvent::PlayerReady(_));
     let is_unready_event = matches!(&event, ClientEvent::PlayerUnready(_));
+    let is_game_start_event = matches!(&event, ClientEvent::GameStart(_));
     let is_chat_event = matches!(&event, ClientEvent::ChatSend(_));
+    let client_request_id = match &event {
+        ClientEvent::PlayerReady(input) => Some(input.request_id),
+        ClientEvent::PlayerUnready(input) => Some(input.request_id),
+        ClientEvent::GameStart(input) => Some(input.request_id),
+        ClientEvent::AttackFire(input) => Some(input.request_id),
+        ClientEvent::ChatSend(input) => Some(input.client_message_id),
+        _ => None,
+    };
     let result = match event {
         ClientEvent::RoomCreate(input) => {
             async {
@@ -127,11 +137,28 @@ async fn handle_event(state: &AppState, session: &crate::domain::UserSession, ev
             async {
                 let room_ref = state.room(input.room_id).await?;
                 let mut room = room_ref.lock().await;
-                room.set_ready(session.id, input.player_id, input.ready)?;
-                state.save_room(&room).await?;
+                let previous_version = room.version;
+                let chat_start = room.chat_messages.len();
+                let (record, duplicate) = room.set_lobby_ready(
+                    session.id,
+                    input.request_id,
+                    input.player_id,
+                    true,
+                )?;
+                if !duplicate {
+                    state.save_room(&room).await?;
+                }
                 state
-                    .broadcast_snapshots(&room, SnapshotEvent::RoomUpdated)
-                    .await;
+                    .hub
+                    .send(session.id, ServerEvent::PlayerReadyAccepted(record));
+                if room.version != previous_version {
+                    for message in &room.chat_messages[chat_start..] {
+                        state.broadcast_chat_message(&room, message);
+                    }
+                    state
+                        .broadcast_snapshots(&room, SnapshotEvent::RoomUpdated)
+                        .await;
+                }
                 Ok(())
             }
             .await
@@ -189,18 +216,72 @@ async fn handle_event(state: &AppState, session: &crate::domain::UserSession, ev
             async {
                 let room_ref = state.room(input.room_id).await?;
                 let mut room = room_ref.lock().await;
-                let (record, duplicate) =
-                    room.unready(session.id, input.request_id, input.player_id)?;
+                let previous_version = room.version;
+                let chat_start = room.chat_messages.len();
+                let (record, duplicate) = room.set_lobby_ready(
+                    session.id,
+                    input.request_id,
+                    input.player_id,
+                    false,
+                )?;
                 if !duplicate {
                     state.save_room(&room).await?;
-                    state.broadcast_latest_chat_message(&room);
-                    state
-                        .broadcast_snapshots(&room, SnapshotEvent::RoomUpdated)
-                        .await;
                 }
                 state
                     .hub
                     .send(session.id, ServerEvent::PlayerUnreadyAccepted(record));
+                if room.version != previous_version {
+                    for message in &room.chat_messages[chat_start..] {
+                        state.broadcast_chat_message(&room, message);
+                    }
+                    state
+                        .broadcast_snapshots(&room, SnapshotEvent::RoomUpdated)
+                        .await;
+                }
+                Ok(())
+            }
+            .await
+        }
+        ClientEvent::GameStart(input) => {
+            async {
+                let room_ref = state.room(input.room_id).await?;
+                let mut room = room_ref.lock().await;
+                let chat_start = room.chat_messages.len();
+                let (record, duplicate) = match room.start_placement(
+                    session.id,
+                    input.request_id,
+                    input.player_id,
+                    input.room_version,
+                ) {
+                    Ok(result) => result,
+                    Err(error) => {
+                        if let Ok(message) = room.record_start_rejection(session.id, error.code()) {
+                            state.save_room(&room).await?;
+                            state.broadcast_chat_message(&room, &message);
+                        }
+                        return Err(error);
+                    }
+                };
+                if !duplicate {
+                    state.save_room(&room).await?;
+                }
+                state
+                    .hub
+                    .send(session.id, ServerEvent::GameStartAccepted(record));
+                if !duplicate {
+                    for message in &room.chat_messages[chat_start..] {
+                        state.broadcast_chat_message(&room, message);
+                    }
+                    state
+                        .broadcast_snapshots(&room, SnapshotEvent::GamePlacementStarted)
+                        .await;
+                    state
+                        .broadcast_snapshots(&room, SnapshotEvent::RoomUpdated)
+                        .await;
+                    state
+                        .broadcast_snapshots(&room, SnapshotEvent::GameSnapshot)
+                        .await;
+                }
                 Ok(())
             }
             .await
@@ -376,11 +457,21 @@ async fn handle_event(state: &AppState, session: &crate::domain::UserSession, ev
         }
     };
     if let Err(error) = result {
-        let protocol_error = protocol_error(error);
+        tracing::warn!(
+            session_id = %session.id,
+            error_code = error.code(),
+            request_id = ?client_request_id,
+            "websocket request rejected"
+        );
+        let protocol_error = protocol_error(error, client_request_id);
         state.hub.send(
             session.id,
-            if is_unready_event {
+            if is_ready_event {
+                ServerEvent::PlayerReadyRejected(protocol_error)
+            } else if is_unready_event {
                 ServerEvent::PlayerUnreadyRejected(protocol_error)
+            } else if is_game_start_event {
+                ServerEvent::GameStartRejected(protocol_error)
             } else if is_chat_event {
                 ServerEvent::ChatRejected(protocol_error)
             } else if is_placement_event {
@@ -393,10 +484,10 @@ async fn handle_event(state: &AppState, session: &crate::domain::UserSession, ev
 }
 
 fn error_event(error: GameError) -> ServerEvent {
-    ServerEvent::Error(protocol_error(error))
+    ServerEvent::Error(protocol_error(error, None))
 }
 
-fn protocol_error(error: GameError) -> ProtocolError {
+fn protocol_error(error: GameError, request_id: Option<Uuid>) -> ProtocolError {
     ProtocolError {
         code: error.code().to_string(),
         message: error.to_string(),
@@ -405,9 +496,10 @@ fn protocol_error(error: GameError) -> ProtocolError {
             GameError::VersionConflict
                 | GameError::TurnConflict
                 | GameError::TurnExpired
+                | GameError::StaleRoomVersion
                 | GameError::StorageUnavailable
         ),
-        request_id: Uuid::new_v4(),
+        request_id: request_id.unwrap_or_else(Uuid::new_v4),
     }
 }
 

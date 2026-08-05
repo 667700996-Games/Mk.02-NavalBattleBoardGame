@@ -25,6 +25,22 @@ async function deploy(page: Page) {
   await page.getByRole('button', { name: '배치 확정' }).click();
 }
 
+async function startOperation(host: Page, guest: Page) {
+  await expect(host.getByRole('heading', { name: '모든 지휘관이 준비를 완료해야 합니다.' })).toBeVisible();
+  await expect(guest.getByRole('heading', { name: '모든 지휘관이 준비를 완료해야 합니다.' })).toBeVisible();
+  await host.getByRole('button', { name: '준비 완료' }).click();
+  await expect(host.getByRole('button', { name: '작전 시작' })).toBeDisabled();
+  await guest.getByRole('button', { name: '준비 완료' }).click();
+  await expect(host.getByRole('button', { name: '작전 시작' })).toBeEnabled();
+  await expect(guest.getByText('방장의 작전 개시 대기')).toBeVisible();
+  await host.getByRole('button', { name: '작전 시작' }).click();
+  const modal = host.getByRole('dialog');
+  await expect(modal.getByRole('heading', { name: '작전을 시작하시겠습니까?' })).toBeVisible();
+  await modal.getByRole('button', { name: '작전 시작' }).click();
+  await expect(host.getByRole('heading', { name: '함대 배치' })).toBeVisible();
+  await expect(guest.getByRole('heading', { name: '함대 배치' })).toBeVisible();
+}
+
 async function shipCoordinates(page: Page): Promise<string[]> {
   return page
     .locator('[data-testid^="own-cell-"].cell--ship')
@@ -83,12 +99,15 @@ test('two isolated browser sessions complete a secure game and recover after ref
   await first.getByLabel('작전실 이름').fill('E2E North Sea');
   await first.getByText('비공개', { exact: true }).click();
   await first.getByRole('button', { name: '작전실 편성' }).click();
-  await expect(first.getByRole('heading', { name: '상대 지휘관을 기다리는 중' })).toBeVisible();
+  await expect(
+    first.getByRole('heading', { name: '상대 지휘관의 입장을 기다리고 있습니다.' })
+  ).toBeVisible();
   const roomCode = new URL(first.url()).pathname.split('/').at(-1)!;
 
   await second.goto(`/join/${roomCode}`);
   await second.getByLabel('지휘관 호출부호').fill('Bravo');
   await second.getByRole('button', { name: '초대 수락' }).click();
+  await startOperation(first, second);
   await deploy(first);
   await deploy(second);
 

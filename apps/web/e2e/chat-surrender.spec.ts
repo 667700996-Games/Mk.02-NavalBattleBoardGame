@@ -25,6 +25,17 @@ async function deploy(page: Page) {
   await page.getByRole('button', { name: '배치 확정' }).click();
 }
 
+async function startOperation(host: Page, guest: Page) {
+  await expect(host.getByRole('heading', { name: '모든 지휘관이 준비를 완료해야 합니다.' })).toBeVisible();
+  await host.getByRole('button', { name: '준비 완료' }).click();
+  await guest.getByRole('button', { name: '준비 완료' }).click();
+  await expect(host.getByRole('button', { name: '작전 시작' })).toBeEnabled();
+  await host.getByRole('button', { name: '작전 시작' }).click();
+  await host.getByRole('dialog').getByRole('button', { name: '작전 시작' }).click();
+  await expect(host.getByRole('heading', { name: '함대 배치' })).toBeVisible();
+  await expect(guest.getByRole('heading', { name: '함대 배치' })).toBeVisible();
+}
+
 test('room chat restores after refresh and surrender ends both clients immediately', async ({
   browser
 }) => {
@@ -44,8 +55,7 @@ test('room chat restores after refresh and surrender ends both clients immediate
   await second.goto(`/join/${roomCode}`);
   await second.getByLabel('지휘관 호출부호').fill('Bravo');
   await second.getByRole('button', { name: '초대 수락' }).click();
-  await expect(second.getByRole('heading', { name: '함대 배치' })).toBeVisible();
-  await expect(first.getByRole('heading', { name: '함대 배치' })).toBeVisible();
+  await startOperation(first, second);
   await deploy(first);
   await deploy(second);
   await expect(first.getByText('상대 공격 보드')).toBeVisible();

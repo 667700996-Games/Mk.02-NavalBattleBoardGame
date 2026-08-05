@@ -66,6 +66,7 @@ pub enum SnapshotEvent {
     RoomUpdated,
     PlayerJoined,
     PlayerLeft,
+    GamePlacementStarted,
     PlacementAccepted,
     GameStarted,
     TurnChanged,
@@ -297,6 +298,9 @@ impl AppState {
                     SnapshotEvent::RoomUpdated => ServerEvent::RoomUpdated(snapshot),
                     SnapshotEvent::PlayerJoined => ServerEvent::PlayerJoined(snapshot),
                     SnapshotEvent::PlayerLeft => ServerEvent::PlayerLeft(snapshot),
+                    SnapshotEvent::GamePlacementStarted => {
+                        ServerEvent::GamePlacementStarted(snapshot)
+                    }
                     SnapshotEvent::PlacementAccepted => ServerEvent::PlacementAccepted(snapshot),
                     SnapshotEvent::GameStarted => ServerEvent::GameStarted(snapshot),
                     SnapshotEvent::TurnChanged => ServerEvent::TurnChanged(snapshot),
@@ -428,15 +432,32 @@ impl AppState {
                 return;
             };
             let mut room = room_ref.lock().await;
+            let expired_session_id = room
+                .players
+                .iter()
+                .find(|player| player.id == player_id)
+                .map(|player| player.session_id);
             if room
                 .expire_disconnect(player_id, Utc::now())
                 .unwrap_or(false)
             {
                 let _ = state.store.save_room(&room).await;
-                state.cancel_turn_expiry(room.id);
+                if room.status != crate::domain::RoomStatus::Playing {
+                    state.cancel_turn_expiry(room.id);
+                }
+                if let Some(session_id) = expired_session_id {
+                    let _ = state.store.update_session_room(session_id, None).await;
+                }
                 state.broadcast_latest_chat_message(&room);
                 state
-                    .broadcast_snapshots(&room, SnapshotEvent::GameFinished)
+                    .broadcast_snapshots(
+                        &room,
+                        if room.status == crate::domain::RoomStatus::Finished {
+                            SnapshotEvent::GameFinished
+                        } else {
+                            SnapshotEvent::PlayerLeft
+                        },
+                    )
                     .await;
             }
         });
@@ -447,7 +468,7 @@ impl AppState {
             return;
         };
         let Some(deadline) = timer.turn_deadline_at else {
-            self.cancel_turn_expiry(timer.game_id);
+            self.cancel_turn_expiry(timer.room_id);
             return;
         };
         let key = TurnTimerKey {
@@ -457,25 +478,25 @@ impl AppState {
         };
         if self
             .turn_timers
-            .get(&timer.game_id)
+            .get(&timer.room_id)
             .is_some_and(|current| *current == key)
         {
             return;
         }
-        self.turn_timers.insert(timer.game_id, key.clone());
+        self.turn_timers.insert(timer.room_id, key.clone());
         let state = self.clone();
         tokio::spawn(async move {
             let delay = (deadline - Utc::now()).to_std().unwrap_or_default();
             tokio::time::sleep(delay).await;
             let still_current = state
                 .turn_timers
-                .get(&timer.game_id)
+                .get(&timer.room_id)
                 .is_some_and(|current| *current == key);
             if !still_current {
                 return;
             }
-            let Ok(room_ref) = state.room(timer.game_id).await else {
-                state.cancel_turn_expiry(timer.game_id);
+            let Ok(room_ref) = state.room(timer.room_id).await else {
+                state.cancel_turn_expiry(timer.room_id);
                 return;
             };
             let mut room = room_ref.lock().await;
@@ -490,10 +511,10 @@ impl AppState {
             let Some(record) = record else {
                 if state
                     .turn_timers
-                    .get(&timer.game_id)
+                    .get(&timer.room_id)
                     .is_some_and(|current| *current == key)
                 {
-                    state.cancel_turn_expiry(timer.game_id);
+                    state.cancel_turn_expiry(timer.room_id);
                 }
                 return;
             };
@@ -517,7 +538,7 @@ impl AppState {
                 )
                 .await;
             if finished {
-                state.cancel_turn_expiry(timer.game_id);
+                state.cancel_turn_expiry(timer.room_id);
             } else {
                 state.broadcast_timer_state(&room, ServerEvent::TurnStarted);
                 state.schedule_turn_expiry(next_timer);
@@ -747,6 +768,19 @@ mod tests {
         )
         .unwrap();
         room.join(&second).unwrap();
+        let first_player_id = room.player_for_session(first.id).unwrap().id;
+        let second_player_id = room.player_for_session(second.id).unwrap().id;
+        room.set_lobby_ready(first.id, Uuid::new_v4(), first_player_id, true)
+            .unwrap();
+        room.set_lobby_ready(second.id, Uuid::new_v4(), second_player_id, true)
+            .unwrap();
+        room.start_placement(
+            first.id,
+            Uuid::new_v4(),
+            first_player_id,
+            room.version,
+        )
+        .unwrap();
         room.place_ships(first.id, fleet(0)).unwrap();
         room.place_ships(second.id, fleet(5)).unwrap();
         room.confirm_placement(first.id, &fleet(0), 1).unwrap();

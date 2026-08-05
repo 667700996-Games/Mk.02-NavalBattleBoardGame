@@ -1,9 +1,16 @@
 export type RoomStatus =
-  'WAITING' | 'PLACEMENT' | 'READY' | 'PLAYING' | 'DISCONNECTED' | 'FINISHED' | 'CANCELLED';
+  | 'WAITING_FOR_OPPONENT'
+  | 'WAITING_FOR_READY'
+  | 'READY_TO_START'
+  | 'PLACEMENT'
+  | 'PLAYING'
+  | 'FINISHED'
+  | 'CANCELLED';
 
 export type RoomVisibility = 'PUBLIC' | 'PRIVATE';
 export type ConnectionState = 'ONLINE' | 'RECONNECTING' | 'OFFLINE';
 export type PlayerReadyState = 'NOT_READY' | 'READY';
+export type PlayerRole = 'HOST' | 'GUEST';
 export type ShipKind = 'CARRIER' | 'BATTLESHIP' | 'CRUISER' | 'SUBMARINE' | 'DESTROYER';
 export type Orientation = 'HORIZONTAL' | 'VERTICAL';
 export type AttackOutcome = 'MISS' | 'HIT' | 'SUNK';
@@ -44,6 +51,9 @@ export interface RoomSummary {
   code: string;
   name: string;
   status: RoomStatus;
+  hostPlayerId: string;
+  gameId: string | null;
+  version: number;
   playerCount: number;
   capacity: number;
   createdAt: string;
@@ -52,10 +62,12 @@ export interface RoomSummary {
 export interface PlayerPublic {
   id: string;
   nickname: string;
+  role: PlayerRole;
   isHost: boolean;
-  isReady: boolean;
   placementConfirmed: boolean;
   readyState: PlayerReadyState;
+  joinedAt: string;
+  readyAt: string | null;
   consecutiveTimeoutCount: number;
   totalTimeoutCount: number;
   connectionState: ConnectionState;
@@ -134,15 +146,27 @@ export interface SurrenderRecord {
   timestamp: string;
 }
 
-export interface UnreadyRecord {
+export interface PlayerReadyRecord {
   requestId: string;
   roomId: string;
   playerId: string;
+  readyState: PlayerReadyState;
+  roomState: RoomStatus;
   version: number;
   acceptedAt: string;
 }
 
+export interface GameStartRecord {
+  requestId: string;
+  roomId: string;
+  gameId: string;
+  startedBy: string;
+  version: number;
+  startedAt: string;
+}
+
 export interface GameTimerState {
+  roomId: string;
   gameId: string;
   turnNumber: number;
   activePlayerId: string;
@@ -154,6 +178,7 @@ export interface GameTimerState {
 }
 
 export interface TurnExpiredRecord {
+  roomId: string;
   gameId: string;
   expiredTurnNumber: number;
   expiredPlayerId: string;
@@ -167,6 +192,12 @@ export interface TurnExpiredRecord {
 
 export interface GameSnapshot {
   room: RoomSummary;
+  roomId: string;
+  roomState: RoomStatus;
+  hostPlayerId: string;
+  gameId: string | null;
+  canStartGame: boolean;
+  roomVersion: number;
   version: number;
   selfPlayerId: string;
   players: PlayerPublic[];
@@ -178,6 +209,7 @@ export interface GameSnapshot {
   reconnectDeadline: string | null;
   rematchRequestedBy: string[];
   placement: ShipPlacement[] | null;
+  placementStartedAt: string | null;
   gameStartedAt: string | null;
   gameFinishedAt: string | null;
   turnStartedAt: string | null;
@@ -228,7 +260,7 @@ export type ClientEvent =
   | { type: 'room:leave'; payload: { roomId: string } }
   | {
       type: 'player:ready';
-      payload: { roomId: string; playerId: string; ready: boolean };
+      payload: { requestId: string; roomId: string; playerId: string };
     }
   | {
       type: 'ships:place';
@@ -241,6 +273,10 @@ export type ClientEvent =
   | {
       type: 'player:unready';
       payload: { requestId: string; roomId: string; playerId: string };
+    }
+  | {
+      type: 'game:start';
+      payload: { requestId: string; roomId: string; playerId: string; roomVersion: number };
     }
   | {
       type: 'attack:fire';
@@ -276,6 +312,7 @@ export type ServerEvent =
         | 'room:updated'
         | 'player:joined'
         | 'player:left'
+        | 'game:placement-started'
         | 'placement:accepted'
         | 'game:started'
         | 'turn:changed'
@@ -286,8 +323,16 @@ export type ServerEvent =
       payload: GameSnapshot;
     }
   | { type: 'placement:rejected' | 'error'; payload: ProtocolError }
-  | { type: 'player:unready:accepted'; payload: UnreadyRecord }
-  | { type: 'player:unready:rejected' | 'chat:rejected'; payload: ProtocolError }
+  | { type: 'player:ready:accepted' | 'player:unready:accepted'; payload: PlayerReadyRecord }
+  | { type: 'game:start:accepted'; payload: GameStartRecord }
+  | {
+      type:
+        | 'player:ready:rejected'
+        | 'player:unready:rejected'
+        | 'game:start:rejected'
+        | 'chat:rejected';
+      payload: ProtocolError;
+    }
   | { type: 'attack:result' | 'ship:sunk'; payload: AttackRecord }
   | { type: 'game:surrendered'; payload: SurrenderRecord }
   | { type: 'chat:message'; payload: ChatMessage }

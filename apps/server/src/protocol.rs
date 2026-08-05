@@ -4,8 +4,8 @@ use uuid::Uuid;
 
 use crate::domain::{
     AttackRecord, ChatMessage, ChatMessageType, ChatTypingEvent, Coordinate, GameSnapshot,
-    GameTimerState, RoomSummary, RoomVisibility, ShipPlacement, SurrenderRecord, TurnExpiredRecord,
-    UnreadyRecord,
+    GameStartRecord, GameTimerState, PlayerReadyRecord, RoomSummary, RoomVisibility, ShipPlacement,
+    SurrenderRecord, TurnExpiredRecord,
 };
 
 #[derive(Debug, Clone, Deserialize)]
@@ -67,9 +67,9 @@ pub struct RoomReference {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ReadyInput {
+    pub request_id: Uuid,
     pub room_id: Uuid,
     pub player_id: Uuid,
-    pub ready: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -94,6 +94,15 @@ pub struct UnreadyInput {
     pub request_id: Uuid,
     pub room_id: Uuid,
     pub player_id: Uuid,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct GameStartInput {
+    pub request_id: Uuid,
+    pub room_id: Uuid,
+    pub player_id: Uuid,
+    pub room_version: u64,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -162,6 +171,8 @@ pub enum ClientEvent {
     ShipsConfirm(ConfirmShipsInput),
     #[serde(rename = "player:unready")]
     PlayerUnready(UnreadyInput),
+    #[serde(rename = "game:start")]
+    GameStart(GameStartInput),
     #[serde(rename = "attack:fire")]
     AttackFire(AttackFireInput),
     #[serde(rename = "game:surrender")]
@@ -193,10 +204,20 @@ pub enum ServerEvent {
     PlacementAccepted(GameSnapshot),
     #[serde(rename = "placement:rejected")]
     PlacementRejected(ProtocolError),
+    #[serde(rename = "player:ready:accepted")]
+    PlayerReadyAccepted(PlayerReadyRecord),
+    #[serde(rename = "player:ready:rejected")]
+    PlayerReadyRejected(ProtocolError),
     #[serde(rename = "player:unready:accepted")]
-    PlayerUnreadyAccepted(UnreadyRecord),
+    PlayerUnreadyAccepted(PlayerReadyRecord),
     #[serde(rename = "player:unready:rejected")]
     PlayerUnreadyRejected(ProtocolError),
+    #[serde(rename = "game:start:accepted")]
+    GameStartAccepted(GameStartRecord),
+    #[serde(rename = "game:start:rejected")]
+    GameStartRejected(ProtocolError),
+    #[serde(rename = "game:placement-started")]
+    GamePlacementStarted(GameSnapshot),
     #[serde(rename = "game:started")]
     GameStarted(GameSnapshot),
     #[serde(rename = "turn:changed")]
@@ -347,5 +368,57 @@ mod tests {
         assert_eq!(serialized["payload"]["playerId"], player_id.to_string());
         assert_eq!(serialized["payload"]["type"], "TEXT");
         assert!(serialized["payload"].get("message_id").is_none());
+    }
+
+    #[test]
+    fn lobby_readiness_and_game_start_contracts_require_request_and_room_versions() {
+        let room_id = Uuid::new_v4();
+        let player_id = Uuid::new_v4();
+        let ready_request = Uuid::new_v4();
+        let ready: ClientEvent = serde_json::from_value(serde_json::json!({
+            "type": "player:ready",
+            "payload": {
+                "requestId": ready_request,
+                "roomId": room_id,
+                "playerId": player_id
+            }
+        }))
+        .unwrap();
+        assert!(matches!(
+            ready,
+            ClientEvent::PlayerReady(ReadyInput { request_id, room_id: parsed_room, player_id: parsed_player })
+                if request_id == ready_request && parsed_room == room_id && parsed_player == player_id
+        ));
+
+        let start_request = Uuid::new_v4();
+        let start: ClientEvent = serde_json::from_value(serde_json::json!({
+            "type": "game:start",
+            "payload": {
+                "requestId": start_request,
+                "roomId": room_id,
+                "playerId": player_id,
+                "roomVersion": 17
+            }
+        }))
+        .unwrap();
+        assert!(matches!(
+            start,
+            ClientEvent::GameStart(GameStartInput {
+                request_id,
+                room_id: parsed_room,
+                player_id: parsed_player,
+                room_version: 17
+            }) if request_id == start_request && parsed_room == room_id && parsed_player == player_id
+        ));
+
+        assert!(serde_json::from_value::<ClientEvent>(serde_json::json!({
+            "type": "game:start",
+            "payload": {
+                "requestId": start_request,
+                "roomId": room_id,
+                "playerId": player_id
+            }
+        }))
+        .is_err());
     }
 }

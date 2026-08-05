@@ -3,7 +3,7 @@
   import { goto } from '$app/navigation';
   import { resolve } from '$app/paths';
   import { onMount } from 'svelte';
-  import { ArrowLeft, Check, ShieldCheck, Unlock, Wifi, WifiOff } from '@lucide/svelte';
+  import { ArrowLeft, Check, Rocket, ShieldCheck, Wifi, WifiOff } from '@lucide/svelte';
   import BattleView from '$lib/components/BattleView.svelte';
   import ChatDrawer from '$lib/components/ChatDrawer.svelte';
   import DisconnectedOverlay from '$lib/components/DisconnectedOverlay.svelte';
@@ -30,14 +30,18 @@
   let placementSubmitting = $state(false);
   let attackPending = $state(false);
   let surrenderPending = $state(false);
-  let unreadyPending = $state(false);
-  let showUnready = $state(false);
+  let readyPending = $state(false);
+  let startPending = $state(false);
+  let showStart = $state(false);
   let lastSoundRequest = $state<string | null>(null);
   let resultSoundPlayed = $state(false);
 
   let snapshot = $derived($gameSnapshot);
   let selfPlayer = $derived(
     snapshot?.players.find((player) => player.id === snapshot?.selfPlayerId)
+  );
+  let hasDisconnectedPlayer = $derived(
+    snapshot?.players.some((player) => player.connectionState !== 'ONLINE') ?? false
   );
   let inviteUrl = $derived(
     typeof location === 'undefined' ? `/join/${routeCode}` : `${location.origin}/join/${routeCode}`
@@ -93,8 +97,23 @@
       if (snapshot.result.winnerId === snapshot.selfPlayerId) sounds.victory();
     }
     if (selfPlayer?.placementConfirmed) placementSubmitting = false;
-    if (!selfPlayer?.placementConfirmed || $gameError) unreadyPending = false;
+    if ($gameError) {
+      readyPending = false;
+      startPending = false;
+      showStart = false;
+    }
+    if (snapshot?.roomState === 'PLACEMENT') {
+      startPending = false;
+      showStart = false;
+    }
     if (snapshot?.room.status === 'FINISHED' || $gameError) surrenderPending = false;
+  });
+
+  $effect(() => {
+    if (!snapshot || !selfPlayer) return;
+    snapshot.roomVersion;
+    selfPlayer.readyState;
+    readyPending = false;
   });
 
   function confirmPlacement(placements: ShipPlacement[]) {
@@ -119,12 +138,12 @@
     });
   }
 
-  function cancelReady() {
-    if (!snapshot || unreadyPending || $socketStatus !== 'online') return;
-    unreadyPending = true;
+  function setLobbyReady(ready: boolean) {
+    if (!snapshot || readyPending || startPending || $socketStatus !== 'online') return;
+    readyPending = true;
     gameError.set(null);
     const sent = realtime.send({
-      type: 'player:unready',
+      type: ready ? 'player:ready' : 'player:unready',
       payload: {
         requestId: crypto.randomUUID(),
         roomId: snapshot.room.id,
@@ -132,10 +151,41 @@
       }
     });
     if (!sent) {
-      unreadyPending = false;
+      readyPending = false;
       gameError.set({
         code: 'CONNECTION_REQUIRED',
-        message: '실시간 연결이 복구된 뒤 준비 취소를 다시 요청해 주세요.',
+        message: '실시간 연결이 복구된 뒤 준비 상태를 다시 변경해 주세요.',
+        retryable: true
+      });
+    }
+  }
+
+  function startGame() {
+    if (
+      !snapshot ||
+      startPending ||
+      !snapshot.canStartGame ||
+      snapshot.selfPlayerId !== snapshot.hostPlayerId ||
+      $socketStatus !== 'online'
+    )
+      return;
+    startPending = true;
+    showStart = false;
+    gameError.set(null);
+    const sent = realtime.send({
+      type: 'game:start',
+      payload: {
+        requestId: crypto.randomUUID(),
+        roomId: snapshot.roomId,
+        playerId: snapshot.selfPlayerId,
+        roomVersion: snapshot.roomVersion
+      }
+    });
+    if (!sent) {
+      startPending = false;
+      gameError.set({
+        code: 'CONNECTION_REQUIRED',
+        message: '실시간 연결이 복구된 뒤 작전 시작을 다시 승인해 주세요.',
         retryable: true
       });
     }
@@ -229,16 +279,26 @@
       </div>
     </div>
 
-    {#if snapshot.room.status === 'WAITING'}
-      <WaitingView {snapshot} {inviteUrl} onleave={leaveRoom} />
-    {:else if snapshot.room.status === 'PLACEMENT' || snapshot.room.status === 'READY'}
+    {#if snapshot.room.status === 'WAITING_FOR_OPPONENT' || snapshot.room.status === 'WAITING_FOR_READY' || snapshot.room.status === 'READY_TO_START'}
+      <WaitingView
+        {snapshot}
+        {inviteUrl}
+        online={$socketStatus === 'online'}
+        {readyPending}
+        {startPending}
+        onready={() => setLobbyReady(true)}
+        onunready={() => setLobbyReady(false)}
+        onstart={() => (showStart = true)}
+        onleave={leaveRoom}
+      />
+    {:else if snapshot.room.status === 'PLACEMENT'}
       {#if selfPlayer?.placementConfirmed}
         <section class="confirmed-wait panel">
           <div class="confirmed-icon"><Check size={29} /></div>
           <p class="eyebrow">DEPLOYMENT LOCKED</p>
           <h1>함대 배치 확정 완료</h1>
           <p>
-            상대 지휘관의 배치 확정을 기다리고 있습니다. 양쪽이 완료되면 선공을 무작위로 결정합니다.
+            상대 지휘관의 배치 확정을 기다리고 있습니다. 양쪽 함대가 배치되면 선공을 무작위로 결정합니다.
           </p>
           <div class="player-ready-list">
             {#each snapshot.players as player (player.id)}<div>
@@ -248,13 +308,6 @@
                 >
               </div>{/each}
           </div>
-          <Button
-            variant="ghost"
-            class="unready-button"
-            loading={unreadyPending}
-            disabled={$socketStatus !== 'online'}
-            onclick={() => (showUnready = true)}><Unlock size={15} /> 준비 완료 취소</Button
-          >
         </section>
       {:else}
         <FleetPlacement
@@ -272,20 +325,6 @@
         onfire={fire}
         onsurrender={surrender}
       />
-    {:else if snapshot.room.status === 'DISCONNECTED'}
-      {#if snapshot.ownBoard}<BattleView
-          {snapshot}
-          pending={false}
-          disabled={true}
-          onfire={() => {}}
-          {surrenderPending}
-          onsurrender={surrender}
-        />{:else}<FleetPlacement
-          initialPlacement={snapshot.placement}
-          confirmed={true}
-          onconfirm={() => {}}
-        />{/if}
-      <DisconnectedOverlay deadline={snapshot.reconnectDeadline} />
     {:else if snapshot.room.status === 'FINISHED'}
       <ResultView {snapshot} onrematch={rematch} onlobby={leaveRoom} />
     {:else}
@@ -302,26 +341,27 @@
       online={$socketStatus === 'online'}
       readOnly={snapshot.room.status === 'CANCELLED'}
     />
+    {#if hasDisconnectedPlayer && (snapshot.room.status === 'PLACEMENT' || snapshot.room.status === 'PLAYING')}
+      <DisconnectedOverlay deadline={snapshot.reconnectDeadline} />
+    {/if}
   {/if}
 </div>
 
 <Modal
-  open={showUnready}
-  eyebrow="DEPLOYMENT AUTHORIZATION"
-  title="준비 상태를 해제하시겠습니까?"
-  description="준비를 취소하면 함선 배치를 다시 수정할 수 있습니다."
-  onclose={() => (showUnready = false)}
+  open={showStart}
+  eyebrow="HOST AUTHORIZATION"
+  title="작전을 시작하시겠습니까?"
+  description="두 지휘관의 준비가 완료되었습니다. 작전을 시작하면 함선 배치 단계로 이동합니다."
+  onclose={() => (showStart = false)}
 >
-  <div class="unready-modal-actions">
-    <Button variant="ghost" full onclick={() => (showUnready = false)}>계속 준비</Button>
+  <div class="start-modal-actions">
+    <Button variant="ghost" full onclick={() => (showStart = false)}>취소</Button>
     <Button
-      variant="outline"
+      variant="primary"
       full
-      loading={unreadyPending}
-      onclick={() => {
-        showUnready = false;
-        cancelReady();
-      }}><Unlock size={15} /> 준비 취소</Button
+      loading={startPending}
+      disabled={!snapshot?.canStartGame || $socketStatus !== 'online'}
+      onclick={startGame}><Rocket size={15} /> 작전 시작</Button
     >
   </div>
 </Modal>
@@ -479,11 +519,7 @@
   .player-ready-list .ready + strong + em {
     color: var(--green-500);
   }
-  .confirmed-wait :global(.unready-button) {
-    margin: 22px auto 0;
-    color: var(--amber-500);
-  }
-  .unready-modal-actions {
+  .start-modal-actions {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 10px;
@@ -514,7 +550,7 @@
     .player-ready-list {
       grid-template-columns: 1fr;
     }
-    .unready-modal-actions {
+    .start-modal-actions {
       grid-template-columns: 1fr;
     }
   }

@@ -55,6 +55,8 @@ class RealtimeClient {
     if (
       event.type !== 'attack:fire' &&
       event.type !== 'game:surrender' &&
+      event.type !== 'game:start' &&
+      event.type !== 'player:ready' &&
       event.type !== 'player:unready' &&
       event.type !== 'chat:send' &&
       event.type !== 'chat:typing'
@@ -104,6 +106,7 @@ class RealtimeClient {
       event.type === 'room:updated' ||
       event.type === 'player:joined' ||
       event.type === 'player:left' ||
+      event.type === 'game:placement-started' ||
       event.type === 'placement:accepted' ||
       event.type === 'game:started' ||
       event.type === 'turn:changed' ||
@@ -160,21 +163,39 @@ class RealtimeClient {
         hudNotifications.update((notifications) => [...notifications, notification].slice(-3));
         setTimeout(() => dismissHudNotification(notification.id), 6_000);
       }
-    } else if (event.type === 'player:unready:accepted') {
+    } else if (
+      event.type === 'player:ready:accepted' ||
+      event.type === 'player:unready:accepted'
+    ) {
+      const snapshot = get(gameSnapshot);
+      if (snapshot?.room.id === event.payload.roomId) {
+        const ready = event.payload.readyState === 'READY';
+        const notification = {
+          id: `ready-${event.payload.requestId}`,
+          title: ready ? '작전 준비 완료' : '준비 상태 해제',
+          message: ready
+            ? '준비 상태가 서버에 반영되었습니다.'
+            : '준비를 취소했습니다. 방장의 작전 시작 승인이 잠금 해제되었습니다.',
+          tone: ready ? ('success' as const) : ('warning' as const)
+        };
+        hudNotifications.update((notifications) => [...notifications, notification].slice(-3));
+        setTimeout(() => dismissHudNotification(notification.id), 5_000);
+      }
+    } else if (event.type === 'game:start:accepted') {
       const snapshot = get(gameSnapshot);
       if (snapshot?.room.id === event.payload.roomId) {
         const notification = {
-          id: `unready-${event.payload.requestId}`,
-          title: '함대 배치 잠금 해제',
-          message: '준비 상태를 해제했습니다. 함선 배치를 다시 수정할 수 있습니다.',
-          tone: 'warning' as const
+          id: `start-${event.payload.requestId}`,
+          title: '작전 개시 승인',
+          message: '서버 검증이 완료되었습니다. 함선 배치 단계로 이동합니다.',
+          tone: 'success' as const
         };
         hudNotifications.update((notifications) => [...notifications, notification].slice(-3));
         setTimeout(() => dismissHudNotification(notification.id), 5_000);
       }
     } else if (event.type === 'turn:started' || event.type === 'game:timer-sync') {
       gameSnapshot.update((snapshot) => {
-        if (!snapshot || snapshot.room.id !== event.payload.gameId) return snapshot;
+        if (!snapshot || snapshot.room.id !== event.payload.roomId) return snapshot;
         return {
           ...snapshot,
           turnNumber: event.payload.turnNumber,
@@ -188,7 +209,7 @@ class RealtimeClient {
       });
     } else if (event.type === 'turn:expired') {
       const snapshot = get(gameSnapshot);
-      if (snapshot?.room.id === event.payload.gameId) {
+      if (snapshot?.room.id === event.payload.roomId) {
         const expiredSelf = snapshot.selfPlayerId === event.payload.expiredPlayerId;
         const automaticDefeat = event.payload.winnerId !== null;
         const notification = {
@@ -215,14 +236,17 @@ class RealtimeClient {
     } else if (
       event.type === 'error' ||
       event.type === 'placement:rejected' ||
+      event.type === 'player:ready:rejected' ||
       event.type === 'player:unready:rejected' ||
+      event.type === 'game:start:rejected' ||
       event.type === 'chat:rejected'
     ) {
       gameError.set(event.payload);
       if (
         event.payload.code === 'VERSION_CONFLICT' ||
         event.payload.code === 'TURN_CONFLICT' ||
-        event.payload.code === 'TURN_EXPIRED'
+        event.payload.code === 'TURN_EXPIRED' ||
+        event.payload.code === 'STALE_ROOM_VERSION'
       ) {
         const roomId = get(gameSnapshot)?.room.id;
         if (roomId) this.sync(roomId);

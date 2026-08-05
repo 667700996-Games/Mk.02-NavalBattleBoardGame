@@ -106,7 +106,19 @@ async fn guest_sessions_create_join_and_recover_a_two_player_room() {
     let created = json_body(create_response).await;
     let room_id = created["snapshot"]["room"]["id"].as_str().unwrap();
     let room_code = created["snapshot"]["room"]["code"].as_str().unwrap();
-    assert_eq!(created["snapshot"]["room"]["status"], "WAITING");
+    assert_eq!(
+        created["snapshot"]["room"]["status"],
+        "WAITING_FOR_OPPONENT"
+    );
+    assert_eq!(
+        created["snapshot"]["roomState"],
+        "WAITING_FOR_OPPONENT"
+    );
+    assert_eq!(
+        created["snapshot"]["hostPlayerId"],
+        created["snapshot"]["selfPlayerId"]
+    );
+    assert_eq!(created["snapshot"]["canStartGame"], false);
     assert!(created["inviteUrl"].as_str().unwrap().ends_with(room_code));
 
     let list_response = send(
@@ -139,7 +151,9 @@ async fn guest_sessions_create_join_and_recover_a_two_player_room() {
     .await;
     assert_eq!(join_response.status(), StatusCode::OK);
     let joined = json_body(join_response).await;
-    assert_eq!(joined["room"]["status"], "PLACEMENT");
+    assert_eq!(joined["room"]["status"], "WAITING_FOR_READY");
+    assert!(joined["gameId"].is_null());
+    assert_eq!(joined["canStartGame"], false);
     assert_eq!(joined["players"].as_array().unwrap().len(), 2);
     assert!(
         joined["players"]

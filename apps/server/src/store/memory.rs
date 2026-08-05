@@ -87,7 +87,7 @@ impl GameStore for MemoryStore {
             .iter()
             .filter(|entry| {
                 entry.visibility == RoomVisibility::Public
-                    && entry.status == RoomStatus::Waiting
+                    && entry.status == RoomStatus::WaitingForOpponent
                     && entry.players.len() < 2
             })
             .map(|entry| entry.summary())

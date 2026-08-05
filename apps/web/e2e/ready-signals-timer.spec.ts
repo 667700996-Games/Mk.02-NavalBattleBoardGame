@@ -45,34 +45,77 @@ test('ready cancellation, tactical signals, deadline recovery and timeout defeat
   await second.goto(`/join/${roomCode}`);
   await second.getByLabel('지휘관 호출부호').fill('TimerBravo');
   await second.getByRole('button', { name: '초대 수락' }).click();
-  await expect(second.getByRole('heading', { name: '함대 배치' })).toBeVisible();
-  await expect(first.getByRole('heading', { name: '함대 배치' })).toBeVisible();
+  await expect(first.getByRole('heading', { name: '모든 지휘관이 준비를 완료해야 합니다.' })).toBeVisible();
+  await expect(second.getByRole('heading', { name: '모든 지휘관이 준비를 완료해야 합니다.' })).toBeVisible();
+  await expect(first.getByRole('button', { name: '작전 시작' })).toBeDisabled();
+  await expect(second.getByRole('button', { name: '작전 시작' })).toHaveCount(0);
 
-  await deploy(first);
-  await expect(first.getByRole('heading', { name: '함대 배치 확정 완료' })).toBeVisible();
+  await first.getByRole('button', { name: '준비 완료' }).click();
+  await expect(first.getByRole('button', { name: '작전 시작' })).toBeDisabled();
+  await second.getByRole('button', { name: '준비 완료' }).click();
+  await expect(first.getByRole('button', { name: '작전 시작' })).toBeEnabled();
+  await expect(second.getByText('방장의 작전 개시 대기')).toBeVisible();
+  await expect(first.getByRole('heading', { name: '함대 배치' })).toHaveCount(0);
+
+  await second.reload();
+  await expect(second.getByRole('button', { name: '준비 취소' })).toBeVisible();
+  await expect(second.getByText('GUEST', { exact: true })).toBeVisible();
+  await second.getByRole('button', { name: '준비 취소' }).click();
+  await expect(first.getByRole('button', { name: '작전 시작' })).toBeDisabled();
   await first.getByRole('button', { name: '전술 채팅 열기' }).click();
   await second.getByRole('button', { name: '전술 채팅 열기' }).click();
-  await first.getByRole('button', { name: '준비 완료 취소' }).click();
-  const unreadyDialog = first.getByRole('dialog');
   await expect(
-    unreadyDialog.getByRole('heading', { name: '준비 상태를 해제하시겠습니까?' })
-  ).toBeVisible();
-  await expect(
-    unreadyDialog.getByText('준비를 취소하면 함선 배치를 다시 수정할 수 있습니다.')
-  ).toBeVisible();
-  await unreadyDialog.getByRole('button', { name: '준비 취소' }).click();
-
-  await expect(first.getByRole('heading', { name: '함대 배치' })).toBeVisible();
-  await expect(first.getByText('준비 상태를 해제했습니다.', { exact: false })).toBeVisible();
-  await expect(
-    second.getByText('TimerAlpha 지휘관이 준비 상태를 해제', { exact: false })
+    first.getByText('TimerBravo 지휘관이 준비를 취소했습니다.', { exact: false })
   ).toBeVisible();
   await first.getByRole('button', { name: '채팅 닫기' }).click();
   await second.getByRole('button', { name: '채팅 닫기' }).click();
-  await first.getByRole('button', { name: '초기화' }).click();
-  await first.getByRole('button', { name: '자동 배치' }).click();
-  await first.getByRole('button', { name: '배치 확정' }).click();
+  await second.getByRole('button', { name: '준비 완료' }).click();
+  await expect(first.getByRole('button', { name: '작전 시작' })).toBeEnabled();
 
+  const forgedStartCode = await second.evaluate(async () => {
+    const snapshot = await fetch('/api/games/recover').then((response) => response.json());
+    return new Promise<string>((resolve, reject) => {
+      const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const socket = new WebSocket(`${protocol}//${location.host}/ws`);
+      const timeout = window.setTimeout(() => reject(new Error('game:start rejection timeout')), 5_000);
+      socket.addEventListener('open', () => {
+        socket.send(
+          JSON.stringify({
+            type: 'game:start',
+            payload: {
+              requestId: crypto.randomUUID(),
+              roomId: snapshot.roomId,
+              playerId: snapshot.selfPlayerId,
+              roomVersion: snapshot.roomVersion
+            }
+          })
+        );
+      });
+      socket.addEventListener('message', (event) => {
+        const message = JSON.parse(String(event.data));
+        if (message.type !== 'game:start:rejected') return;
+        window.clearTimeout(timeout);
+        socket.close();
+        resolve(message.payload.code);
+      });
+    });
+  });
+  expect(forgedStartCode).toBe('NOT_HOST');
+  await second.reload();
+  await expect(second.getByRole('button', { name: '준비 취소' })).toBeVisible();
+  await expect(first.getByRole('button', { name: '작전 시작' })).toBeEnabled();
+
+  await first.getByRole('button', { name: '작전 시작' }).click();
+  const startDialog = first.getByRole('dialog');
+  await expect(startDialog.getByRole('heading', { name: '작전을 시작하시겠습니까?' })).toBeVisible();
+  await expect(
+    startDialog.getByText('두 지휘관의 준비가 완료되었습니다.', { exact: false })
+  ).toBeVisible();
+  await startDialog.getByRole('button', { name: '작전 시작' }).click();
+  await expect(first.getByRole('heading', { name: '함대 배치' })).toBeVisible();
+  await expect(second.getByRole('heading', { name: '함대 배치' })).toBeVisible();
+
+  await deploy(first);
   await deploy(second);
   await expect(first.getByText('상대 공격 보드')).toBeVisible();
   await expect(second.getByText('상대 공격 보드')).toBeVisible();

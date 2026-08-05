@@ -28,31 +28,52 @@ pub enum PlayerReadyState {
     Ready,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum PlayerRole {
+    Host,
+    #[default]
+    Guest,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Player {
     pub id: Uuid,
     pub session_id: Uuid,
     pub nickname: String,
+    #[serde(default)]
+    pub role: PlayerRole,
+    #[serde(default)]
     pub is_host: bool,
-    pub is_ready: bool,
     pub placement_confirmed: bool,
     #[serde(default)]
     pub ready_state: PlayerReadyState,
     pub connection_state: ConnectionState,
+    #[serde(default = "Utc::now")]
+    pub joined_at: DateTime<Utc>,
+    #[serde(default)]
+    pub ready_at: Option<DateTime<Utc>>,
 }
 
 impl Player {
     pub fn new(session: &UserSession, is_host: bool) -> Self {
+        let now = Utc::now();
         Self {
             id: Uuid::new_v4(),
             session_id: session.id,
             nickname: session.nickname.clone(),
+            role: if is_host {
+                PlayerRole::Host
+            } else {
+                PlayerRole::Guest
+            },
             is_host,
-            is_ready: false,
             placement_confirmed: false,
             ready_state: PlayerReadyState::NotReady,
             connection_state: ConnectionState::Online,
+            joined_at: now,
+            ready_at: None,
         }
     }
 }
