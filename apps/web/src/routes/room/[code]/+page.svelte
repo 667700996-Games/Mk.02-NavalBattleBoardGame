@@ -111,9 +111,7 @@
 
   $effect(() => {
     if (!snapshot || !selfPlayer) return;
-    snapshot.roomVersion;
-    selfPlayer.readyState;
-    readyPending = false;
+    if (snapshot.roomVersion >= 0 && selfPlayer.readyState) readyPending = false;
   });
 
   function confirmPlacement(placements: ShipPlacement[]) {

@@ -140,7 +140,7 @@
 
   <div class="room-command-grid">
     <div class="player-slots" aria-label="지휘관 준비 상태">
-      {#each [hostPlayer, guestPlayer] as player, index}
+      {#each [hostPlayer, guestPlayer] as player (player?.role ?? 'EMPTY_GUEST')}
         {#if player}
           <article
             class:player-slot--ready={player.readyState === 'READY'}
