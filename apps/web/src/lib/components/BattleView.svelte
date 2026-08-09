@@ -13,13 +13,14 @@
   } from '@lucide/svelte';
   import GridBoard from './GridBoard.svelte';
   import { sounds } from '$lib/sound';
-  import { chatMessages } from '$lib/stores';
+  import { chatMessages, lastAttack } from '$lib/stores';
   import { Button, Modal } from '$lib/ui';
   import {
     FLEET,
     coordinateKey,
     coordinateLabel,
     shipName,
+    type AttackOutcome,
     type Coordinate,
     type GameSnapshot
   } from '$lib/types';
@@ -40,14 +41,18 @@
     onfire,
     onsurrender
   }: Props = $props();
+
   let selected = $state<Coordinate | null>(null);
   let activeBoard = $state<'target' | 'own'>('target');
   let showSurrender = $state(false);
   let clientNow = $state(Date.now());
   let timerAnnouncement = $state('');
+  let combatEvent = $state<{ outcome: AttackOutcome; coordinate: Coordinate } | null>(null);
   let announcedTurn = 0;
   let announcedSeconds: number[] = [];
+  let seenAttackRequest = '';
   let clockTimer: ReturnType<typeof setInterval> | null = null;
+  let impactTimer: ReturnType<typeof setTimeout> | null = null;
 
   let myTurn = $derived(snapshot.currentPlayerId === snapshot.selfPlayerId);
   let me = $derived(snapshot.players.find((player) => player.id === snapshot.selfPlayerId));
@@ -56,10 +61,7 @@
   let serverNow = $derived(clientNow + serverOffsetMs);
   let remainingSeconds = $derived.by(() => {
     if (!snapshot.turnDeadlineAt) return null;
-    return Math.max(
-      0,
-      Math.ceil((new Date(snapshot.turnDeadlineAt).getTime() - serverNow) / 1_000)
-    );
+    return Math.max(0, Math.ceil((new Date(snapshot.turnDeadlineAt).getTime() - serverNow) / 1_000));
   });
   let elapsedSeconds = $derived(
     snapshot.gameStartedAt
@@ -88,11 +90,11 @@
   let canFire = $derived(
     Boolean(
       selected &&
-      myTurn &&
-      !pending &&
-      !disabled &&
-      remainingSeconds !== 0 &&
-      !attackedKeys.has(coordinateKey(selected))
+        myTurn &&
+        !pending &&
+        !disabled &&
+        remainingSeconds !== 0 &&
+        !attackedKeys.has(coordinateKey(selected))
     )
   );
   let sunkShips = $derived(
@@ -105,14 +107,11 @@
   let battleLog = $derived(
     (snapshot.targetBoard?.attacks ?? [])
       .map((attack, index) => ({ ...attack, sequence: index + 1 }))
-      .slice(-5)
+      .slice(-6)
       .reverse()
   );
   let systemLog = $derived(
-    $chatMessages
-      .filter((message) => message.type === 'SYSTEM')
-      .slice(-4)
-      .reverse()
+    $chatMessages.filter((message) => message.type === 'SYSTEM').slice(-4).reverse()
   );
 
   function choose(coordinate: Coordinate) {
@@ -144,6 +143,15 @@
   };
 
   $effect(() => {
+    const attack = $lastAttack;
+    if (!attack || attack.requestId === seenAttackRequest) return;
+    seenAttackRequest = attack.requestId;
+    combatEvent = { outcome: attack.outcome, coordinate: attack.coordinate };
+    if (impactTimer) clearTimeout(impactTimer);
+    impactTimer = setTimeout(() => (combatEvent = null), 1_100);
+  });
+
+  $effect(() => {
     const turn = snapshot.turnNumber ?? 0;
     const seconds = remainingSeconds;
     if (turn !== announcedTurn) {
@@ -172,16 +180,17 @@
 
   onDestroy(() => {
     if (clockTimer) clearInterval(clockTimer);
+    if (impactTimer) clearTimeout(impactTimer);
   });
 </script>
 
 <section class="battle" aria-labelledby="battle-status">
   <header class:turn-banner--mine={myTurn} class="turn-banner panel">
-    <div class="turn-banner__icon">
+    <div class="turn-banner__icon" aria-hidden="true">
       {#if myTurn}<Crosshair size={24} />{:else}<Radio size={24} />{/if}
     </div>
-    <div>
-      <span>TURN {String(snapshot.turnNumber ?? 0).padStart(2, '0')}</span>
+    <div class="turn-banner__copy">
+      <span class="turn-banner__eyebrow">TURN {String(snapshot.turnNumber ?? 0).padStart(2, '0')} · {myTurn ? 'TACTICAL CONTROL' : 'SIGNAL MONITOR'}</span>
       <h1 id="battle-status">
         {disabled
           ? '통신 복구 대기'
@@ -208,842 +217,148 @@
       </div>
     </div>
     <div class="turn-banner__side">
-      <small>CURRENT COMMAND</small><strong class:cyan={myTurn}
-        >{myTurn ? 'YOUR TURN' : 'OPPONENT'}</strong
-      >
-      <button
-        class="surrender-trigger"
-        type="button"
-        disabled={surrenderPending}
-        onclick={() => (showSurrender = true)}><Flag size={12} /> 작전 포기</button
-      >
+      <small>CURRENT COMMAND</small>
+      <strong class:cyan={myTurn}>{myTurn ? 'YOUR TURN' : 'OPPONENT'}</strong>
+      <button class="surrender-trigger" type="button" disabled={surrenderPending} onclick={() => (showSurrender = true)}>
+        <Flag size={12} /> 작전 포기
+      </button>
     </div>
-    <button
-      class="mobile-surrender"
-      type="button"
-      aria-label="작전 포기"
-      disabled={surrenderPending}
-      onclick={() => (showSurrender = true)}><Flag size={15} /></button
-    >
+    <button class="mobile-surrender" type="button" aria-label="작전 포기" disabled={surrenderPending} onclick={() => (showSurrender = true)}>
+      <Flag size={15} />
+    </button>
   </header>
   <span class="sr-only" aria-live="assertive">{timerAnnouncement}</span>
 
+  <div class="combat-strip" aria-label="전투 상태 요약">
+    <span><i></i> BATTLESPACE / SECTOR 10×10</span>
+    <span>ROUND {String(snapshot.turnNumber ?? 0).padStart(2, '0')}</span>
+    <span>LINK V{String(snapshot.version).padStart(3, '0')}</span>
+  </div>
+
+  {#if combatEvent}
+    <div class:combat-event--hit={combatEvent.outcome !== 'MISS'} class:combat-event--sunk={combatEvent.outcome === 'SUNK'} class="combat-event" role="status" aria-live="polite">
+      <span class="combat-event__signal"><Crosshair size={15} /></span>
+      <div><small>LAST ACTION / {coordinateLabel(combatEvent.coordinate)}</small><strong>{combatEvent.outcome === 'MISS' ? 'NO CONTACT · MISS' : combatEvent.outcome === 'HIT' ? 'HIT CONFIRMED' : 'VESSEL DESTROYED'}</strong></div>
+    </div>
+  {/if}
+
   <div class="mobile-tabs" role="tablist" aria-label="전투 보드 선택">
-    <button
-      class:active={activeBoard === 'target'}
-      role="tab"
-      aria-selected={activeBoard === 'target'}
-      onclick={() => (activeBoard = 'target')}><Crosshair size={15} /> 공격 해역</button
-    >
-    <button
-      class:active={activeBoard === 'own'}
-      role="tab"
-      aria-selected={activeBoard === 'own'}
-      onclick={() => (activeBoard = 'own')}><Shield size={15} /> 아군 해역</button
-    >
+    <button class:active={activeBoard === 'target'} role="tab" aria-selected={activeBoard === 'target'} onclick={() => (activeBoard = 'target')}><Crosshair size={15} /> 공격 해역</button>
+    <button class:active={activeBoard === 'own'} role="tab" aria-selected={activeBoard === 'own'} onclick={() => (activeBoard = 'own')}><Shield size={15} /> 아군 해역</button>
   </div>
 
   <div class="battle-grid">
-    <div class:hidden-mobile={activeBoard !== 'target'} class="board-panel panel">
+    <section class:hidden-mobile={activeBoard !== 'own'} class="board-panel board-panel--friendly panel" aria-labelledby="friendly-waters-title">
       <div class="board-panel__heading">
-        <div>
-          <span>ENEMY WATERS</span>
-          <h2>상대 공격 보드</h2>
-        </div>
-        <em>{snapshot.targetBoard?.attacks.length ?? 0}회 공격</em>
-      </div>
-      <GridBoard
-        mode="target"
-        label="상대 해역 공격 보드"
-        targetBoard={snapshot.targetBoard}
-        {selected}
-        interactive={myTurn}
-        {disabled}
-        oncell={choose}
-      />
-      <div class="board-legend">
-        <span><i class="legend-miss"></i> 빗나감</span><span><i class="legend-hit"></i> 명중</span
-        ><span><i class="legend-sunk"></i> 격침</span>
-      </div>
-    </div>
-
-    <div class:hidden-mobile={activeBoard !== 'own'} class="board-panel panel">
-      <div class="board-panel__heading">
-        <div>
-          <span>FRIENDLY WATERS</span>
-          <h2>아군 함선 보드</h2>
-        </div>
+        <div><span>FRIENDLY WATERS / DEFENSIVE PICTURE</span><h2 id="friendly-waters-title">아군 함선 보드</h2></div>
         <em>{snapshot.ownBoard?.attacksReceived.length ?? 0}회 피격</em>
       </div>
-      <GridBoard
-        mode="own"
-        label="아군 함선 방어 보드"
-        ownBoard={snapshot.ownBoard}
-        disabled={true}
-      />
-      <div class="fleet-health">
-        {#each snapshot.ownBoard?.ships ?? [] as ship (ship.kind)}
-          <span
-            class:sunk={ship.sunk}
-            title={`${shipName(ship.kind)} ${ship.hits.length}/${ship.cells.length}`}
-            ><i style={`--health:${(ship.cells.length - ship.hits.length) / ship.cells.length}`}
-            ></i></span
-          >
-        {/each}
-      </div>
-    </div>
+      <div class="board-readout"><span><i class="signal-dot signal-dot--safe"></i>OWN FLEET VISIBLE</span><strong>SHIELD ARRAY</strong></div>
+      <GridBoard mode="own" label="아군 함선 방어 보드" ownBoard={snapshot.ownBoard} disabled={true} />
+      <div class="board-legend"><span><i class="legend-ship"></i> 함선</span><span><i class="legend-hit"></i> 피격</span><span><i class="legend-sunk"></i> 침몰</span></div>
+    </section>
 
-    <aside class="fire-control panel">
-      <div class="fire-control__title">
-        <Crosshair size={17} />
-        <div><small>FIRE CONTROL</small><strong>사격 통제</strong></div>
+    <section class:hidden-mobile={activeBoard !== 'target'} class="board-panel board-panel--hostile panel" aria-labelledby="hostile-waters-title">
+      <div class="board-panel__heading">
+        <div><span>HOSTILE WATERS / FOG OF WAR</span><h2 id="hostile-waters-title">상대 공격 보드</h2></div>
+        <em>{snapshot.targetBoard?.attacks.length ?? 0}회 탐색</em>
       </div>
+      <div class="board-readout"><span><i class="signal-dot signal-dot--active"></i>UNKNOWN CONTACTS</span><strong>{myTurn ? 'TARGETING ENABLED' : 'SONAR LISTENING'}</strong></div>
+      <GridBoard mode="target" label="상대 해역 공격 보드" targetBoard={snapshot.targetBoard} {selected} interactive={myTurn} {disabled} oncell={choose} />
+      <div class="board-legend"><span><i class="legend-miss"></i> MISS</span><span><i class="legend-hit"></i> HIT</span><span><i class="legend-sunk"></i> SUNK</span></div>
+    </section>
+
+    <aside class="fire-control panel" aria-label="사격 통제">
+      <div class="fire-control__title"><Crosshair size={17} /><div><small>FIRE CONTROL / TGT-04</small><strong>사격 통제</strong></div></div>
       <div class:coordinate-lock--active={selected} class="coordinate-lock">
-        <small>SELECTED COORDINATE</small><strong
-          >{selected ? coordinateLabel(selected) : '— —'}</strong
-        ><span>{selected ? '좌표 잠금 완료' : '공격 보드에서 좌표 선택'}</span>
+        <small>TARGET LOCK</small><strong>{selected ? coordinateLabel(selected) : '— —'}</strong><span>{selected ? 'RETICLE CLOSED · READY TO FIRE' : '공격 보드에서 좌표 선택'}</span>
       </div>
-      <button
-        class="button button--primary button--wide fire-button"
-        disabled={!canFire}
-        onclick={fire}
-        >{#if pending}<span class="mini-spinner"></span> 판정 대기{:else}<Crosshair size={17} /> 공격
-          실행{/if}</button
-      >
-      {#if selected}<button class="clear-selection" onclick={() => (selected = null)}
-          ><X size={13} /> 선택 취소</button
-        >{/if}
-      <div class="enemy-fleet">
-        <small>ENEMY FLEET STATUS</small>{#each FLEET as ship (ship.kind)}<div
-            class:sunk={sunkShips.has(ship.kind)}
-          >
-            <span>{ship.name}</span><span class="mini-ship"
-              >{#each Array.from({ length: ship.size }) as _, index (index)}<i></i>{/each}</span
-            >{#if sunkShips.has(ship.kind)}<Check size={13} />{/if}
-          </div>{/each}
+      <button class="button button--primary button--wide fire-button" disabled={!canFire} onclick={fire}>
+        {#if pending}<span class="mini-spinner"></span> 판정 대기{:else}<Crosshair size={17} /> 공격 실행{/if}
+      </button>
+      {#if selected}<button class="clear-selection" onclick={() => (selected = null)}><X size={13} /> 선택 취소</button>{/if}
+
+      <div class="enemy-fleet"><small>ENEMY FLEET / INTEL STATUS</small>
+        {#each FLEET as ship (ship.kind)}
+          <div class:sunk={sunkShips.has(ship.kind)}><span>{ship.name}</span><span class="mini-ship">{#each Array.from({ length: ship.size }) as _, index (index)}<i></i>{/each}</span>{#if sunkShips.has(ship.kind)}<Check size={13} />{:else}<em>UNKNOWN</em>{/if}</div>
+        {/each}
       </div>
       <div class="commanders">
         <div><span class="online-dot"></span><small>YOU</small><strong>{me?.nickname}</strong></div>
-        <div>
-          <span class:offline-dot={opponent?.connectionState !== 'ONLINE'} class="online-dot"
-          ></span><small>OPPONENT</small><strong>{opponent?.nickname}</strong>
-        </div>
+        <div><span class:offline-dot={opponent?.connectionState !== 'ONLINE'} class="online-dot"></span><small>OPPONENT</small><strong>{opponent?.nickname}</strong></div>
       </div>
     </aside>
 
     <section class="battle-log panel" aria-labelledby="battle-log-title">
-      <header>
-        <div class="battle-log__signal"><Activity size={16} /></div>
-        <div>
-          <small>TACTICAL EVENT STREAM</small>
-          <h2 id="battle-log-title">Battle Log</h2>
-        </div>
-        <span>LIVE / {String(snapshot.version).padStart(3, '0')}</span>
-      </header>
+      <header><div class="battle-log__signal"><Activity size={16} /></div><div><small>TACTICAL EVENT STREAM</small><h2 id="battle-log-title">Battle Log</h2></div><span>LIVE / {String(snapshot.version).padStart(3, '0')}</span></header>
       {#if battleLog.length || systemLog.length}
         <ol>
-          {#each systemLog as entry (entry.messageId)}
-            <li class="log-system">
-              <span>SYS</span>
-              <Activity size={14} />
-              <strong>SYSTEM EVENT</strong>
-              <em>{entry.content}</em>
-            </li>
-          {/each}
-          {#each battleLog as entry (coordinateKey(entry.coordinate))}
-            <li class:log-hit={entry.outcome !== 'MISS'} class:log-sunk={entry.outcome === 'SUNK'}>
-              <span>{String(entry.sequence).padStart(2, '0')}</span>
-              {#if entry.outcome === 'MISS'}<Waves size={14} />{:else}<Crosshair size={14} />{/if}
-              <strong>SECTOR {coordinateLabel(entry.coordinate)}</strong>
-              <em
-                >{entry.outcome === 'MISS'
-                  ? '빗나감'
-                  : entry.outcome === 'HIT'
-                    ? '명중'
-                    : `${entry.sunkShip ? shipName(entry.sunkShip) : '함선'} 격침`}</em
-              >
-            </li>
-          {/each}
+          {#each systemLog as entry (entry.messageId)}<li class="log-system"><span>SYS</span><Activity size={14} /><strong>SYSTEM EVENT</strong><em>{entry.content}</em></li>{/each}
+          {#each battleLog as entry (coordinateKey(entry.coordinate))}<li class:log-hit={entry.outcome !== 'MISS'} class:log-sunk={entry.outcome === 'SUNK'}><span>{String(entry.sequence).padStart(2, '0')}</span>{#if entry.outcome === 'MISS'}<Waves size={14} />{:else}<Crosshair size={14} />{/if}<strong>SECTOR {coordinateLabel(entry.coordinate)}</strong><em>{entry.outcome === 'MISS' ? '빗나감' : entry.outcome === 'HIT' ? '명중' : `${entry.sunkShip ? shipName(entry.sunkShip) : '함선'} 격침`}</em></li>{/each}
         </ol>
-      {:else}
-        <p>사격 명령을 기다리고 있습니다. 첫 공격 이후 전술 이벤트가 기록됩니다.</p>
-      {/if}
+      {:else}<p>사격 명령을 기다리고 있습니다. 첫 공격 이후 전술 이벤트가 기록됩니다.</p>{/if}
     </section>
   </div>
 </section>
 
-<Modal
-  open={showSurrender}
-  eyebrow="IRREVERSIBLE COMMAND"
-  title="작전을 종료하시겠습니까?"
-  description="기권하면 즉시 패배 처리되며 되돌릴 수 없습니다."
-  onclose={() => (showSurrender = false)}
->
-  <div class="surrender-modal-actions">
-    <Button variant="ghost" full onclick={() => (showSurrender = false)}>취소</Button>
-    <Button
-      variant="danger"
-      full
-      loading={surrenderPending}
-      onclick={() => {
-        showSurrender = false;
-        onsurrender();
-      }}><Flag size={15} /> 기권</Button
-    >
-  </div>
+<Modal open={showSurrender} eyebrow="IRREVERSIBLE COMMAND" title="작전을 종료하시겠습니까?" description="기권하면 즉시 패배 처리되며 되돌릴 수 없습니다." onclose={() => (showSurrender = false)}>
+  <div class="surrender-modal-actions"><Button variant="ghost" full onclick={() => (showSurrender = false)}>취소</Button><Button variant="danger" full loading={surrenderPending} onclick={() => { showSurrender = false; onsurrender(); }}><Flag size={15} /> 기권</Button></div>
 </Modal>
 
 <style>
-  .turn-banner {
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr) auto auto;
-    align-items: center;
-    gap: 16px;
-    margin-bottom: 18px;
-    padding: 16px 20px;
-    border-radius: 14px;
-  }
-  .turn-banner--mine {
-    border-color: rgba(57, 224, 235, 0.44);
-    background: linear-gradient(100deg, rgba(14, 65, 80, 0.96), rgba(5, 25, 37, 0.96));
-    box-shadow: 0 12px 50px rgba(22, 199, 217, 0.08);
-  }
-  .turn-banner__icon {
-    display: grid;
-    width: 45px;
-    height: 45px;
-    place-items: center;
-    border: 1px solid var(--line-strong);
-    border-radius: 50%;
-    color: var(--cyan-400);
-    background: rgba(22, 199, 217, 0.08);
-  }
-  .turn-banner span,
-  .turn-banner__side small {
-    color: #6c8999;
-    font-family: Rajdhani;
-    font-size: 9px;
-    letter-spacing: 0.15em;
-  }
-  .turn-banner h1 {
-    margin: 3px 0 0;
-    font-size: 17px;
-  }
-  .turn-banner__side {
-    display: grid;
-    gap: 3px;
-    text-align: right;
-  }
-  .timer-hud {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 6px 10px;
-    border: 1px solid rgba(40, 223, 232, 0.16);
-    border-radius: 12px;
-    background: rgba(3, 16, 25, 0.55);
-    transition: 220ms var(--ease-out);
-  }
-  .turn-clock {
-    position: relative;
-    display: grid;
-    grid-template-columns: auto auto;
-    align-items: center;
-    gap: 0 5px;
-    min-width: 84px;
-    padding-left: 9px;
-  }
-  .turn-clock::before {
-    position: absolute;
-    left: 0;
-    width: 4px;
-    height: 32px;
-    content: '';
-    border-radius: 3px;
-    background: conic-gradient(var(--cyan-300) var(--timer-progress), rgba(40, 223, 232, 0.12) 0);
-    box-shadow: 0 0 9px rgba(40, 223, 232, 0.2);
-  }
-  .turn-clock span {
-    display: grid;
-    color: var(--cyan-300);
-  }
-  .turn-clock strong {
-    color: var(--cyan-200);
-    font-family: var(--font-display);
-    font-size: 17px;
-    font-variant-numeric: tabular-nums;
-    letter-spacing: 0.06em;
-  }
-  .turn-clock small {
-    grid-column: 1 / -1;
-    color: var(--ink-500);
-    font-family: var(--font-display);
-    font-size: 7px;
-    letter-spacing: 0.12em;
-  }
-  .elapsed-clock {
-    display: grid;
-    gap: 1px;
-    padding-left: 10px;
-    border-left: 1px solid var(--line);
-  }
-  .elapsed-clock small,
-  .elapsed-clock span {
-    color: var(--ink-500);
-    font-family: var(--font-display);
-    font-size: 7px;
-    letter-spacing: 0.1em;
-  }
-  .elapsed-clock strong {
-    color: var(--ink-200);
-    font-family: var(--font-display);
-    font-size: 13px;
-    font-variant-numeric: tabular-nums;
-  }
-  .timer-hud--warning {
-    border-color: rgba(255, 180, 60, 0.28);
-  }
-  .timer-hud--warning .turn-clock strong,
-  .timer-hud--warning .turn-clock span {
-    color: var(--amber-500);
-  }
-  .timer-hud--danger,
-  .timer-hud--expired {
-    border-color: rgba(255, 83, 100, 0.3);
-  }
-  .timer-hud--danger .turn-clock strong,
-  .timer-hud--danger .turn-clock span,
-  .timer-hud--expired .turn-clock strong,
-  .timer-hud--expired .turn-clock span {
-    color: var(--red-400);
-  }
-  .timer-hud--danger .turn-clock {
-    animation: timer-pulse 1s ease-in-out infinite;
-  }
-  @keyframes timer-pulse {
-    50% {
-      opacity: 0.7;
-    }
-  }
-  .turn-banner__side strong {
-    font-family: Rajdhani;
-    font-size: 13px;
-    letter-spacing: 0.11em;
-  }
-  .surrender-trigger {
-    display: flex;
-    align-items: center;
-    justify-content: flex-end;
-    gap: 5px;
-    margin-top: 3px;
-    padding: 0;
-    border: 0;
-    color: var(--ink-500);
-    background: transparent;
-    cursor: pointer;
-    font-family: var(--font-display);
-    font-size: 8px;
-    letter-spacing: 0.07em;
-    transition: 180ms ease;
-  }
-  .surrender-trigger:hover {
-    color: var(--red-400);
-  }
-  .surrender-trigger:disabled {
-    cursor: wait;
-    opacity: 0.4;
-  }
-  .mobile-surrender {
-    display: none;
-  }
-  .battle-grid {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 265px;
-    gap: 16px;
-    align-items: start;
-  }
-  .board-panel {
-    padding: 14px;
-    border-radius: 15px;
-  }
-  .board-panel__heading {
-    display: flex;
-    align-items: end;
-    justify-content: space-between;
-    margin: 2px 4px 12px;
-  }
-  .board-panel__heading span,
-  .fire-control small {
-    color: #617e8e;
-    font-family: Rajdhani;
-    font-size: 8px;
-    letter-spacing: 0.15em;
-  }
-  .board-panel__heading h2 {
-    margin: 3px 0 0;
-    font-size: 14px;
-  }
-  .board-panel__heading em {
-    color: #7794a4;
-    font-size: 9px;
-    font-style: normal;
-  }
-  .board-legend {
-    display: flex;
-    justify-content: center;
-    gap: 15px;
-    margin-top: 11px;
-    color: #7895a5;
-    font-size: 9px;
-  }
-  .board-legend span {
-    display: flex;
-    align-items: center;
-    gap: 5px;
-  }
-  .board-legend i {
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-  }
-  .legend-miss {
-    background: #6bb6d1;
-  }
-  .legend-hit {
-    background: #ff7e46;
-    box-shadow: 0 0 5px #ff6a3d;
-  }
-  .legend-sunk {
-    background: #ff5364;
-  }
-  .fleet-health {
-    display: grid;
-    grid-template-columns: repeat(5, 1fr);
-    gap: 5px;
-    margin-top: 10px;
-  }
-  .fleet-health span {
-    height: 5px;
-    overflow: hidden;
-    border-radius: 5px;
-    background: #1c3645;
-  }
-  .fleet-health i {
-    display: block;
-    width: calc(var(--health) * 100%);
-    height: 100%;
-    background: var(--green-500);
-  }
-  .fleet-health span.sunk i {
-    background: var(--red-500);
-  }
-  .fire-control {
-    padding: 17px;
-    border-radius: 15px;
-  }
-  .battle-log {
-    grid-column: 1 / -1;
-    display: grid;
-    grid-template-columns: 250px 1fr;
-    gap: 20px;
-    padding: 14px 18px;
-    overflow: hidden;
-  }
-  .battle-log header {
-    display: grid;
-    grid-template-columns: auto 1fr auto;
-    align-items: center;
-    gap: 10px;
-    border-right: 1px solid var(--line);
-    padding-right: 18px;
-  }
-  .battle-log header small {
-    color: var(--ink-500);
-    font-family: var(--font-display);
-    font-size: 8px;
-    letter-spacing: 0.15em;
-  }
-  .battle-log header h2 {
-    margin: 2px 0 0;
-    font-size: 13px;
-  }
-  .battle-log header > span {
-    color: var(--success-400);
-    font-family: var(--font-mono);
-    font-size: 8px;
-  }
-  .battle-log__signal {
-    display: grid;
-    width: 34px;
-    height: 34px;
-    place-items: center;
-    border: 1px solid rgba(40, 223, 232, 0.24);
-    border-radius: 9px;
-    color: var(--cyan-300);
-    background: rgba(40, 223, 232, 0.06);
-  }
-  .battle-log ol {
-    display: grid;
-    grid-auto-flow: column;
-    grid-auto-columns: minmax(130px, 1fr);
-    gap: 6px;
-    margin: 0;
-    padding: 0;
-    overflow-x: auto;
-    list-style: none;
-  }
-  .battle-log li {
-    display: grid;
-    grid-template-columns: auto auto 1fr;
-    align-items: center;
-    gap: 6px;
-    min-height: 48px;
-    padding: 7px 10px;
-    border: 1px solid var(--line);
-    border-radius: 9px;
-    color: var(--cyan-300);
-    background: rgba(4, 18, 28, 0.52);
-  }
-  .battle-log li > span {
-    color: var(--ink-600);
-    font-family: var(--font-mono);
-    font-size: 8px;
-  }
-  .battle-log li strong {
-    color: var(--ink-200);
-    font-family: var(--font-display);
-    font-size: 9px;
-    letter-spacing: 0.05em;
-  }
-  .battle-log li em {
-    grid-column: 2 / -1;
-    color: var(--ink-500);
-    font-size: 8px;
-    font-style: normal;
-  }
-  .battle-log li.log-hit {
-    color: var(--warning-400);
-  }
-  .battle-log li.log-sunk {
-    color: var(--danger-400);
-    border-color: rgba(255, 94, 74, 0.24);
-  }
-  .battle-log li.log-system {
-    color: var(--green-400);
-    border-color: rgba(79, 226, 173, 0.16);
-    background: rgba(79, 226, 173, 0.025);
-  }
-  .battle-log > p {
-    align-self: center;
-    margin: 0;
-    color: var(--ink-500);
-    font-size: 10px;
-  }
-  .fire-control__title {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding-bottom: 14px;
-    border-bottom: 1px solid var(--line);
-    color: var(--cyan-400);
-  }
-  .fire-control__title div {
-    display: grid;
-    gap: 2px;
-  }
-  .fire-control__title strong {
-    color: #d9e9f0;
-    font-size: 13px;
-  }
-  .coordinate-lock {
-    display: grid;
-    place-items: center;
-    min-height: 125px;
-    margin: 14px 0;
-    padding: 14px;
-    border: 1px dashed rgba(87, 154, 179, 0.23);
-    border-radius: 10px;
-    background: rgba(2, 13, 21, 0.58);
-    text-align: center;
-  }
-  .coordinate-lock--active {
-    border-color: rgba(255, 180, 60, 0.52);
-    background: rgba(96, 61, 13, 0.1);
-  }
-  .coordinate-lock strong {
-    margin: 6px 0 3px;
-    color: #668494;
-    font-family: Rajdhani;
-    font-size: 32px;
-    letter-spacing: 0.18em;
-  }
-  .coordinate-lock--active strong {
-    color: var(--amber-500);
-    text-shadow: 0 0 18px rgba(255, 180, 60, 0.25);
-  }
-  .coordinate-lock span {
-    color: #607d8d;
-    font-size: 9px;
-  }
-  .fire-button {
-    min-height: 48px;
-  }
-  .clear-selection {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 4px;
-    width: 100%;
-    margin-top: 7px;
-    border: 0;
-    color: #6f8b9a;
-    background: none;
-    cursor: pointer;
-    font-size: 9px;
-  }
-  .mini-spinner {
-    width: 14px;
-    height: 14px;
-    border: 2px solid rgba(0, 20, 24, 0.25);
-    border-top-color: #04161a;
-    border-radius: 50%;
-    animation: spin 0.7s linear infinite;
-  }
-  .enemy-fleet {
-    display: grid;
-    gap: 7px;
-    margin-top: 20px;
-    padding-top: 16px;
-    border-top: 1px solid var(--line);
-  }
-  .enemy-fleet > small {
-    margin-bottom: 3px;
-  }
-  .enemy-fleet > div {
-    display: grid;
-    grid-template-columns: 1fr auto 14px;
-    align-items: center;
-    gap: 6px;
-    color: #a7bdc8;
-    font-size: 10px;
-  }
-  .enemy-fleet > div.sunk {
-    color: #607b8a;
-    text-decoration: line-through;
-  }
-  .enemy-fleet > div.sunk :global(svg) {
-    color: var(--red-500);
-  }
-  .mini-ship {
-    display: flex;
-    gap: 1px;
-  }
-  .mini-ship i {
-    width: 5px;
-    height: 4px;
-    background: #4f8295;
-  }
-  .sunk .mini-ship i {
-    background: #6a3743;
-  }
-  .commanders {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 6px;
-    margin-top: 18px;
-    padding-top: 15px;
-    border-top: 1px solid var(--line);
-  }
-  .commanders > div {
-    position: relative;
-    display: grid;
-    gap: 2px;
-    padding-left: 10px;
-  }
-  .commanders small {
-    font-size: 7px;
-  }
-  .commanders strong {
-    overflow: hidden;
-    font-size: 9px;
-    white-space: nowrap;
-    text-overflow: ellipsis;
-  }
-  .online-dot {
-    position: absolute;
-    top: 4px;
-    left: 0;
-    width: 5px;
-    height: 5px;
-    border-radius: 50%;
-    background: var(--green-500);
-    box-shadow: 0 0 6px var(--green-500);
-  }
-  .offline-dot {
-    background: var(--red-500);
-    box-shadow: 0 0 6px var(--red-500);
-  }
-  .mobile-tabs {
-    display: none;
-  }
-  .surrender-modal-actions {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 8px;
-    margin-top: 20px;
-  }
-  @media (max-width: 1120px) {
-    .turn-banner {
-      grid-template-columns: auto minmax(0, 1fr) auto;
-    }
-    .turn-banner__side {
-      display: none;
-    }
-    .battle-grid {
-      grid-template-columns: 1fr 1fr;
-    }
-    .fire-control {
-      grid-column: 1/-1;
-      display: grid;
-      grid-template-columns: 180px minmax(200px, 1fr) 220px;
-      gap: 15px;
-      align-items: center;
-    }
-    .fire-control__title {
-      border: 0;
-      padding: 0;
-    }
-    .coordinate-lock {
-      min-height: 90px;
-      margin: 0;
-    }
-    .enemy-fleet {
-      grid-column: 1/-1;
-      grid-template-columns: repeat(5, 1fr);
-      margin: 0;
-    }
-    .enemy-fleet > small {
-      grid-column: 1/-1;
-    }
-    .commanders {
-      display: none;
-    }
-    .battle-log {
-      grid-template-columns: 210px 1fr;
-    }
-    .clear-selection {
-      display: none;
-    }
-  }
-  @media (max-width: 720px) {
-    .turn-banner {
-      grid-template-columns: auto minmax(0, 1fr) auto;
-    }
-    .timer-hud {
-      grid-column: 1 / -1;
-      justify-content: center;
-      width: 100%;
-    }
-    .turn-banner {
-      grid-template-columns: auto 1fr auto;
-      padding: 13px;
-    }
-    .turn-banner__side {
-      display: none;
-    }
-    .mobile-surrender {
-      display: grid;
-      width: 36px;
-      height: 36px;
-      place-items: center;
-      border: 1px solid var(--line);
-      border-radius: 9px;
-      color: var(--ink-400);
-      background: rgba(4, 16, 24, 0.55);
-    }
-    .turn-banner h1 {
-      font-size: 14px;
-    }
-    .mobile-tabs {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      margin-bottom: 10px;
-      padding: 3px;
-      border: 1px solid var(--line);
-      border-radius: 10px;
-      background: rgba(4, 16, 25, 0.7);
-    }
-    .mobile-tabs button {
-      display: flex;
-      min-height: 40px;
-      align-items: center;
-      justify-content: center;
-      gap: 7px;
-      border: 0;
-      border-radius: 7px;
-      color: #7794a4;
-      background: transparent;
-      font-size: 11px;
-    }
-    .mobile-tabs button.active {
-      color: var(--cyan-200);
-      background: rgba(31, 117, 141, 0.28);
-    }
-    .battle-grid {
-      display: block;
-    }
-    .board-panel {
-      padding: 8px;
-    }
-    .board-panel.hidden-mobile {
-      display: none;
-    }
-    .fire-control {
-      position: sticky;
-      z-index: 20;
-      bottom: max(8px, env(safe-area-inset-bottom));
-      display: grid;
-      grid-template-columns: 1fr auto;
-      gap: 8px;
-      margin-top: 10px;
-      padding: 10px;
-      background: rgba(6, 23, 34, 0.97);
-      backdrop-filter: blur(14px);
-    }
-    .fire-control__title,
-    .enemy-fleet,
-    .commanders {
-      display: none;
-    }
-    .coordinate-lock {
-      display: flex;
-      min-height: 48px;
-      align-items: center;
-      justify-content: space-between;
-      margin: 0;
-      padding: 7px 11px;
-      text-align: left;
-    }
-    .coordinate-lock small,
-    .coordinate-lock span {
-      display: none;
-    }
-    .coordinate-lock strong {
-      margin: 0;
-      font-size: 25px;
-    }
-    .fire-button {
-      width: auto;
-      min-width: 135px;
-    }
-    .clear-selection {
-      display: none;
-    }
-    .board-legend {
-      margin-bottom: 3px;
-    }
-    .battle-log {
-      display: none;
-    }
-  }
+  .battle { position: relative; padding-bottom: 28px; }
+  .turn-banner { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: 16px; margin-bottom: 10px; padding: 14px 18px; border-radius: 10px 3px 10px 3px; background: linear-gradient(100deg, rgba(8, 25, 34, 0.94), rgba(3, 13, 20, 0.9)); }
+  .turn-banner--mine { border-color: rgba(83, 233, 232, 0.42); background: linear-gradient(100deg, rgba(10, 47, 55, 0.96), rgba(4, 20, 28, 0.94)); }
+  .turn-banner__icon { display: grid; width: 44px; height: 44px; place-items: center; border: 1px solid var(--line-active); border-radius: 50%; color: var(--tactical); background: rgba(83, 233, 232, 0.08); }
+  .turn-banner__eyebrow, .turn-banner__side small { color: var(--ink-400); font: 600 9px var(--font-display); letter-spacing: .15em; }
+  .turn-banner h1 { margin: 4px 0 0; font-size: 17px; }
+  .turn-banner__side { display: grid; gap: 3px; min-width: 106px; text-align: right; }
+  .turn-banner__side strong { color: var(--ink-200); font: 700 13px var(--font-display); letter-spacing: .11em; }
+  .turn-banner__side strong.cyan { color: var(--tactical); }
+  .timer-hud { display: flex; align-items: center; gap: 10px; padding: 6px 10px; border: 1px solid rgba(83, 233, 232, .18); background: rgba(2, 13, 19, .62); }
+  .turn-clock { position: relative; display: grid; grid-template-columns: auto auto; align-items: center; gap: 0 5px; min-width: 86px; padding-left: 9px; }
+  .turn-clock::before { position: absolute; left: 0; width: 4px; height: 32px; content: ''; border-radius: 3px; background: conic-gradient(var(--tactical) var(--timer-progress), rgba(83, 233, 232, .1) 0); }
+  .turn-clock span { display: grid; color: var(--tactical); }
+  .turn-clock strong { color: #d7ffff; font: 700 17px var(--font-display); font-variant-numeric: tabular-nums; letter-spacing: .06em; }
+  .turn-clock small, .elapsed-clock small, .elapsed-clock span { color: var(--ink-500); font: 600 7px var(--font-display); letter-spacing: .1em; }
+  .turn-clock small { grid-column: 1 / -1; }
+  .elapsed-clock { display: grid; gap: 1px; padding-left: 10px; border-left: 1px solid var(--line); }
+  .elapsed-clock strong { color: var(--ink-200); font: 600 13px var(--font-display); font-variant-numeric: tabular-nums; }
+  .timer-hud--warning { border-color: rgba(237, 181, 82, .35); } .timer-hud--warning .turn-clock strong, .timer-hud--warning .turn-clock span { color: var(--warning); }
+  .timer-hud--danger, .timer-hud--expired { border-color: rgba(238, 86, 103, .38); } .timer-hud--danger .turn-clock strong, .timer-hud--danger .turn-clock span, .timer-hud--expired .turn-clock strong, .timer-hud--expired .turn-clock span { color: var(--critical); }
+  .timer-hud--danger .turn-clock { animation: timer-pulse 1s ease-in-out infinite; }
+  .surrender-trigger { display: flex; align-items: center; justify-content: flex-end; gap: 5px; margin-top: 3px; padding: 0; border: 0; color: var(--ink-500); background: transparent; cursor: pointer; font: 600 8px var(--font-display); letter-spacing: .07em; }
+  .surrender-trigger:hover { color: var(--critical); }
+  .surrender-trigger:disabled { cursor: wait; opacity: .4; }
+  .mobile-surrender { display: none; }
+  .combat-strip { display: flex; justify-content: space-between; gap: 14px; margin: 0 4px 10px; color: var(--ink-500); font: 600 9px var(--font-display); letter-spacing: .12em; }
+  .combat-strip span:first-child { color: var(--ink-300); } .combat-strip i, .signal-dot { display: inline-block; width: 6px; height: 6px; margin-right: 6px; border-radius: 50%; background: var(--safe); box-shadow: 0 0 9px currentColor; }
+  .signal-dot--active { color: var(--tactical); background: var(--tactical); } .signal-dot--safe { color: var(--safe); }
+  .combat-event { position: absolute; z-index: 5; top: 72px; left: 50%; display: flex; align-items: center; gap: 10px; min-width: 260px; padding: 9px 12px; border: 1px solid rgba(129, 205, 224, .32); background: rgba(3, 16, 23, .96); box-shadow: 0 14px 34px rgba(0,0,0,.3); transform: translateX(-50%); animation: event-in 180ms var(--ease-out) both; }
+  .combat-event__signal { display: grid; width: 28px; height: 28px; place-items: center; color: var(--tactical); border: 1px solid currentColor; border-radius: 50%; }
+  .combat-event small { display: block; color: var(--ink-400); font: 600 8px var(--font-display); letter-spacing: .12em; } .combat-event strong { display: block; margin-top: 2px; color: var(--ink-100); font: 700 14px var(--font-display); letter-spacing: .08em; }
+  .combat-event--hit .combat-event__signal, .combat-event--hit strong { color: #ffb76d; } .combat-event--sunk .combat-event__signal, .combat-event--sunk strong { color: var(--critical); }
+  .battle-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 266px; grid-template-areas: 'friendly hostile control' 'log log control'; gap: 10px; align-items: start; }
+  .board-panel { min-width: 0; padding: 13px 14px 12px; border-radius: 10px 3px 10px 3px; background: rgba(4, 20, 28, .78); }
+  .board-panel--friendly { grid-area: friendly; border-top: 1px solid rgba(104, 215, 170, .3); } .board-panel--hostile { grid-area: hostile; border-top: 1px solid rgba(83, 233, 232, .4); background: rgba(2, 15, 23, .88); }
+  .board-panel--hostile::after { position: absolute; inset: 0; content: ''; opacity: .3; pointer-events: none; background: repeating-linear-gradient(165deg, transparent 0 12px, rgba(98, 190, 200, .025) 13px 14px); }
+  .board-panel > * { position: relative; z-index: 1; }
+  .board-panel__heading { display: flex; align-items: end; justify-content: space-between; margin: 2px 3px 7px; }
+  .board-panel__heading span, .fire-control small { color: var(--ink-500); font: 600 8px var(--font-display); letter-spacing: .15em; } .board-panel__heading h2 { margin: 3px 0 0; font-size: 14px; } .board-panel__heading em { color: var(--ink-400); font: 500 9px var(--font-display); font-style: normal; }
+  .board-readout { display: flex; justify-content: space-between; gap: 10px; margin: 0 3px 7px; padding-bottom: 7px; border-bottom: 1px solid var(--line); color: var(--ink-500); font: 600 8px var(--font-display); letter-spacing: .08em; } .board-readout strong { color: var(--ink-400); font-size: 8px; }
+  .board-legend { display: flex; justify-content: center; gap: 15px; margin-top: 7px; color: var(--ink-400); font: 500 9px var(--font-display); } .board-legend span { display: flex; align-items: center; gap: 5px; } .board-legend i { width: 7px; height: 7px; border-radius: 50%; } .legend-ship { background: #75b9bd; } .legend-miss { background: #6bb6d1; } .legend-hit { background: #ff7e46; box-shadow: 0 0 5px #ff6a3d; } .legend-sunk { background: var(--critical); }
+  .fire-control { grid-area: control; min-width: 0; min-height: 100%; padding: 16px; border-radius: 10px 3px 10px 3px; background: linear-gradient(165deg, rgba(8, 31, 39, .92), rgba(2, 13, 20, .94)); }
+  .fire-control__title { display: flex; align-items: center; gap: 10px; padding-bottom: 13px; border-bottom: 1px solid var(--line); color: var(--tactical); } .fire-control__title div { display: grid; gap: 2px; } .fire-control__title small { color: var(--ink-500); } .fire-control__title strong { color: var(--ink-100); font-size: 14px; }
+  .coordinate-lock { display: grid; gap: 3px; margin: 16px 0 12px; padding: 16px 13px 14px; border: 1px solid var(--line); background: rgba(1, 10, 16, .7); } .coordinate-lock small { color: var(--ink-500); } .coordinate-lock strong { color: var(--ink-400); font: 700 32px var(--font-display); letter-spacing: .14em; } .coordinate-lock span { color: var(--ink-500); font-size: 9px; } .coordinate-lock--active { border-color: rgba(83, 233, 232, .52); background: linear-gradient(135deg, rgba(23, 92, 94, .24), rgba(2, 13, 19, .72)); } .coordinate-lock--active strong { color: var(--tactical); } .coordinate-lock--active::after { display: block; height: 1px; content: ''; background: var(--tactical); box-shadow: 0 0 12px var(--tactical); }
+  .fire-button { min-height: 46px; } .clear-selection { display: flex; align-items: center; justify-content: center; gap: 5px; width: 100%; margin-top: 7px; padding: 5px; border: 0; color: var(--ink-500); background: transparent; cursor: pointer; font: 600 9px var(--font-display); } .clear-selection:hover { color: var(--ink-200); }
+  .enemy-fleet { display: grid; gap: 8px; margin-top: 22px; padding-top: 14px; border-top: 1px solid var(--line); } .enemy-fleet > small { color: var(--ink-500); font: 600 8px var(--font-display); letter-spacing: .14em; } .enemy-fleet > div { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 6px; color: var(--ink-300); font-size: 10px; } .enemy-fleet > div.sunk { color: var(--critical); } .enemy-fleet em { color: var(--ink-500); font: 600 7px var(--font-display); font-style: normal; letter-spacing: .08em; } .mini-ship { display: flex; gap: 2px; } .mini-ship i { width: 9px; height: 4px; background: #426471; } .enemy-fleet .sunk .mini-ship i { background: var(--critical); }
+  .commanders { display: grid; gap: 7px; margin-top: 24px; padding-top: 13px; border-top: 1px solid var(--line); } .commanders div { display: grid; grid-template-columns: auto 1fr; gap: 0 7px; align-items: center; } .commanders small { color: var(--ink-500); font: 600 7px var(--font-display); letter-spacing: .12em; } .commanders strong { grid-column: 2; color: var(--ink-200); font-size: 10px; }
+  .online-dot { grid-row: 1 / 3; width: 6px; height: 6px; border-radius: 50%; background: var(--safe); box-shadow: 0 0 7px var(--safe); } .offline-dot { background: var(--critical); box-shadow: 0 0 7px var(--critical); }
+  .battle-log { grid-area: log; display: grid; grid-template-columns: 220px 1fr; gap: 16px; padding: 12px 16px; overflow: hidden; border-radius: 10px 3px 10px 3px; } .battle-log header { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 9px; padding-right: 16px; border-right: 1px solid var(--line); } .battle-log header small { color: var(--ink-500); font: 600 8px var(--font-display); letter-spacing: .14em; } .battle-log header h2 { margin: 2px 0 0; font-size: 13px; } .battle-log header > span { color: var(--safe); font: 600 8px var(--font-mono); } .battle-log__signal { display: grid; width: 31px; height: 31px; place-items: center; border: 1px solid rgba(83, 233, 232, .28); color: var(--tactical); } .battle-log ol { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(132px, 1fr); gap: 5px; margin: 0; padding: 0; overflow-x: auto; list-style: none; } .battle-log li { display: grid; grid-template-columns: auto auto 1fr; align-items: center; gap: 6px; min-height: 46px; padding: 7px 8px; border: 1px solid var(--line); background: rgba(2, 12, 18, .58); color: var(--ink-400); font-size: 9px; } .battle-log li > span { color: var(--ink-500); font: 600 8px var(--font-mono); } .battle-log li strong { color: var(--ink-300); font: 600 9px var(--font-display); } .battle-log li em { grid-column: 3; color: var(--ink-500); font-size: 9px; font-style: normal; } .battle-log li.log-hit { border-color: rgba(255, 151, 91, .22); } .battle-log li.log-hit svg { color: #ff965b; } .battle-log li.log-sunk { border-color: rgba(238, 86, 103, .4); } .battle-log li.log-sunk svg, .battle-log li.log-sunk em { color: var(--critical); } .battle-log .log-system { grid-template-columns: auto auto 1fr; }
+  .battle-log > p { align-self: center; margin: 0; color: var(--ink-500); font-size: 10px; }
+  @keyframes timer-pulse { 50% { opacity: .68; } } @keyframes event-in { from { opacity: 0; transform: translate(-50%, -8px); } to { opacity: 1; transform: translate(-50%, 0); } }
+  @media (max-width: 1120px) { .battle-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-areas: 'friendly hostile' 'control control' 'log log'; } .fire-control { min-height: auto; display: grid; grid-template-columns: 1.1fr 1fr 1fr; gap: 0 15px; align-items: start; } .fire-control__title { grid-column: 1 / -1; } .coordinate-lock { margin: 12px 0 0; } .enemy-fleet, .commanders { margin-top: 12px; } }
+  @media (max-width: 760px) { .turn-banner { grid-template-columns: auto 1fr auto; } .turn-banner__side { display: none; } .mobile-surrender { display: grid; width: 32px; height: 32px; place-items: center; border: 1px solid var(--line); color: var(--ink-400); background: transparent; } .timer-hud { grid-column: 2 / -1; justify-self: start; } .combat-strip { flex-wrap: wrap; } .battle-grid { display: block; } .board-panel, .fire-control, .battle-log { margin-bottom: 10px; } .fire-control { display: block; } .battle-log { display: block; } .battle-log header { margin-bottom: 10px; padding: 0 0 9px; border-right: 0; border-bottom: 1px solid var(--line); } .battle-log ol { display: flex; } .battle-log li { min-width: 148px; } .combat-event { top: 116px; min-width: min(280px, calc(100vw - 36px)); } }
+  @media (max-width: 620px) { .turn-banner { gap: 10px; padding: 12px; } .turn-banner__icon { width: 36px; height: 36px; } .turn-banner h1 { font-size: 14px; } .turn-banner__eyebrow { font-size: 8px; } .timer-hud { grid-column: 1 / -1; width: 100%; justify-content: space-between; } .board-panel { padding: 9px; } .board-readout { font-size: 7px; } }
+  @media (prefers-reduced-motion: reduce) { .combat-event { animation: none; } }
 </style>
