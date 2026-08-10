@@ -236,7 +236,11 @@
       <div>
         <p class="eyebrow">OPEN CHANNELS</p>
         <h2 id="public-room-title">공개 작전실</h2>
-        <p>{rooms.length}개 채널이 신규 지휘관을 기다리고 있습니다.</p>
+        <p>
+          {rooms.length
+            ? `${rooms.length}개 채널이 신규 지휘관을 기다리고 있습니다.`
+            : 'SCANNING TACTICAL CHANNELS / 활성 작전 신호 대기 중'}
+        </p>
       </div>
       <Button variant="ghost" size="sm" onclick={loadRooms}
         ><RefreshCw size={15} /> 채널 스캔</Button
@@ -257,8 +261,8 @@
       {:else if rooms.length === 0}
         <Surface tone="quiet" padding="lg" class="rooms-empty">
           <div class="empty-radar"><Radio size={27} /></div>
-          <h3>현재 열린 작전실이 없습니다</h3>
-          <p>첫 채널을 편성하거나 빠른 교전을 시작해 보세요.</p>
+          <h3>NO ACTIVE OPERATIONS DETECTED</h3>
+          <p>전술 채널 스캔이 완료되었습니다. 첫 작전을 편성하거나 빠른 교전을 시작하십시오.</p>
           <Button variant="outline" onclick={() => (showCreate = true)}
             ><Plus size={15} /> 첫 채널 편성</Button
           >

@@ -37,8 +37,10 @@
   let resultSoundPlayed = $state(false);
   let launchSequence = $state(false);
   let launchStage = $state(0);
+  let resultTransition = $state(false);
   let previousRoomStatus = '';
   let launchTimer: ReturnType<typeof setInterval> | null = null;
+  let resultTimer: ReturnType<typeof setTimeout> | null = null;
   const launchStages = [
     'OPERATION AUTHORIZED',
     'ENCRYPTING TACTICAL CHANNEL',
@@ -105,16 +107,27 @@
       realtime.disconnect();
       resetRoomRealtimeState();
       if (launchTimer) clearInterval(launchTimer);
+      if (resultTimer) clearTimeout(resultTimer);
     };
   });
 
   onDestroy(() => {
     if (launchTimer) clearInterval(launchTimer);
+    if (resultTimer) clearTimeout(resultTimer);
   });
 
   $effect(() => {
     const status = snapshot?.room.status ?? '';
     if (status === 'PLACEMENT' && previousRoomStatus !== 'PLACEMENT') startLaunchSequence();
+    if (status === 'FINISHED' && previousRoomStatus === 'PLAYING') {
+      resultTransition = true;
+      if (resultTimer) clearTimeout(resultTimer);
+      resultTimer = setTimeout(() => {
+        resultTransition = false;
+        resultTimer = null;
+      }, 720);
+    }
+    if (status !== 'FINISHED') resultTransition = false;
     previousRoomStatus = status;
   });
 
@@ -132,6 +145,7 @@
     if (snapshot?.room.status === 'FINISHED' && snapshot.result && !resultSoundPlayed) {
       resultSoundPlayed = true;
       if (snapshot.result.winnerId === snapshot.selfPlayerId) sounds.victory();
+      else sounds.defeat();
     }
     if (selfPlayer?.placementConfirmed) placementSubmitting = false;
     if ($gameError) {
@@ -374,6 +388,14 @@
         onsurrender={surrender}
       />
     {:else if snapshot.room.status === 'FINISHED'}
+      {#if resultTransition}
+        <section class="result-recognition" role="status" aria-live="polite">
+          <span class="result-recognition__pulse"><Check size={20} /></span>
+          <small>FINAL IMPACT / BATTLESPACE FROZEN</small>
+          <strong>RESULT RECOGNIZED</strong>
+          <span>AFTER ACTION REPORT COMPILING</span>
+        </section>
+      {/if}
       <ResultView {snapshot} onrematch={rematch} onlobby={leaveRoom} />
     {:else if snapshot.room.status === 'CANCELLED'}
       <section class="load-error panel">
@@ -762,6 +784,63 @@
     }
     .room-meta {
       padding: 9px;
+    }
+  }
+  .result-recognition {
+    position: relative;
+    z-index: 6;
+    display: grid;
+    justify-items: center;
+    gap: 7px;
+    width: min(560px, 100%);
+    margin: 0 auto 12px;
+    padding: 20px;
+    border: 1px solid rgba(104, 215, 170, 0.42);
+    border-top: 2px solid var(--safe);
+    background: rgba(3, 21, 25, 0.94);
+    box-shadow: 0 18px 46px rgba(0, 0, 0, 0.3), 0 0 30px rgba(104, 215, 170, 0.08);
+    animation: report-recognition 180ms var(--ease-out) both;
+  }
+  .result-recognition__pulse {
+    display: grid;
+    width: 38px;
+    height: 38px;
+    place-items: center;
+    border: 1px solid var(--safe);
+    border-radius: 50%;
+    color: var(--safe);
+    animation: report-pulse 620ms ease-out both;
+  }
+  .result-recognition small,
+  .result-recognition > span:last-child {
+    color: var(--ink-500);
+    font: 600 8px var(--font-display);
+    letter-spacing: 0.16em;
+  }
+  .result-recognition strong {
+    color: var(--ink-50);
+    font: 700 21px var(--font-display);
+    letter-spacing: 0.12em;
+  }
+  @keyframes report-recognition {
+    from {
+      opacity: 0;
+      transform: translateY(-8px) scale(0.98);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+  }
+  @keyframes report-pulse {
+    50% {
+      box-shadow: 0 0 0 9px rgba(104, 215, 170, 0.07), 0 0 22px rgba(104, 215, 170, 0.26);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .result-recognition,
+    .result-recognition__pulse {
+      animation: none;
     }
   }
 </style>
