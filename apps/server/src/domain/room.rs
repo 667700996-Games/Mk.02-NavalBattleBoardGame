@@ -1204,14 +1204,7 @@ impl GameRoom {
             .iter()
             .map(|player| PlayerPublic::from_player(player, self.game.as_ref()))
             .collect();
-        let (
-            own_board,
-            target_board,
-            revealed_board,
-            turn_number,
-            current_player_id,
-            result,
-        ) =
+        let (own_board, target_board, revealed_board, turn_number, current_player_id, result) =
             if let Some(game) = &self.game {
                 let board = game.boards.get(&me.id).ok_or(GameError::InvalidState)?;
                 let own = OwnBoardSnapshot {

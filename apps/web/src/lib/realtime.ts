@@ -12,7 +12,7 @@ import {
   socketStatus,
   type SocketStatus
 } from '$lib/stores';
-import type { ClientEvent, ServerEvent } from '$lib/types';
+import type { ClientEvent, GameSnapshot, ServerEvent } from '$lib/types';
 import {
   isCompatibleGameSnapshot,
   SERVER_PROTOCOL_MISMATCH_CODE,
@@ -34,11 +34,18 @@ class RealtimeClient {
     this.manuallyClosed = false;
     this.setStatus(this.retries ? 'reconnecting' : 'connecting');
     const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    this.socket = new WebSocket(`${protocol}//${location.host}/ws`);
-    this.socket.addEventListener('open', () => this.onOpen());
-    this.socket.addEventListener('message', (event) => this.onMessage(String(event.data)));
-    this.socket.addEventListener('close', () => this.onClose());
-    this.socket.addEventListener('error', () => this.socket?.close());
+    const socket = new WebSocket([protocol, '//', location.host, '/ws'].join(''));
+    this.socket = socket;
+    socket.addEventListener('open', () => {
+      if (this.socket === socket) this.onOpen();
+    });
+    socket.addEventListener('message', (event) => {
+      if (this.socket === socket) this.onMessage(String(event.data));
+    });
+    socket.addEventListener('close', () => this.onClose(socket));
+    socket.addEventListener('error', () => {
+      if (this.socket === socket) socket.close();
+    });
   }
 
   disconnect(): void {
@@ -72,8 +79,14 @@ class RealtimeClient {
     return false;
   }
 
-  sync(roomId: string): void {
-    this.send({ type: 'game:sync', payload: { roomId } });
+ sync(roomId: string): void {
+   this.send({ type: 'game:sync', payload: { roomId } });
+ }
+
+  private applySnapshot(next: GameSnapshot): void {
+    const current = get(gameSnapshot);
+    if (current && current.room.id === next.room.id && next.version < current.version) return;
+    gameSnapshot.set(next);
   }
 
   private onOpen(): void {
@@ -87,8 +100,9 @@ class RealtimeClient {
     if (roomId) this.sync(roomId);
   }
 
-  private onClose(): void {
-    this.socket = null;
+  private onClose(closedSocket: WebSocket): void {
+    if (this.socket !== closedSocket) return;
+   this.socket = null;
     if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
     if (this.typingTimer) clearTimeout(this.typingTimer);
     this.typingTimer = null;
@@ -129,8 +143,8 @@ class RealtimeClient {
         this.disconnect();
         return;
       }
-      gameSnapshot.set(event.payload);
-      gameError.set(null);
+      this.applySnapshot(event.payload);
+     gameError.set(null);
     } else if (event.type === 'room:created') {
       if (!isCompatibleGameSnapshot(event.payload.snapshot)) {
         gameError.set({
@@ -141,7 +155,7 @@ class RealtimeClient {
         this.disconnect();
         return;
       }
-      gameSnapshot.set(event.payload.snapshot);
+      this.applySnapshot(event.payload.snapshot);
     } else if (event.type === 'attack:result' || event.type === 'ship:sunk') {
       lastAttack.set(event.payload);
     } else if (event.type === 'chat:history') {
@@ -214,9 +228,10 @@ class RealtimeClient {
         setTimeout(() => dismissHudNotification(notification.id), 5_000);
       }
     } else if (event.type === 'turn:started' || event.type === 'game:timer-sync') {
-      gameSnapshot.update((snapshot) => {
-        if (!snapshot || snapshot.room.id !== event.payload.roomId) return snapshot;
-        return {
+     gameSnapshot.update((snapshot) => {
+       if (!snapshot || snapshot.room.id !== event.payload.roomId) return snapshot;
+        if (event.payload.turnNumber < (snapshot.turnNumber ?? 0)) return snapshot;
+       return {
           ...snapshot,
           turnNumber: event.payload.turnNumber,
           currentPlayerId: event.payload.activePlayerId,
@@ -230,6 +245,7 @@ class RealtimeClient {
     } else if (event.type === 'turn:expired') {
       const snapshot = get(gameSnapshot);
       if (snapshot?.room.id === event.payload.roomId) {
+        this.sync(event.payload.roomId);
         const expiredSelf = snapshot.selfPlayerId === event.payload.expiredPlayerId;
         const automaticDefeat = event.payload.winnerId !== null;
         const notification = {
