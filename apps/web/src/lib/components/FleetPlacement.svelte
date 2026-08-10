@@ -2,6 +2,7 @@
   import { untrack } from 'svelte';
   import { Check, Dices, Grip, RotateCw, Trash2 } from '@lucide/svelte';
   import GridBoard from './GridBoard.svelte';
+  import Vessel from './Vessel.svelte';
   import {
     autoPlaceFleet,
     rotatePlacement,
@@ -17,6 +18,7 @@
     type ShipPlacement
   } from '$lib/types';
   import { sounds } from '$lib/sound';
+  import { preferences } from '$lib/stores';
 
   interface Props {
     initialPlacement?: ShipPlacement[] | null;
@@ -41,6 +43,7 @@
   let orientation = $state<Orientation>('HORIZONTAL');
   let hover = $state<Coordinate | null>(null);
   let notice = $state('함선을 선택하고 해역의 시작 좌표를 지정하십시오.');
+  let autoDeploying = $state(false);
 
   let candidate = $derived<ShipPlacement | null>(
     selectedKind && hover ? { kind: selectedKind, origin: hover, orientation } : null
@@ -51,7 +54,7 @@
   let fleet = $derived(validateFleet(placements));
 
   function selectShip(kind: ShipKind) {
-    if (confirmed) return;
+    if (confirmed || autoDeploying) return;
     selectedKind = kind;
     orientation =
       placements.find((placement) => placement.kind === kind)?.orientation ?? orientation;
@@ -59,7 +62,7 @@
   }
 
   function place(coordinate: Coordinate) {
-    if (!selectedKind || confirmed) return;
+    if (!selectedKind || confirmed || autoDeploying) return;
     const next: ShipPlacement = { kind: selectedKind, origin: coordinate, orientation };
     const validation = validatePlacement(next, placements);
     if (!validation.valid) {
@@ -81,7 +84,7 @@
   }
 
   function rotate() {
-    if (!selectedKind || confirmed) return;
+    if (!selectedKind || confirmed || autoDeploying) return;
     const existing = placements.find((placement) => placement.kind === selectedKind);
     if (!existing) {
       orientation = orientation === 'HORIZONTAL' ? 'VERTICAL' : 'HORIZONTAL';

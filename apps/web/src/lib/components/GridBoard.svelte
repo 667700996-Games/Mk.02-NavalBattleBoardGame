@@ -1,6 +1,7 @@
 <script lang="ts">
   import { Crosshair, Flame, Waves } from '@lucide/svelte';
   import { cellsForPlacement } from '$lib/game/placement';
+  import Vessel from './Vessel.svelte';
   import {
     ROW_LABELS,
     coordinateKey,
@@ -21,6 +22,7 @@
     ownBoard?: OwnBoardSnapshot | null;
     targetBoard?: TargetBoardSnapshot | null;
     selected?: Coordinate | null;
+    previewKind?: ShipKind | null;
     previewCells?: Coordinate[];
     previewValid?: boolean;
     interactive?: boolean;
@@ -38,6 +40,7 @@
     ownBoard = null,
     targetBoard = null,
     selected = null,
+    previewKind = null,
     previewCells = [],
     previewValid = true,
     interactive = false,
@@ -47,6 +50,8 @@
     ondropcell,
     onshipdrag
   }: Props = $props();
+
+  let hovered = $state<Coordinate | null>(null);
 
   const grid = Array.from({ length: 10 }, (_, row) =>
     Array.from({ length: 10 }, (_, col) => ({ row, col }))
@@ -60,55 +65,6 @@
         )
       )?.kind ?? null
     );
-  }
-
-  function shipAt(coordinate: Coordinate): {
-    kind: ShipKind;
-    index: number;
-    size: number;
-    vertical: boolean;
-  } | null {
-    if (mode === 'placement') {
-      const placement = placements.find((item) =>
-        cellsForPlacement(item).some(
-          (cell) => cell.row === coordinate.row && cell.col === coordinate.col
-        )
-      );
-      if (!placement) return null;
-      const cells = cellsForPlacement(placement);
-      return {
-        kind: placement.kind,
-        index: cells.findIndex(
-          (cell) => cell.row === coordinate.row && cell.col === coordinate.col
-        ),
-        size: cells.length,
-        vertical: placement.orientation === 'VERTICAL'
-      };
-    }
-
-    const ship = ownBoard?.ships.find((item) =>
-      item.cells.some((cell) => cell.row === coordinate.row && cell.col === coordinate.col)
-    );
-    if (!ship) return null;
-    const index = ship.cells.findIndex(
-      (cell) => cell.row === coordinate.row && cell.col === coordinate.col
-    );
-    const first = ship.cells[0];
-    const second = ship.cells[1];
-    return {
-      kind: ship.kind,
-      index,
-      size: ship.cells.length,
-      vertical: Boolean(first && second && first.col === second.col)
-    };
-  }
-
-  function segmentClass(coordinate: Coordinate): string {
-    const ship = shipAt(coordinate);
-    if (!ship) return '';
-    if (ship.index === 0) return 'ship-segment--bow';
-    if (ship.index === ship.size - 1) return 'ship-segment--stern';
-    return 'ship-segment--mid';
   }
 
   function ownShipKind(coordinate: Coordinate): ShipKind | null {
@@ -132,6 +88,50 @@
   function isPreview(coordinate: Coordinate): boolean {
     return previewCells.some((cell) => cell.row === coordinate.row && cell.col === coordinate.col);
   }
+
+  let vessels = $derived.by(() => {
+    if (mode === 'placement') {
+      return placements.map((placement) => {
+        const cells = cellsForPlacement(placement);
+        return {
+          kind: placement.kind,
+          row: Math.min(...cells.map((cell) => cell.row)),
+          col: Math.min(...cells.map((cell) => cell.col)),
+          length: cells.length,
+          vertical: placement.orientation === 'VERTICAL',
+          state: 'deployed' as const
+        };
+      });
+    }
+    if (mode === 'own') {
+      return (ownBoard?.ships ?? []).map((ship) => {
+        const first = ship.cells[0];
+        const second = ship.cells[1];
+        const vertical = Boolean(first && second && first.col === second.col);
+        return {
+          kind: ship.kind,
+          row: Math.min(...ship.cells.map((cell) => cell.row)),
+          col: Math.min(...ship.cells.map((cell) => cell.col)),
+          length: ship.cells.length,
+          vertical,
+          state: ship.sunk ? ('sunk' as const) : ('deployed' as const)
+        };
+      });
+    }
+    return [];
+  });
+
+  let previewVessel = $derived.by(() => {
+    if (mode !== 'placement' || !previewCells.length || !previewKind) return null;
+    return {
+      kind: previewKind,
+      row: Math.min(...previewCells.map((cell) => cell.row)),
+      col: Math.min(...previewCells.map((cell) => cell.col)),
+      length: previewCells.length,
+      vertical: previewCells.every((cell) => cell.col === previewCells[0]?.col),
+      state: previewValid ? ('preview' as const) : ('invalid' as const)
+    };
+  });
 
   function handleKeyboard(event: KeyboardEvent, coordinate: Coordinate) {
     let next: Coordinate;
@@ -170,12 +170,44 @@
     role="grid"
     tabindex="0"
     aria-label={label}
-    onmouseleave={() => onhover?.(null)}
+    onmouseleave={() => {
+      hovered = null;
+      onhover?.(null);
+    }}
   >
+    <span class="board-hover-readout" aria-live="polite"
+      >{hovered ? coordinateLabel(hovered) : '— —'}</span
+    >
     <span class="axis axis--corner" aria-hidden="true"><Crosshair size={10} /></span>
     {#each Array.from({ length: 10 }) as _, col (col)}
       <span class="axis axis--col" aria-hidden="true">{col + 1}</span>
     {/each}
+    <div class="board-vessels" aria-hidden="true">
+      {#each vessels as vessel (vessel.kind)}
+        <div
+          class="vessel-slot"
+          style={`grid-row: ${vessel.row + 1} / span ${vessel.vertical ? vessel.length : 1}; grid-column: ${vessel.col + 1} / span ${vessel.vertical ? 1 : vessel.length};`}
+        >
+          <Vessel
+            kind={vessel.kind}
+            orientation={vessel.vertical ? 'VERTICAL' : 'HORIZONTAL'}
+            state={vessel.state}
+          />
+        </div>
+      {/each}
+      {#if previewVessel}
+        <div
+          class="vessel-slot vessel-slot--preview"
+          style={`grid-row: ${previewVessel.row + 1} / span ${previewVessel.vertical ? previewVessel.length : 1}; grid-column: ${previewVessel.col + 1} / span ${previewVessel.vertical ? 1 : previewVessel.length};`}
+        >
+          <Vessel
+            kind={previewVessel.kind}
+            orientation={previewVessel.vertical ? 'VERTICAL' : 'HORIZONTAL'}
+            state={previewVessel.state}
+          />
+        </div>
+      {/if}
+    </div>
     {#each grid as row, rowIndex (rowIndex)}
       <span class="axis axis--row" aria-hidden="true">{ROW_LABELS[rowIndex]}</span>
       {#each row as coordinate (coordinateKey(coordinate))}
@@ -190,6 +222,7 @@
           class:cell--preview={preview && previewValid}
           class:cell--invalid={preview && !previewValid}
           class:cell--selected={isSelected}
+          class:cell--marked={Boolean(attack)}
           class:cell--miss={attack === 'MISS'}
           class:cell--hit={attack === 'HIT'}
           class:cell--sunk={attack === 'SUNK'}
@@ -204,8 +237,14 @@
           draggable={mode === 'placement' && Boolean(kind) && !disabled}
           onclick={() => oncell?.(coordinate)}
           onkeydown={(event) => handleKeyboard(event, coordinate)}
-          onmouseenter={() => onhover?.(coordinate)}
-          onfocus={() => onhover?.(coordinate)}
+          onmouseenter={() => {
+            hovered = coordinate;
+            onhover?.(coordinate);
+          }}
+          onfocus={() => {
+            hovered = coordinate;
+            onhover?.(coordinate);
+          }}
           ondragstart={() => kind && onshipdrag?.(kind)}
           ondragover={(event) => {
             if (mode === 'placement') event.preventDefault();
@@ -216,11 +255,6 @@
             ondropcell?.(coordinate);
           }}
         >
-          {#if kind}<span
-              class={`ship-segment ${segmentClass(coordinate)}`}
-              title={shipName(kind)}
-              aria-hidden="true"><i></i><b></b></span
-            >{/if}
           {#if attack === 'MISS'}<span class="miss-marker"><i></i><Waves size={13} /></span>{/if}
           {#if attack === 'HIT' || attack === 'SUNK'}<span class="hit-marker"
               ><i></i><Flame size={14} /></span
@@ -300,6 +334,43 @@
     user-select: none;
     touch-action: manipulation;
   }
+
+  .board-hover-readout {
+    position: absolute;
+    z-index: 8;
+    top: 9px;
+    right: 12px;
+    color: var(--cyan-300);
+    font: 700 10px var(--font-display);
+    letter-spacing: 0.14em;
+    opacity: 0.86;
+  }
+
+  .board-vessels {
+    position: absolute;
+    z-index: 3;
+    top: 33px;
+    right: 5px;
+    bottom: 5px;
+    left: 33px;
+    display: grid;
+    grid-template-columns: repeat(10, minmax(0, 1fr));
+    grid-template-rows: repeat(10, minmax(0, 1fr));
+    pointer-events: none;
+  }
+
+  .vessel-slot {
+    position: relative;
+    z-index: 1;
+    min-width: 0;
+    min-height: 0;
+    padding: 5%;
+  }
+
+  .vessel-slot--preview {
+    z-index: 4;
+    padding: 1%;
+  }
   .axis {
     display: grid;
     place-items: center;
@@ -336,6 +407,10 @@
   .board-cell:disabled {
     opacity: 1;
   }
+
+  .board-cell.cell--marked {
+    z-index: 6;
+  }
   .board-cell::after {
     position: absolute;
     inset: 17%;
@@ -369,103 +444,6 @@
   }
   .cell--ship {
     background: rgba(46, 116, 132, 0.16);
-  }
-  .ship-segment {
-    position: absolute;
-    z-index: 2;
-    inset: 17% -1px;
-    display: block;
-    border: 1px solid rgba(157, 218, 224, 0.52);
-    border-radius: 0;
-    background: linear-gradient(
-      90deg,
-      rgba(133, 204, 211, 0.75),
-      rgba(46, 91, 106, 0.96) 56%,
-      rgba(20, 52, 66, 0.98)
-    );
-    box-shadow:
-      inset 0 1px rgba(255, 255, 255, 0.28),
-      inset 0 -2px rgba(1, 17, 25, 0.52),
-      0 2px 6px rgba(0, 0, 0, 0.35);
-    transform: translateZ(4px);
-  }
-  .ship-segment::before {
-    position: absolute;
-    top: 25%;
-    right: 16%;
-    bottom: 25%;
-    left: 18%;
-    content: '';
-    border: 1px solid rgba(210, 246, 245, 0.28);
-    border-radius: 2px;
-    background: linear-gradient(90deg, transparent, rgba(166, 229, 230, 0.16), transparent);
-  }
-  .ship-segment i {
-    position: absolute;
-    z-index: 1;
-    top: 20%;
-    bottom: 20%;
-    left: 42%;
-    width: 18%;
-    border: 1px solid rgba(190, 236, 235, 0.32);
-    border-radius: 2px;
-    background: rgba(11, 45, 59, 0.72);
-  }
-  .ship-segment b {
-    position: absolute;
-    z-index: 2;
-    top: 42%;
-    right: 5%;
-    left: 5%;
-    height: 16%;
-    background: rgba(213, 250, 248, 0.36);
-  }
-  .ship-segment--bow {
-    border-radius: 60% 8% 8% 60%;
-    clip-path: polygon(0 50%, 18% 15%, 100% 15%, 100% 85%, 18% 85%);
-  }
-  .ship-segment--stern {
-    border-radius: 8% 60% 60% 8%;
-    clip-path: polygon(0 15%, 82% 15%, 100% 50%, 82% 85%, 0 85%);
-  }
-  .cell--ship-vertical .ship-segment {
-    inset: -1px 17%;
-    background: linear-gradient(
-      180deg,
-      rgba(134, 204, 211, 0.75),
-      rgba(46, 91, 106, 0.96) 56%,
-      rgba(20, 52, 66, 0.98)
-    );
-  }
-  .cell--ship-vertical .ship-segment::before {
-    top: 18%;
-    right: 25%;
-    bottom: 18%;
-    left: 25%;
-  }
-  .cell--ship-vertical .ship-segment i {
-    top: 42%;
-    right: 20%;
-    bottom: auto;
-    left: 20%;
-    width: auto;
-    height: 18%;
-  }
-  .cell--ship-vertical .ship-segment b {
-    top: 5%;
-    right: auto;
-    bottom: 5%;
-    left: 42%;
-    width: 16%;
-    height: auto;
-  }
-  .cell--ship-vertical .ship-segment--bow {
-    border-radius: 60% 60% 8% 8%;
-    clip-path: polygon(50% 0, 85% 18%, 85% 100%, 15% 100%, 15% 18%);
-  }
-  .cell--ship-vertical .ship-segment--stern {
-    border-radius: 8% 8% 60% 60%;
-    clip-path: polygon(15% 0, 85% 0, 85% 82%, 50% 100%, 15% 82%);
   }
   .cell--preview {
     z-index: 2;
