@@ -681,9 +681,9 @@
   }
   .display-title {
     font-family: var(--font-display);
-    font-size: clamp(52px, 6.8vw, 94px);
-    line-height: 0.98;
-    letter-spacing: 0.01em;
+    font-size: clamp(48px, 5.4vw, 82px);
+    line-height: 0.94;
+    letter-spacing: -0.01em;
   }
   .hero__lead {
     max-width: 620px;
@@ -753,6 +753,30 @@
     }
     .display-title {
       font-size: clamp(49px, 12vw, 74px);
+    }
+  }
+  @media (min-width: 821px) and (max-height: 780px) {
+    .hero {
+      gap: clamp(34px, 5vw, 72px);
+      padding-block: 32px 38px;
+    }
+    .hero__status-line {
+      margin-bottom: 24px;
+    }
+    .display-title {
+      font-size: clamp(42px, 4.4vw, 64px);
+      line-height: 0.94;
+    }
+    .hero__lead {
+      margin-block: 20px;
+      font-size: 14px;
+      line-height: 1.7;
+    }
+    .trust-row {
+      margin-top: 16px;
+    }
+    .command-visual {
+      width: min(100%, 480px);
     }
   }
   @keyframes contact-drift-one {
