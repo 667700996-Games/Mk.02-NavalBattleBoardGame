@@ -420,6 +420,15 @@
     top: 48%;
     left: 77%;
   }
+  .contact--one {
+    animation: contact-drift-one 8s ease-in-out infinite;
+  }
+  .contact--two {
+    animation: contact-drift-two 10s ease-in-out infinite;
+  }
+  .contact--three {
+    animation: contact-drift-three 7s ease-in-out infinite;
+  }
   .fleet-trace {
     position: absolute;
     z-index: 2;
@@ -744,6 +753,21 @@
     }
     .display-title {
       font-size: clamp(49px, 12vw, 74px);
+    }
+  }
+  @keyframes contact-drift-one {
+    50% {
+      transform: translate(-7px, 5px);
+    }
+  }
+  @keyframes contact-drift-two {
+    50% {
+      transform: translate(6px, -4px);
+    }
+  }
+  @keyframes contact-drift-three {
+    50% {
+      transform: translate(4px, 8px);
     }
   }
 </style>

@@ -15,6 +15,7 @@
   import { sounds } from '$lib/sound';
   import { chatMessages, gameError, lastAttack } from '$lib/stores';
   import { Button, Modal } from '$lib/ui';
+  import Vessel from './Vessel.svelte';
   import {
     FLEET,
     coordinateKey,
@@ -450,7 +451,7 @@
         {#each FLEET as ship (ship.kind)}
           <div class:sunk={sunkShips.has(ship.kind)}>
             <span>{ship.name}</span><span class="mini-ship"
-              >{#each Array.from({ length: ship.size }) as _, index (index)}<i></i>{/each}</span
+              ><Vessel kind={ship.kind} state={sunkShips.has(ship.kind) ? 'sunk' : 'docked'} /></span
             >{#if sunkShips.has(ship.kind)}<Check size={13} />{:else}<em>UNKNOWN</em>{/if}
           </div>
         {/each}
@@ -966,16 +967,13 @@
     letter-spacing: 0.08em;
   }
   .mini-ship {
-    display: flex;
-    gap: 2px;
+    display: block;
+    width: 72px;
+    height: 20px;
   }
-  .mini-ship i {
-    width: 9px;
-    height: 4px;
-    background: #426471;
-  }
-  .enemy-fleet .sunk .mini-ship i {
-    background: var(--critical);
+  .mini-ship :global(.vessel) {
+    width: 100%;
+    height: 100%;
   }
   .commanders {
     display: grid;

@@ -213,7 +213,6 @@
       {#each row as coordinate (coordinateKey(coordinate))}
         {@const attack = attackAt(coordinate)}
         {@const kind = mode === 'placement' ? placementKind(coordinate) : ownShipKind(coordinate)}
-        {@const ship = shipAt(coordinate)}
         {@const preview = isPreview(coordinate)}
         {@const isSelected = selected?.row === coordinate.row && selected?.col === coordinate.col}
         <button
@@ -510,11 +509,6 @@
   .hit-marker :global(svg) {
     position: relative;
     z-index: 2;
-  }
-  .cell--sunk .ship-segment {
-    background: linear-gradient(90deg, #64343e, #2b2029);
-    border-color: #ff7584;
-    filter: saturate(0.7);
   }
   .cell--sunk {
     background: rgba(111, 23, 38, 0.4);
