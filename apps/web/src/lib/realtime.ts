@@ -13,6 +13,7 @@ import {
   type SocketStatus
 } from '$lib/stores';
 import type { ClientEvent, GameSnapshot, ServerEvent } from '$lib/types';
+import { sounds } from '$lib/sound';
 import {
   isCompatibleGameSnapshot,
   SERVER_PROTOCOL_MISMATCH_CODE,
@@ -143,6 +144,9 @@ class RealtimeClient {
         this.disconnect();
         return;
       }
+      if (event.type === 'player:joined' || event.type === 'player:reconnected') {
+        sounds.connected();
+      }
       this.applySnapshot(event.payload);
       gameError.set(null);
     } else if (event.type === 'room:created') {
@@ -169,6 +173,14 @@ class RealtimeClient {
     } else if (event.type === 'chat:message') {
       const roomId = get(gameSnapshot)?.room.id;
       if (roomId === event.payload.roomId) {
+        const current = get(gameSnapshot);
+        if (
+          event.payload.playerId &&
+          event.payload.playerId !== current?.selfPlayerId &&
+          event.payload.type !== 'SYSTEM'
+        ) {
+          sounds.chat();
+        }
         chatMessages.update((messages) => {
           if (messages.some((message) => message.messageId === event.payload.messageId)) {
             return messages;

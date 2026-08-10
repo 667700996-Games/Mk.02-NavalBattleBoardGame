@@ -45,6 +45,7 @@
   let hostPlayer = $derived(snapshot.players.find((player) => player.id === snapshot.hostPlayerId));
   let guestPlayer = $derived(snapshot.players.find((player) => player.role === 'GUEST'));
   let isHost = $derived(snapshot.selfPlayerId === snapshot.hostPlayerId);
+  let observedPlayerCount = $state(snapshot.players.length);
   let allReady = $derived(
     snapshot.players.length === 2 &&
       snapshot.players.every((player) => player.readyState === 'READY')
@@ -69,6 +70,12 @@
           : '준비가 완료되었습니다. 방장의 작전 개시를 기다리고 있습니다.'
         : '모든 지휘관이 준비를 완료해야 합니다.'
   );
+
+  $effect(() => {
+    const playerCount = snapshot.players.length;
+    if (observedPlayerCount > 0 && playerCount > observedPlayerCount) sounds.connected();
+    observedPlayerCount = playerCount;
+  });
 
   async function copyInvite() {
     try {
@@ -736,27 +743,63 @@
   }
   .player-slots {
     position: relative;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: minmax(0, 1fr) minmax(92px, 0.24fr) minmax(0, 1fr);
     gap: 10px;
     align-items: stretch;
   }
   .player-slots::before {
-    position: absolute;
-    z-index: 2;
-    top: 50%;
-    left: 50%;
+    display: none;
+  }
+  .tactical-link {
     display: grid;
-    width: 34px;
-    height: 34px;
+    min-height: 180px;
+    align-content: center;
+    justify-items: center;
+    gap: 9px;
+    color: var(--ink-500);
+    font-family: var(--font-display);
+    text-align: center;
+  }
+  .tactical-link strong {
+    display: grid;
+    width: 42px;
+    height: 42px;
     place-items: center;
-    content: 'VS';
-    border: 1px solid rgba(237, 181, 82, 0.38);
+    border: 1px solid rgba(237, 181, 82, 0.42);
     border-radius: 50%;
     color: var(--warning);
-    background: #061923;
-    font: 700 12px var(--font-display);
+    background: rgba(6, 25, 35, 0.96);
+    font-size: 13px;
     letter-spacing: 0.1em;
-    transform: translate(-50%, -50%);
+    box-shadow: 0 0 22px rgba(237, 181, 82, 0.08);
+  }
+  .tactical-link small {
+    color: var(--ink-500);
+    font-size: 7px;
+    letter-spacing: 0.14em;
+  }
+  .tactical-link__line {
+    display: block;
+    width: 1px;
+    height: 28px;
+    background: linear-gradient(var(--line-active), transparent);
+  }
+  .tactical-link__line:last-child {
+    background: linear-gradient(transparent, var(--line-active));
+  }
+  .tactical-link.active {
+    color: var(--safe);
+  }
+  .tactical-link.active strong {
+    border-color: rgba(104, 215, 170, 0.55);
+    color: var(--safe);
+    box-shadow: 0 0 25px rgba(104, 215, 170, 0.16);
+  }
+  .tactical-link.active .tactical-link__line {
+    background: linear-gradient(var(--safe), transparent);
+  }
+  .tactical-link.active .tactical-link__line:last-child {
+    background: linear-gradient(transparent, var(--safe));
   }
   .player-slot {
     min-height: 180px;
@@ -769,7 +812,7 @@
   .player-slot:first-child {
     border-top: 2px solid var(--tactical);
   }
-  .player-slot:nth-child(2) {
+  .player-slot:nth-child(3) {
     border-top: 2px solid var(--warning);
   }
   .player-slot--ready {
@@ -781,7 +824,7 @@
     color: var(--tactical);
     background: rgba(83, 233, 232, 0.08);
   }
-  .player-slot:nth-child(2) .player-avatar {
+  .player-slot:nth-child(3) .player-avatar {
     color: var(--warning);
     background: rgba(237, 181, 82, 0.08);
   }
@@ -849,7 +892,7 @@
       grid-template-columns: 1fr;
     }
     .player-slots {
-      grid-template-columns: 1fr 1fr;
+      grid-template-columns: minmax(0, 1fr) 88px minmax(0, 1fr);
     }
   }
   @media (max-width: 580px) {
@@ -866,8 +909,16 @@
     .player-slots {
       grid-template-columns: 1fr;
     }
-    .player-slots::before {
-      top: 50%;
+    .tactical-link {
+      min-height: 82px;
+      grid-row: auto;
+    }
+    .tactical-link__line {
+      width: 54px;
+      height: 1px;
+    }
+    .tactical-link__line:last-child {
+      background: linear-gradient(90deg, transparent, var(--line-active));
     }
     .player-slot {
       min-height: 145px;

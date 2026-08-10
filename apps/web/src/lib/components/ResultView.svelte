@@ -28,6 +28,7 @@
     snapshot.result?.players.find((player) => player.playerId !== snapshot.selfPlayerId)
   );
   let rematchRequested = $derived(snapshot.rematchRequestedBy.includes(snapshot.selfPlayerId));
+  let operationStatus = $derived(won ? 'OPERATION COMPLETE' : 'OPERATION FAILED');
   let outcomeLabel = $derived.by(() => {
     switch (snapshot.result?.winType) {
       case 'SURRENDER':
@@ -84,7 +85,7 @@
   <div class="result__emblem">
     {#if won}<Trophy size={42} />{:else}<Medal size={42} />{/if}
   </div>
-  <p class="eyebrow">OPERATION COMPLETE</p>
+  <p class="eyebrow">{operationStatus}</p>
   <h1>{won ? '작전 승리' : '작전 패배'}</h1>
   <p class="result__outcome"><Flag size={13} /> {outcomeLabel}</p>
   <p class="result__summary">{outcomeSummary}</p>

@@ -23,6 +23,12 @@ function tone(frequency: number, duration: number, gain = 0.035, slideTo?: numbe
 export const sounds = {
   hover: () => tone(290, 0.045, 0.012, 350),
   select: () => tone(420, 0.08, 0.02, 520),
+  targetLock: () => {
+    tone(620, 0.08, 0.018, 840);
+    setTimeout(() => tone(980, 0.055, 0.012, 760), 65);
+  },
+  connected: () => tone(390, 0.12, 0.016, 510),
+  chat: () => tone(300, 0.075, 0.014, 430),
   confirm: () => {
     tone(520, 0.1, 0.025, 680);
     setTimeout(() => tone(760, 0.12, 0.018, 820), 70);

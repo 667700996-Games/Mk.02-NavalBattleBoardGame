@@ -13,7 +13,7 @@
   } from '@lucide/svelte';
   import GridBoard from './GridBoard.svelte';
   import { sounds } from '$lib/sound';
-  import { chatMessages, lastAttack } from '$lib/stores';
+  import { chatMessages, gameError, lastAttack } from '$lib/stores';
   import { Button, Modal } from '$lib/ui';
   import {
     FLEET,
@@ -48,11 +48,19 @@
   let clientNow = $state(Date.now());
   let timerAnnouncement = $state('');
   let combatEvent = $state<{ outcome: AttackOutcome; coordinate: Coordinate } | null>(null);
+  let fireSequence = $state<{
+    coordinate: Coordinate;
+    stage: 'LOCK' | 'FIRE' | 'IMPACT';
+  } | null>(null);
+  let turnPulse = $state(false);
   let announcedTurn = 0;
   let announcedSeconds: number[] = [];
   let seenAttackRequest = '';
   let clockTimer: ReturnType<typeof setInterval> | null = null;
   let impactTimer: ReturnType<typeof setTimeout> | null = null;
+  let fireTimer: ReturnType<typeof setTimeout> | null = null;
+  let turnPulseTimer: ReturnType<typeof setTimeout> | null = null;
+  let observedTurnPlayer = '';
 
   let myTurn = $derived(snapshot.currentPlayerId === snapshot.selfPlayerId);
   let me = $derived(snapshot.players.find((player) => player.id === snapshot.selfPlayerId));
@@ -93,6 +101,7 @@
   let canFire = $derived(
     Boolean(
       selected &&
+      !fireSequence &&
       myTurn &&
       !pending &&
       !disabled &&
@@ -125,6 +134,7 @@
       !myTurn ||
       pending ||
       disabled ||
+      fireSequence ||
       remainingSeconds === 0 ||
       attackedKeys.has(coordinateKey(coordinate))
     )
@@ -135,9 +145,17 @@
 
   function fire() {
     if (!selected || !canFire) return;
-    sounds.fire();
-    onfire(selected);
+    const coordinate = selected;
     selected = null;
+    fireSequence = { coordinate, stage: 'LOCK' };
+    sounds.targetLock();
+    if (fireTimer) clearTimeout(fireTimer);
+    fireTimer = setTimeout(() => {
+      fireSequence = { coordinate, stage: 'FIRE' };
+      sounds.fire();
+      onfire(coordinate);
+      fireTimer = null;
+    }, 150);
   }
 
   const formatClock = (seconds: number) => {
@@ -154,8 +172,34 @@
     if (!attack || attack.requestId === seenAttackRequest) return;
     seenAttackRequest = attack.requestId;
     combatEvent = { outcome: attack.outcome, coordinate: attack.coordinate };
+    if (fireSequence && coordinateKey(fireSequence.coordinate) === coordinateKey(attack.coordinate)) {
+      fireSequence = { ...fireSequence, stage: 'IMPACT' };
+      setTimeout(() => {
+        fireSequence = null;
+      }, 880);
+    }
     if (impactTimer) clearTimeout(impactTimer);
     impactTimer = setTimeout(() => (combatEvent = null), 1_100);
+  });
+
+  $effect(() => {
+    if ($gameError && fireSequence) {
+      if (fireTimer) clearTimeout(fireTimer);
+      fireTimer = null;
+      fireSequence = null;
+    }
+  });
+
+  $effect(() => {
+    const playerId = snapshot.currentPlayerId;
+    if (!playerId) return;
+    if (observedTurnPlayer && observedTurnPlayer !== playerId) {
+      turnPulse = true;
+      sounds.turn();
+      if (turnPulseTimer) clearTimeout(turnPulseTimer);
+      turnPulseTimer = setTimeout(() => (turnPulse = false), 620);
+    }
+    observedTurnPlayer = playerId;
   });
 
   $effect(() => {
@@ -188,11 +232,13 @@
   onDestroy(() => {
     if (clockTimer) clearInterval(clockTimer);
     if (impactTimer) clearTimeout(impactTimer);
+    if (fireTimer) clearTimeout(fireTimer);
+    if (turnPulseTimer) clearTimeout(turnPulseTimer);
   });
 </script>
 
 <section class="battle" aria-labelledby="battle-status">
-  <header class:turn-banner--mine={myTurn} class="turn-banner panel">
+  <header class:turn-banner--mine={myTurn} class:turn-banner--pulse={turnPulse} class="turn-banner panel">
     <div class="turn-banner__icon" aria-hidden="true">
       {#if myTurn}<Crosshair size={24} />{:else}<Radio size={24} />{/if}
     </div>
@@ -259,6 +305,7 @@
 
   {#if combatEvent}
     <div
+      class:combat-event--miss={combatEvent.outcome === 'MISS'}
       class:combat-event--hit={combatEvent.outcome !== 'MISS'}
       class:combat-event--sunk={combatEvent.outcome === 'SUNK'}
       class="combat-event"
@@ -275,6 +322,29 @@
               : 'VESSEL DESTROYED'}</strong
         >
       </div>
+    </div>
+  {/if}
+
+  {#if fireSequence}
+    <div
+      class:fire-sequence--fire={fireSequence.stage === 'FIRE'}
+      class:fire-sequence--impact={fireSequence.stage === 'IMPACT'}
+      class="fire-sequence"
+      role="status"
+      aria-live="polite"
+    >
+      <span class="fire-sequence__reticle"><Crosshair size={22} /></span>
+      <div>
+        <small>SECTOR {coordinateLabel(fireSequence.coordinate)}</small>
+        <strong
+          >{fireSequence.stage === 'LOCK'
+            ? 'TARGET LOCK'
+            : fireSequence.stage === 'FIRE'
+              ? 'FIRE CONTROL'
+              : 'IMPACT CONFIRMED'}</strong
+        >
+      </div>
+      <span class="fire-sequence__ticks"><i></i><i></i><i></i></span>
     </div>
   {/if}
 
@@ -1037,6 +1107,107 @@
     margin: 0;
     color: var(--ink-500);
     font-size: 10px;
+  }
+  .turn-banner--pulse {
+    animation: command-shift 620ms var(--ease-out) both;
+  }
+  .fire-sequence {
+    position: relative;
+    z-index: 8;
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
+    gap: 12px;
+    width: min(390px, 100%);
+    margin: -4px auto 8px;
+    padding: 10px 13px;
+    border: 1px solid rgba(83, 233, 232, 0.52);
+    border-left: 3px solid var(--tactical);
+    background: linear-gradient(90deg, rgba(7, 42, 49, 0.96), rgba(2, 16, 23, 0.92));
+    box-shadow: 0 12px 34px rgba(0, 0, 0, 0.28), 0 0 22px rgba(83, 233, 232, 0.08);
+    animation: fire-sequence-in 150ms var(--ease-out) both;
+  }
+  .fire-sequence__reticle {
+    display: grid;
+    width: 34px;
+    height: 34px;
+    place-items: center;
+    border: 1px solid currentColor;
+    border-radius: 50%;
+    color: var(--tactical);
+    animation: fire-reticle 620ms ease-in-out infinite;
+  }
+  .fire-sequence div {
+    display: grid;
+    gap: 2px;
+  }
+  .fire-sequence small {
+    color: var(--ink-400);
+    font: 600 8px var(--font-display);
+    letter-spacing: 0.16em;
+  }
+  .fire-sequence strong {
+    color: var(--ink-50);
+    font: 700 16px var(--font-display);
+    letter-spacing: 0.12em;
+  }
+  .fire-sequence__ticks {
+    display: flex;
+    gap: 4px;
+  }
+  .fire-sequence__ticks i {
+    display: block;
+    width: 4px;
+    height: 18px;
+    background: var(--line-active);
+    transform: skew(-16deg);
+  }
+  .fire-sequence--fire {
+    border-color: rgba(255, 150, 91, 0.62);
+    border-left-color: var(--orange-400);
+    background: linear-gradient(90deg, rgba(78, 41, 29, 0.96), rgba(22, 17, 19, 0.94));
+  }
+  .fire-sequence--fire .fire-sequence__reticle {
+    color: var(--orange-400);
+  }
+  .fire-sequence--impact {
+    border-color: rgba(255, 114, 128, 0.68);
+    border-left-color: var(--critical);
+    background: linear-gradient(90deg, rgba(92, 27, 39, 0.96), rgba(24, 13, 20, 0.94));
+  }
+  .fire-sequence--impact .fire-sequence__reticle {
+    color: var(--critical);
+    animation: fire-impact 420ms ease-out both;
+  }
+  @keyframes command-shift {
+    0% {
+      box-shadow: 0 0 0 rgba(83, 233, 232, 0);
+    }
+    35% {
+      box-shadow: 0 0 32px rgba(83, 233, 232, 0.22);
+    }
+  }
+  @keyframes fire-sequence-in {
+    from {
+      opacity: 0;
+      transform: translateY(-6px) scale(0.98);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+  }
+  @keyframes fire-reticle {
+    50% {
+      transform: scale(1.12);
+      opacity: 0.58;
+    }
+  }
+  @keyframes fire-impact {
+    50% {
+      transform: scale(1.28);
+      filter: drop-shadow(0 0 10px currentColor);
+    }
   }
   @keyframes timer-pulse {
     50% {
