@@ -204,6 +204,7 @@ export interface GameSnapshot {
   players: PlayerPublic[];
   ownBoard: OwnBoardSnapshot | null;
   targetBoard: TargetBoardSnapshot | null;
+  revealedBoard: OwnBoardSnapshot | null;
   turnNumber: number | null;
   currentPlayerId: string | null;
   result: GameResult | null;

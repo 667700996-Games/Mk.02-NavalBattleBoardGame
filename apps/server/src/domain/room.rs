@@ -1204,7 +1204,14 @@ impl GameRoom {
             .iter()
             .map(|player| PlayerPublic::from_player(player, self.game.as_ref()))
             .collect();
-        let (own_board, target_board, turn_number, current_player_id, result) =
+        let (
+            own_board,
+            target_board,
+            revealed_board,
+            turn_number,
+            current_player_id,
+            result,
+        ) =
             if let Some(game) = &self.game {
                 let board = game.boards.get(&me.id).ok_or(GameError::InvalidState)?;
                 let own = OwnBoardSnapshot {
@@ -1239,15 +1246,43 @@ impl GameRoom {
                         })
                         .collect(),
                 };
+                let revealed = if self.status == RoomStatus::Finished {
+                    game.boards
+                        .iter()
+                        .find(|(player_id, _)| **player_id != me.id)
+                        .map(|(_, board)| OwnBoardSnapshot {
+                            ships: board
+                                .ships()
+                                .iter()
+                                .map(|ship| OwnShipSnapshot {
+                                    kind: ship.kind,
+                                    cells: ship.cells.clone(),
+                                    hits: ship.hits.iter().copied().collect(),
+                                    sunk: ship.is_sunk(),
+                                })
+                                .collect(),
+                            attacks_received: board
+                                .attacks_received()
+                                .iter()
+                                .map(|attack| CellAttackSnapshot {
+                                    coordinate: attack.coordinate,
+                                    outcome: attack.outcome,
+                                })
+                                .collect(),
+                        })
+                } else {
+                    None
+                };
                 (
                     Some(own),
                     Some(target),
+                    revealed,
                     Some(game.turn_number),
                     Some(game.current_player_id),
                     game.result.clone(),
                 )
             } else {
-                (None, None, None, None, None)
+                (None, None, None, None, None, None)
             };
 
         Ok(GameSnapshot {
@@ -1264,6 +1299,7 @@ impl GameRoom {
             players,
             own_board,
             target_board,
+            revealed_board,
             turn_number,
             current_player_id,
             result,
@@ -1377,6 +1413,7 @@ pub struct GameSnapshot {
     pub players: Vec<PlayerPublic>,
     pub own_board: Option<OwnBoardSnapshot>,
     pub target_board: Option<TargetBoardSnapshot>,
+    pub revealed_board: Option<OwnBoardSnapshot>,
     pub turn_number: Option<u32>,
     pub current_player_id: Option<Uuid>,
     pub result: Option<GameResult>,
