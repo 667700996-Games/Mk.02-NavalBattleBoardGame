@@ -173,7 +173,10 @@
     if (!attack || attack.requestId === seenAttackRequest) return;
     seenAttackRequest = attack.requestId;
     combatEvent = { outcome: attack.outcome, coordinate: attack.coordinate };
-    if (fireSequence && coordinateKey(fireSequence.coordinate) === coordinateKey(attack.coordinate)) {
+    if (
+      fireSequence &&
+      coordinateKey(fireSequence.coordinate) === coordinateKey(attack.coordinate)
+    ) {
       fireSequence = { ...fireSequence, stage: 'IMPACT' };
       setTimeout(() => {
         fireSequence = null;
@@ -239,7 +242,11 @@
 </script>
 
 <section class="battle" aria-labelledby="battle-status">
-  <header class:turn-banner--mine={myTurn} class:turn-banner--pulse={turnPulse} class="turn-banner panel">
+  <header
+    class:turn-banner--mine={myTurn}
+    class:turn-banner--pulse={turnPulse}
+    class="turn-banner panel"
+  >
     <div class="turn-banner__icon" aria-hidden="true">
       {#if myTurn}<Crosshair size={24} />{:else}<Radio size={24} />{/if}
     </div>
@@ -451,7 +458,10 @@
         {#each FLEET as ship (ship.kind)}
           <div class:sunk={sunkShips.has(ship.kind)}>
             <span>{ship.name}</span><span class="mini-ship"
-              ><Vessel kind={ship.kind} state={sunkShips.has(ship.kind) ? 'sunk' : 'docked'} /></span
+              ><Vessel
+                kind={ship.kind}
+                state={sunkShips.has(ship.kind) ? 'sunk' : 'docked'}
+              /></span
             >{#if sunkShips.has(ship.kind)}<Check size={13} />{:else}<em>UNKNOWN</em>{/if}
           </div>
         {/each}
@@ -1122,7 +1132,9 @@
     border: 1px solid rgba(83, 233, 232, 0.52);
     border-left: 3px solid var(--tactical);
     background: linear-gradient(90deg, rgba(7, 42, 49, 0.96), rgba(2, 16, 23, 0.92));
-    box-shadow: 0 12px 34px rgba(0, 0, 0, 0.28), 0 0 22px rgba(83, 233, 232, 0.08);
+    box-shadow:
+      0 12px 34px rgba(0, 0, 0, 0.28),
+      0 0 22px rgba(83, 233, 232, 0.08);
     animation: fire-sequence-in 150ms var(--ease-out) both;
   }
   .fire-sequence__reticle {

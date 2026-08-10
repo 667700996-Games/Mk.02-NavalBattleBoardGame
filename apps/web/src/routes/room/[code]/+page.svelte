@@ -803,7 +803,9 @@
     border: 1px solid rgba(104, 215, 170, 0.42);
     border-top: 2px solid var(--safe);
     background: rgba(3, 21, 25, 0.94);
-    box-shadow: 0 18px 46px rgba(0, 0, 0, 0.3), 0 0 30px rgba(104, 215, 170, 0.08);
+    box-shadow:
+      0 18px 46px rgba(0, 0, 0, 0.3),
+      0 0 30px rgba(104, 215, 170, 0.08);
     animation: report-recognition 180ms var(--ease-out) both;
   }
   .result-recognition__pulse {
@@ -848,7 +850,9 @@
   }
   @keyframes report-pulse {
     50% {
-      box-shadow: 0 0 0 9px rgba(104, 215, 170, 0.07), 0 0 22px rgba(104, 215, 170, 0.26);
+      box-shadow:
+        0 0 0 9px rgba(104, 215, 170, 0.07),
+        0 0 22px rgba(104, 215, 170, 0.26);
     }
   }
   @media (prefers-reduced-motion: reduce) {

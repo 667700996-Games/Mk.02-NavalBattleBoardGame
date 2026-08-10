@@ -8,12 +8,7 @@
     label?: string;
   }
 
-  let {
-    kind,
-    orientation = 'HORIZONTAL',
-    state = 'deployed',
-    label
-  }: Props = $props();
+  let { kind, orientation = 'HORIZONTAL', state = 'deployed', label }: Props = $props();
 </script>
 
 <span
@@ -43,7 +38,10 @@
         <path class="vessel__island" d="M100 20h19v24h-19z" />
         <path class="vessel__detail" d="M53 28h32M53 36h32M132 28h17M132 36h17" />
       {:else if kind === 'SUBMARINE'}
-        <path class="vessel__hull" d="M15 32c10-14 27-21 54-21h61c25 0 43 7 55 21-12 14-30 21-55 21H69c-27 0-44-7-54-21Z" />
+        <path
+          class="vessel__hull"
+          d="M15 32c10-14 27-21 54-21h61c25 0 43 7 55 21-12 14-30 21-55 21H69c-27 0-44-7-54-21Z"
+        />
         <path class="vessel__deck" d="M75 27h46v10H75z" />
         <path class="vessel__island" d="M101 13h18v14h-18z" />
         <path class="vessel__detail" d="M37 32h24M134 32h27" />

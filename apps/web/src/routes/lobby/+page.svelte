@@ -961,7 +961,10 @@
       linear-gradient(rgba(83, 233, 232, 0.07) 1px, transparent 1px),
       linear-gradient(90deg, rgba(83, 233, 232, 0.07) 1px, transparent 1px),
       radial-gradient(ellipse at 50% 35%, rgba(33, 138, 156, 0.14), transparent 64%);
-    background-size: 72px 72px, 72px 72px, auto;
+    background-size:
+      72px 72px,
+      72px 72px,
+      auto;
     mask-image: linear-gradient(180deg, transparent, black 18%, transparent 92%);
   }
   .command-dashboard {
@@ -971,7 +974,9 @@
     min-height: 182px;
     border-radius: 6px 2px 6px 2px;
     border-top: 2px solid var(--tactical);
-    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.28), 0 0 36px rgba(83, 233, 232, 0.06);
+    box-shadow:
+      0 24px 60px rgba(0, 0, 0, 0.28),
+      0 0 36px rgba(83, 233, 232, 0.06);
   }
   .quick-match__copy h2 {
     font-size: clamp(26px, 3vw, 34px);
@@ -986,7 +991,13 @@
     left: 0;
     height: 1px;
     content: '';
-    background: linear-gradient(90deg, var(--tactical), transparent 35%, transparent 65%, var(--warning));
+    background: linear-gradient(
+      90deg,
+      var(--tactical),
+      transparent 35%,
+      transparent 65%,
+      var(--warning)
+    );
     opacity: 0.22;
   }
   .room-grid {
@@ -998,7 +1009,9 @@
   }
   :global(.room-card) article {
     display: grid;
-    grid-template-columns: 142px minmax(180px, 1.15fr) minmax(170px, 0.85fr) minmax(180px, 0.9fr) 168px;
+    grid-template-columns:
+      142px minmax(180px, 1.15fr) minmax(170px, 0.85fr) minmax(180px, 0.9fr)
+      168px;
     align-items: center;
     gap: 16px;
   }

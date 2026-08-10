@@ -112,7 +112,7 @@
     if ($preferences.reducedMotion) {
       placements = deployed;
     } else {
-      for (const [index, placement] of deployed.entries()) {
+      for (const [index] of deployed.entries()) {
         await new Promise((resolve) => setTimeout(resolve, 85));
         placements = [...deployed.slice(0, index + 1)];
         sounds.place();
@@ -224,14 +224,18 @@
           onclick={rotate}
           disabled={confirmed || autoDeploying || !selectedKind}><RotateCw size={15} /> 회전</button
         >
-        <button class="button button--small" type="button" onclick={autoPlace} disabled={confirmed || autoDeploying}
-          ><Dices size={15} /> 자동 배치</button
+        <button
+          class="button button--small"
+          type="button"
+          onclick={autoPlace}
+          disabled={confirmed || autoDeploying}><Dices size={15} /> 자동 배치</button
         >
         <button
           class="button button--small button--danger"
           type="button"
           onclick={reset}
-          disabled={confirmed || autoDeploying || placements.length === 0}><Trash2 size={15} /> 초기화</button
+          disabled={confirmed || autoDeploying || placements.length === 0}
+          ><Trash2 size={15} /> 초기화</button
         >
       </div>
       <div class="confirm-zone">
