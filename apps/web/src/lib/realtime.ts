@@ -79,9 +79,9 @@ class RealtimeClient {
     return false;
   }
 
- sync(roomId: string): void {
-   this.send({ type: 'game:sync', payload: { roomId } });
- }
+  sync(roomId: string): void {
+    this.send({ type: 'game:sync', payload: { roomId } });
+  }
 
   private applySnapshot(next: GameSnapshot): void {
     const current = get(gameSnapshot);
@@ -102,7 +102,7 @@ class RealtimeClient {
 
   private onClose(closedSocket: WebSocket): void {
     if (this.socket !== closedSocket) return;
-   this.socket = null;
+    this.socket = null;
     if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
     if (this.typingTimer) clearTimeout(this.typingTimer);
     this.typingTimer = null;
@@ -144,7 +144,7 @@ class RealtimeClient {
         return;
       }
       this.applySnapshot(event.payload);
-     gameError.set(null);
+      gameError.set(null);
     } else if (event.type === 'room:created') {
       if (!isCompatibleGameSnapshot(event.payload.snapshot)) {
         gameError.set({
@@ -228,10 +228,10 @@ class RealtimeClient {
         setTimeout(() => dismissHudNotification(notification.id), 5_000);
       }
     } else if (event.type === 'turn:started' || event.type === 'game:timer-sync') {
-     gameSnapshot.update((snapshot) => {
-       if (!snapshot || snapshot.room.id !== event.payload.roomId) return snapshot;
+      gameSnapshot.update((snapshot) => {
+        if (!snapshot || snapshot.room.id !== event.payload.roomId) return snapshot;
         if (event.payload.turnNumber < (snapshot.turnNumber ?? 0)) return snapshot;
-       return {
+        return {
           ...snapshot,
           turnNumber: event.payload.turnNumber,
           currentPlayerId: event.payload.activePlayerId,

@@ -129,14 +129,29 @@
   {#if snapshot.revealedBoard}
     <section class="report-intel" aria-labelledby="report-intel-title">
       <header>
-        <div><small>FINAL INTELLIGENCE / DECLASSIFIED</small><h2 id="report-intel-title">적 함대 배치 복기</h2></div>
+        <div>
+          <small>FINAL INTELLIGENCE / DECLASSIFIED</small>
+          <h2 id="report-intel-title">적 함대 배치 복기</h2>
+        </div>
         <span>FOG OF WAR / LIFTED</span>
       </header>
       <div class="report-intel__layout">
-        <GridBoard mode="own" label="공개된 적 함대 배치" ownBoard={snapshot.revealedBoard} disabled={true} />
+        <GridBoard
+          mode="own"
+          label="공개된 적 함대 배치"
+          ownBoard={snapshot.revealedBoard}
+          disabled={true}
+        />
         <div class="report-intel__copy">
-          <p>교전 종료와 함께 적 함대의 실제 위치가 공개되었습니다. 공격 기록과 함선의 형태를 겹쳐 다음 작전의 추론 근거를 확인하십시오.</p>
-          <div class="report-intel__legend"><span><i class="report-ship"></i> 적 함선</span><span><i class="report-hit"></i> 명중 지점</span><span><i class="report-miss"></i> 빗나간 좌표</span></div>
+          <p>
+            교전 종료와 함께 적 함대의 실제 위치가 공개되었습니다. 공격 기록과 함선의 형태를 겹쳐
+            다음 작전의 추론 근거를 확인하십시오.
+          </p>
+          <div class="report-intel__legend">
+            <span><i class="report-ship"></i> 적 함선</span><span
+              ><i class="report-hit"></i> 명중 지점</span
+            ><span><i class="report-miss"></i> 빗나간 좌표</span>
+          </div>
         </div>
       </div>
     </section>
@@ -349,26 +364,118 @@
     }
   }
 
-  .result { width: min(980px, 100%); padding: 34px; border-radius: 10px 3px 10px 3px; border-color: rgba(83, 233, 232, .3); background: linear-gradient(150deg, rgba(8, 29, 37, .96), rgba(2, 12, 19, .98)); }
-  .result--loss { border-color: rgba(238, 86, 103, .28); }
-  .result h1 { font-family: var(--font-display); font-size: clamp(42px, 6vw, 62px); letter-spacing: .03em; }
-  .result__classification { color: var(--ink-500); }
-  .result__emblem { border-radius: 10px 3px 10px 3px; }
-  .result-score { margin: 24px 0; background: rgba(1, 9, 14, .3); }
-  .result-score strong { font-family: var(--font-display); font-size: 42px; }
-  .stats-grid article { border-radius: 5px 2px 5px 2px; background: rgba(2, 13, 20, .65); }
-  .report-intel { margin-top: 22px; padding-top: 20px; border-top: 1px solid var(--line); text-align: left; }
-  .report-intel > header { display: flex; align-items: end; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
-  .report-intel > header small { color: var(--ink-500); font: 600 8px var(--font-display); letter-spacing: .15em; }
-  .report-intel > header h2 { margin: 4px 0 0; font-family: var(--font-display); font-size: 21px; }
-  .report-intel > header span { color: var(--safe); font: 600 8px var(--font-display); letter-spacing: .1em; }
-  .report-intel__layout { display: grid; grid-template-columns: minmax(0, 1fr) 220px; gap: 18px; align-items: center; }
-  .report-intel__layout :global(.board-wrap) { max-width: 500px; }
-  .report-intel__copy { color: var(--ink-400); font-size: 11px; line-height: 1.8; }
-  .report-intel__copy p { margin: 0 0 16px; }
-  .report-intel__legend { display: grid; gap: 8px; color: var(--ink-300); font: 600 9px var(--font-display); }
-  .report-intel__legend span { display: flex; align-items: center; gap: 7px; }
-  .report-intel__legend i { width: 8px; height: 8px; border-radius: 50%; }
-  .report-ship { background: #75b9bd; } .report-hit { background: #ff7e46; } .report-miss { background: #6bb6d1; }
-  @media (max-width: 650px) { .result { padding: 26px 14px; } .report-intel__layout { grid-template-columns: 1fr; } .report-intel__copy { padding: 0 6px; } }
+  .result {
+    width: min(980px, 100%);
+    padding: 34px;
+    border-radius: 10px 3px 10px 3px;
+    border-color: rgba(83, 233, 232, 0.3);
+    background: linear-gradient(150deg, rgba(8, 29, 37, 0.96), rgba(2, 12, 19, 0.98));
+  }
+  .result--loss {
+    border-color: rgba(238, 86, 103, 0.28);
+  }
+  .result h1 {
+    font-family: var(--font-display);
+    font-size: clamp(42px, 6vw, 62px);
+    letter-spacing: 0.03em;
+  }
+  .result__classification {
+    color: var(--ink-500);
+  }
+  .result__emblem {
+    border-radius: 10px 3px 10px 3px;
+  }
+  .result-score {
+    margin: 24px 0;
+    background: rgba(1, 9, 14, 0.3);
+  }
+  .result-score strong {
+    font-family: var(--font-display);
+    font-size: 42px;
+  }
+  .stats-grid article {
+    border-radius: 5px 2px 5px 2px;
+    background: rgba(2, 13, 20, 0.65);
+  }
+  .report-intel {
+    margin-top: 22px;
+    padding-top: 20px;
+    border-top: 1px solid var(--line);
+    text-align: left;
+  }
+  .report-intel > header {
+    display: flex;
+    align-items: end;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+  .report-intel > header small {
+    color: var(--ink-500);
+    font: 600 8px var(--font-display);
+    letter-spacing: 0.15em;
+  }
+  .report-intel > header h2 {
+    margin: 4px 0 0;
+    font-family: var(--font-display);
+    font-size: 21px;
+  }
+  .report-intel > header span {
+    color: var(--safe);
+    font: 600 8px var(--font-display);
+    letter-spacing: 0.1em;
+  }
+  .report-intel__layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 220px;
+    gap: 18px;
+    align-items: center;
+  }
+  .report-intel__layout :global(.board-wrap) {
+    max-width: 500px;
+  }
+  .report-intel__copy {
+    color: var(--ink-400);
+    font-size: 11px;
+    line-height: 1.8;
+  }
+  .report-intel__copy p {
+    margin: 0 0 16px;
+  }
+  .report-intel__legend {
+    display: grid;
+    gap: 8px;
+    color: var(--ink-300);
+    font: 600 9px var(--font-display);
+  }
+  .report-intel__legend span {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+  }
+  .report-intel__legend i {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+  }
+  .report-ship {
+    background: #75b9bd;
+  }
+  .report-hit {
+    background: #ff7e46;
+  }
+  .report-miss {
+    background: #6bb6d1;
+  }
+  @media (max-width: 650px) {
+    .result {
+      padding: 26px 14px;
+    }
+    .report-intel__layout {
+      grid-template-columns: 1fr;
+    }
+    .report-intel__copy {
+      padding: 0 6px;
+    }
+  }
 </style>

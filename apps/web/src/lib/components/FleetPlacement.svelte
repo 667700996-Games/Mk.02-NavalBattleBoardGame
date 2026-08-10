@@ -545,33 +545,135 @@
     }
   }
 
-  .placement { position: relative; padding: 4px 0 28px; }
-  .placement::before { position: absolute; z-index: -1; top: 52px; right: -14%; bottom: 2%; left: -14%; content: ''; opacity: .35; pointer-events: none; background: radial-gradient(ellipse at center, rgba(35, 129, 140, .12), transparent 62%); }
-  .placement__heading { padding-bottom: 18px; border-bottom: 1px solid var(--line); }
-  .placement__heading h2 { font-family: var(--font-display); font-size: clamp(30px, 4vw, 44px); font-weight: 600; letter-spacing: .02em; }
-  .placement__heading p:last-child { color: var(--ink-400); }
-  .deployment-steps { border: 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); border-radius: 0; background: transparent; }
-  .deployment-steps span { min-height: 62px; border-right: 1px solid var(--line); background: rgba(2, 12, 18, .25); }
-  .deployment-steps span.active { background: linear-gradient(90deg, rgba(83, 233, 232, .08), transparent); }
-  .placement__layout { grid-template-columns: minmax(0, 1.3fr) minmax(286px, .7fr); gap: 12px; }
-  .placement__board { border-radius: 10px 3px 10px 3px; border-color: rgba(83, 233, 232, .24); background: linear-gradient(145deg, rgba(6, 29, 38, .9), rgba(2, 13, 20, .94)); }
-  .board-toolbar { padding: 0 3px 8px; border-bottom: 1px solid var(--line); }
-  .board-toolbar span { color: var(--tactical); font-size: 10px; }
-  .board-toolbar small { color: var(--ink-500); font-size: 8px; }
-  .placement-notice { min-height: 23px; padding: 7px 9px; border-left: 2px solid var(--tactical); background: rgba(83, 233, 232, .045); color: var(--ink-300); }
-  .placement-notice.danger { border-color: var(--critical); color: #ff9ca5; background: rgba(238, 86, 103, .06); }
-  .fleet-dock { border-radius: 10px 3px 10px 3px; border-color: rgba(130, 188, 199, .18); background: linear-gradient(165deg, rgba(8, 29, 37, .92), rgba(2, 13, 20, .96)); }
-  .fleet-dock__heading { border-bottom-color: var(--line); }
-  .fleet-dock__heading strong { font-family: var(--font-display); font-size: 17px; letter-spacing: .04em; }
-  .fleet-item { border-radius: 5px 2px 5px 2px; background: rgba(2, 15, 22, .62); }
-  .fleet-item:hover, .fleet-item.selected { border-color: var(--line-active); background: rgba(83, 233, 232, .08); transform: translateX(0); }
-  .fleet-item.placed { border-left: 2px solid var(--safe); }
-  .fleet-item:nth-child(1) .ship-shape i, .fleet-item:nth-child(2) .ship-shape i, .fleet-item:nth-child(3) .ship-shape i { height: 10px; }
-  .fleet-item:nth-child(1) .ship-shape i:first-child { border-radius: 60% 2px 2px 60%; }
-  .fleet-item:nth-child(1) .ship-shape i:last-child { border-radius: 2px 60% 60% 2px; }
-  .fleet-item:nth-child(4) .ship-shape { transform: rotate(90deg) scale(.72); }
-  .fleet-item:nth-child(5) .ship-shape i { width: 13px; }
-  .confirm-zone { background: linear-gradient(180deg, rgba(83, 233, 232, .04), transparent); }
-  .confirm-zone .button--primary { min-height: 48px; }
-  @media (max-width: 930px) { .placement__layout { grid-template-columns: 1fr; } }
+  .placement {
+    position: relative;
+    padding: 4px 0 28px;
+  }
+  .placement::before {
+    position: absolute;
+    z-index: -1;
+    top: 52px;
+    right: -14%;
+    bottom: 2%;
+    left: -14%;
+    content: '';
+    opacity: 0.35;
+    pointer-events: none;
+    background: radial-gradient(ellipse at center, rgba(35, 129, 140, 0.12), transparent 62%);
+  }
+  .placement__heading {
+    padding-bottom: 18px;
+    border-bottom: 1px solid var(--line);
+  }
+  .placement__heading h2 {
+    font-family: var(--font-display);
+    font-size: clamp(30px, 4vw, 44px);
+    font-weight: 600;
+    letter-spacing: 0.02em;
+  }
+  .placement__heading p:last-child {
+    color: var(--ink-400);
+  }
+  .deployment-steps {
+    border: 0;
+    border-top: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+    border-radius: 0;
+    background: transparent;
+  }
+  .deployment-steps span {
+    min-height: 62px;
+    border-right: 1px solid var(--line);
+    background: rgba(2, 12, 18, 0.25);
+  }
+  .deployment-steps span.active {
+    background: linear-gradient(90deg, rgba(83, 233, 232, 0.08), transparent);
+  }
+  .placement__layout {
+    grid-template-columns: minmax(0, 1.3fr) minmax(286px, 0.7fr);
+    gap: 12px;
+  }
+  .placement__board {
+    border-radius: 10px 3px 10px 3px;
+    border-color: rgba(83, 233, 232, 0.24);
+    background: linear-gradient(145deg, rgba(6, 29, 38, 0.9), rgba(2, 13, 20, 0.94));
+  }
+  .board-toolbar {
+    padding: 0 3px 8px;
+    border-bottom: 1px solid var(--line);
+  }
+  .board-toolbar span {
+    color: var(--tactical);
+    font-size: 10px;
+  }
+  .board-toolbar small {
+    color: var(--ink-500);
+    font-size: 8px;
+  }
+  .placement-notice {
+    min-height: 23px;
+    padding: 7px 9px;
+    border-left: 2px solid var(--tactical);
+    background: rgba(83, 233, 232, 0.045);
+    color: var(--ink-300);
+  }
+  .placement-notice.danger {
+    border-color: var(--critical);
+    color: #ff9ca5;
+    background: rgba(238, 86, 103, 0.06);
+  }
+  .fleet-dock {
+    border-radius: 10px 3px 10px 3px;
+    border-color: rgba(130, 188, 199, 0.18);
+    background: linear-gradient(165deg, rgba(8, 29, 37, 0.92), rgba(2, 13, 20, 0.96));
+  }
+  .fleet-dock__heading {
+    border-bottom-color: var(--line);
+  }
+  .fleet-dock__heading strong {
+    font-family: var(--font-display);
+    font-size: 17px;
+    letter-spacing: 0.04em;
+  }
+  .fleet-item {
+    border-radius: 5px 2px 5px 2px;
+    background: rgba(2, 15, 22, 0.62);
+  }
+  .fleet-item:hover,
+  .fleet-item.selected {
+    border-color: var(--line-active);
+    background: rgba(83, 233, 232, 0.08);
+    transform: translateX(0);
+  }
+  .fleet-item.placed {
+    border-left: 2px solid var(--safe);
+  }
+  .fleet-item:nth-child(1) .ship-shape i,
+  .fleet-item:nth-child(2) .ship-shape i,
+  .fleet-item:nth-child(3) .ship-shape i {
+    height: 10px;
+  }
+  .fleet-item:nth-child(1) .ship-shape i:first-child {
+    border-radius: 60% 2px 2px 60%;
+  }
+  .fleet-item:nth-child(1) .ship-shape i:last-child {
+    border-radius: 2px 60% 60% 2px;
+  }
+  .fleet-item:nth-child(4) .ship-shape {
+    transform: rotate(90deg) scale(0.72);
+  }
+  .fleet-item:nth-child(5) .ship-shape i {
+    width: 13px;
+  }
+  .confirm-zone {
+    background: linear-gradient(180deg, rgba(83, 233, 232, 0.04), transparent);
+  }
+  .confirm-zone .button--primary {
+    min-height: 48px;
+  }
+  @media (max-width: 930px) {
+    .placement__layout {
+      grid-template-columns: 1fr;
+    }
+  }
 </style>

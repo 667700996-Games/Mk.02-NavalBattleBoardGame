@@ -648,22 +648,102 @@
       min-height: auto;
     }
   }
-  .hero { position: relative; max-width: 1520px; min-height: min(900px, calc(100vh - 72px)); overflow: clip; }
-  .hero::before { position: absolute; z-index: -1; top: 22%; right: 0; bottom: 0; left: 0; content: ''; opacity: .26; pointer-events: none; background: radial-gradient(ellipse at center, rgba(42, 140, 151, .16), transparent 65%); }
-  .hero__status-line { color: var(--ink-500); letter-spacing: .16em; }
-  .display-title { font-family: var(--font-display); font-size: clamp(52px, 6.8vw, 94px); line-height: .98; letter-spacing: .01em; }
-  .hero__lead { max-width: 620px; color: var(--ink-300); }
-  :global(.command-entry) { border-radius: 8px 3px 8px 3px; border-color: rgba(83, 233, 232, .28); background: linear-gradient(145deg, rgba(8, 30, 38, .86), rgba(2, 13, 20, .94)); }
-  .command-entry__head { border-bottom-color: var(--line); }
-  .command-symbol { border-radius: 50%; color: var(--tactical); background: rgba(83, 233, 232, .08); }
-  .command-entry__head > span { color: var(--safe); }
-  .command-visual { filter: saturate(.84); }
-  .radar-shell { border-radius: 10px 3px 10px 3px; clip-path: polygon(3% 0, 97% 0, 100% 3%, 100% 97%, 97% 100%, 3% 100%, 0 97%, 0 3%); background: radial-gradient(circle at 50% 48%, rgba(8, 78, 88, .32), rgba(2, 13, 20, .96) 67%); }
-  .radar-shell::before { position: absolute; inset: 0; content: ''; opacity: .22; background: repeating-linear-gradient(165deg, transparent 0 8px, rgba(93, 191, 198, .035) 9px 10px); }
-  .telemetry-card { border-radius: 3px; border-color: var(--line); background: rgba(2, 13, 20, .86); }
-  .mission-brief { padding-top: 22px; }
-  .mission-grid { gap: 12px; }
-  :global(.mission-grid .ui-surface) { border-radius: 7px 2px 7px 2px; border-color: var(--line); background: linear-gradient(145deg, rgba(7, 28, 36, .82), rgba(2, 13, 20, .86)); }
-  :global(.mission-grid .ui-surface:hover) { border-color: var(--line-active); }
-  @media (max-width: 820px) { .hero { min-height: auto; } .display-title { font-size: clamp(49px, 12vw, 74px); } }
+  .hero {
+    position: relative;
+    max-width: 1520px;
+    min-height: min(900px, calc(100vh - 72px));
+    overflow: clip;
+  }
+  .hero::before {
+    position: absolute;
+    z-index: -1;
+    top: 22%;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    content: '';
+    opacity: 0.26;
+    pointer-events: none;
+    background: radial-gradient(ellipse at center, rgba(42, 140, 151, 0.16), transparent 65%);
+  }
+  .hero__status-line {
+    color: var(--ink-500);
+    letter-spacing: 0.16em;
+  }
+  .display-title {
+    font-family: var(--font-display);
+    font-size: clamp(52px, 6.8vw, 94px);
+    line-height: 0.98;
+    letter-spacing: 0.01em;
+  }
+  .hero__lead {
+    max-width: 620px;
+    color: var(--ink-300);
+  }
+  :global(.command-entry) {
+    border-radius: 8px 3px 8px 3px;
+    border-color: rgba(83, 233, 232, 0.28);
+    background: linear-gradient(145deg, rgba(8, 30, 38, 0.86), rgba(2, 13, 20, 0.94));
+  }
+  .command-entry__head {
+    border-bottom-color: var(--line);
+  }
+  .command-symbol {
+    border-radius: 50%;
+    color: var(--tactical);
+    background: rgba(83, 233, 232, 0.08);
+  }
+  .command-entry__head > span {
+    color: var(--safe);
+  }
+  .command-visual {
+    filter: saturate(0.84);
+  }
+  .radar-shell {
+    border-radius: 10px 3px 10px 3px;
+    clip-path: polygon(3% 0, 97% 0, 100% 3%, 100% 97%, 97% 100%, 3% 100%, 0 97%, 0 3%);
+    background: radial-gradient(
+      circle at 50% 48%,
+      rgba(8, 78, 88, 0.32),
+      rgba(2, 13, 20, 0.96) 67%
+    );
+  }
+  .radar-shell::before {
+    position: absolute;
+    inset: 0;
+    content: '';
+    opacity: 0.22;
+    background: repeating-linear-gradient(
+      165deg,
+      transparent 0 8px,
+      rgba(93, 191, 198, 0.035) 9px 10px
+    );
+  }
+  .telemetry-card {
+    border-radius: 3px;
+    border-color: var(--line);
+    background: rgba(2, 13, 20, 0.86);
+  }
+  .mission-brief {
+    padding-top: 22px;
+  }
+  .mission-grid {
+    gap: 12px;
+  }
+  :global(.mission-grid .ui-surface) {
+    border-radius: 7px 2px 7px 2px;
+    border-color: var(--line);
+    background: linear-gradient(145deg, rgba(7, 28, 36, 0.82), rgba(2, 13, 20, 0.86));
+  }
+  :global(.mission-grid .ui-surface:hover) {
+    border-color: var(--line-active);
+  }
+  @media (max-width: 820px) {
+    .hero {
+      min-height: auto;
+    }
+    .display-title {
+      font-size: clamp(49px, 12vw, 74px);
+    }
+  }
 </style>

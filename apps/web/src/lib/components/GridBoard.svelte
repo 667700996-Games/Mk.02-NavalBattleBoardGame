@@ -377,7 +377,12 @@
     display: block;
     border: 1px solid rgba(157, 218, 224, 0.52);
     border-radius: 0;
-    background: linear-gradient(90deg, rgba(133, 204, 211, 0.75), rgba(46, 91, 106, 0.96) 56%, rgba(20, 52, 66, 0.98));
+    background: linear-gradient(
+      90deg,
+      rgba(133, 204, 211, 0.75),
+      rgba(46, 91, 106, 0.96) 56%,
+      rgba(20, 52, 66, 0.98)
+    );
     box-shadow:
       inset 0 1px rgba(255, 255, 255, 0.28),
       inset 0 -2px rgba(1, 17, 25, 0.52),
@@ -425,7 +430,12 @@
   }
   .cell--ship-vertical .ship-segment {
     inset: -1px 17%;
-    background: linear-gradient(180deg, rgba(134, 204, 211, 0.75), rgba(46, 91, 106, 0.96) 56%, rgba(20, 52, 66, 0.98));
+    background: linear-gradient(
+      180deg,
+      rgba(134, 204, 211, 0.75),
+      rgba(46, 91, 106, 0.96) 56%,
+      rgba(20, 52, 66, 0.98)
+    );
   }
   .cell--ship-vertical .ship-segment::before {
     top: 18%;
