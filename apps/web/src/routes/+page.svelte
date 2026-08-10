@@ -752,7 +752,8 @@
       min-height: auto;
     }
     .display-title {
-      font-size: clamp(49px, 12vw, 74px);
+      font-size: clamp(42px, 11vw, 64px);
+      line-height: 0.96;
     }
   }
   @media (min-width: 821px) and (max-height: 780px) {

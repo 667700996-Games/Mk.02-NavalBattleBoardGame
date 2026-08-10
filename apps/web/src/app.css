@@ -1081,10 +1081,18 @@ p {
   position: fixed;
   z-index: 110;
   right: 20px;
-  bottom: max(20px, env(safe-area-inset-bottom));
+  top: 88px;
   display: grid;
   width: min(410px, calc(100vw - 40px));
   gap: 10px;
+}
+
+@media (max-width: 600px) {
+  .toast-stack {
+    top: 72px;
+    right: 12px;
+    width: min(380px, calc(100vw - 24px));
+  }
 }
 
 .toast,
@@ -1592,7 +1600,7 @@ p {
 
   .toast-stack {
     right: 12px;
-    bottom: max(12px, env(safe-area-inset-bottom));
+    top: 72px;
     width: calc(100vw - 24px);
   }
 }

@@ -225,7 +225,7 @@ class RealtimeClient {
           tone: ready ? ('success' as const) : ('warning' as const)
         };
         hudNotifications.update((notifications) => [...notifications, notification].slice(-3));
-        setTimeout(() => dismissHudNotification(notification.id), 5_000);
+        setTimeout(() => dismissHudNotification(notification.id), 1_800);
       }
     } else if (event.type === 'game:start:accepted') {
       const snapshot = get(gameSnapshot);
@@ -237,7 +237,7 @@ class RealtimeClient {
           tone: 'success' as const
         };
         hudNotifications.update((notifications) => [...notifications, notification].slice(-3));
-        setTimeout(() => dismissHudNotification(notification.id), 5_000);
+        setTimeout(() => dismissHudNotification(notification.id), 1_800);
       }
     } else if (event.type === 'turn:started' || event.type === 'game:timer-sync') {
       gameSnapshot.update((snapshot) => {

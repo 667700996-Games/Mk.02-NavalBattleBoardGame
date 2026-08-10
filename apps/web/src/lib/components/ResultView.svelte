@@ -375,6 +375,9 @@
   .result--loss {
     border-color: rgba(238, 86, 103, 0.28);
   }
+  .result--loss .eyebrow {
+    color: var(--critical);
+  }
   .result h1 {
     font-family: var(--font-display);
     font-size: clamp(42px, 6vw, 62px);

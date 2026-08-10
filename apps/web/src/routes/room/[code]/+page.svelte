@@ -389,7 +389,12 @@
       />
     {:else if snapshot.room.status === 'FINISHED'}
       {#if resultTransition}
-        <section class="result-recognition" role="status" aria-live="polite">
+        <section
+          class:result-recognition--loss={snapshot.result?.winnerId !== snapshot.selfPlayerId}
+          class="result-recognition"
+          role="status"
+          aria-live="polite"
+        >
           <span class="result-recognition__pulse"><Check size={20} /></span>
           <small>FINAL IMPACT / BATTLESPACE FROZEN</small>
           <strong>RESULT RECOGNIZED</strong>
@@ -821,6 +826,15 @@
     color: var(--ink-50);
     font: 700 21px var(--font-display);
     letter-spacing: 0.12em;
+  }
+  .result-recognition--loss {
+    border-color: rgba(238, 86, 103, 0.44);
+    border-top-color: var(--critical);
+    background: rgba(29, 10, 18, 0.94);
+  }
+  .result-recognition--loss .result-recognition__pulse {
+    border-color: var(--critical);
+    color: var(--critical);
   }
   @keyframes report-recognition {
     from {
