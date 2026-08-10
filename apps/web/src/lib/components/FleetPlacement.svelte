@@ -103,15 +103,29 @@
     sounds.select();
   }
 
-  function autoPlace() {
-    placements = autoPlaceFleet();
+  async function autoPlace() {
+    if (confirmed || autoDeploying) return;
+    const deployed = autoPlaceFleet();
+    autoDeploying = true;
+    placements = [];
+    notice = '자동 배치 순서 실행 중…';
+    if ($preferences.reducedMotion) {
+      placements = deployed;
+    } else {
+      for (const [index, placement] of deployed.entries()) {
+        await new Promise((resolve) => setTimeout(resolve, 85));
+        placements = [...deployed.slice(0, index + 1)];
+        sounds.place();
+      }
+    }
     selectedKind = 'CARRIER';
-    orientation = placements[0].orientation;
+    orientation = deployed[0]?.orientation ?? 'HORIZONTAL';
     notice = '함대 자동 배치가 완료되었습니다. 확정 전까지 수정할 수 있습니다.';
-    sounds.place();
+    autoDeploying = false;
   }
 
   function reset() {
+    if (autoDeploying) return;
     placements = [];
     selectedKind = 'CARRIER';
     orientation = 'HORIZONTAL';
@@ -163,6 +177,7 @@
         label="내 함대 배치 보드"
         {placements}
         previewCells={preview.cells ?? []}
+        previewKind={selectedKind}
         previewValid={preview.valid}
         interactive={!confirmed}
         disabled={confirmed || submitting}
@@ -196,7 +211,7 @@
               ><strong>{ship.name}</strong><small>{ship.size} CELLS</small></span
             >
             <span class="ship-shape" aria-hidden="true"
-              >{#each Array.from({ length: ship.size }) as _, index (index)}<i></i>{/each}</span
+              ><Vessel kind={ship.kind} state={placed ? 'deployed' : 'docked'} /></span
             >
             {#if placed}<span class="placed-check"><Check size={15} /></span>{/if}
           </button>
@@ -207,16 +222,16 @@
           class="button button--small"
           type="button"
           onclick={rotate}
-          disabled={confirmed || !selectedKind}><RotateCw size={15} /> 회전</button
+          disabled={confirmed || autoDeploying || !selectedKind}><RotateCw size={15} /> 회전</button
         >
-        <button class="button button--small" type="button" onclick={autoPlace} disabled={confirmed}
+        <button class="button button--small" type="button" onclick={autoPlace} disabled={confirmed || autoDeploying}
           ><Dices size={15} /> 자동 배치</button
         >
         <button
           class="button button--small button--danger"
           type="button"
           onclick={reset}
-          disabled={confirmed || placements.length === 0}><Trash2 size={15} /> 초기화</button
+          disabled={confirmed || autoDeploying || placements.length === 0}><Trash2 size={15} /> 초기화</button
         >
       </div>
       <div class="confirm-zone">
@@ -663,10 +678,22 @@
     border-radius: 2px 60% 60% 2px;
   }
   .fleet-item:nth-child(4) .ship-shape {
-    transform: rotate(90deg) scale(0.72);
+    transform: none;
   }
   .fleet-item:nth-child(5) .ship-shape i {
     width: 13px;
+  }
+  .ship-shape {
+    display: block;
+    width: 112px;
+    height: 28px;
+  }
+  .ship-shape :global(.vessel) {
+    width: 100%;
+    height: 100%;
+  }
+  .fleet-item.selected .ship-shape :global(.vessel) {
+    filter: drop-shadow(0 0 5px rgba(83, 233, 232, 0.42));
   }
   .confirm-zone {
     background: linear-gradient(180deg, rgba(83, 233, 232, 0.04), transparent);

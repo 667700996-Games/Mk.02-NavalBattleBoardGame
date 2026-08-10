@@ -141,7 +141,15 @@
 
   <div class="room-command-grid">
     <div class="player-slots" aria-label="지휘관 준비 상태">
-      {#each [hostPlayer, guestPlayer] as player (player?.role ?? 'EMPTY_GUEST')}
+      {#each [hostPlayer, guestPlayer] as player, index (player?.role ?? 'EMPTY_GUEST')}
+        {#if index === 1}
+          <div class:active={allReady} class="tactical-link" aria-hidden="true">
+            <span class="tactical-link__line"></span>
+            <strong>VS</strong>
+            <small>{allReady ? 'LINK ESTABLISHED' : 'AWAITING LINK'}</small>
+            <span class="tactical-link__line"></span>
+          </div>
+        {/if}
         {#if player}
           <article
             class:player-slot--ready={player.readyState === 'READY'}

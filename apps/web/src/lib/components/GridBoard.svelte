@@ -552,8 +552,8 @@
       padding: 3px;
       border-radius: 9px;
     }
-    .ship-segment {
-      inset: 14%;
+    .vessel-slot {
+      padding: 2%;
     }
   }
 </style>
