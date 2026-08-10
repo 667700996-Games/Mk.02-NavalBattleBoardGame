@@ -539,9 +539,7 @@
       padding-inline: 5px;
     }
   }
-</style>
 
-<style>
   .placement { position: relative; padding: 4px 0 28px; }
   .placement::before { position: absolute; z-index: -1; top: 52px; right: -14%; bottom: 2%; left: -14%; content: ''; opacity: .35; pointer-events: none; background: radial-gradient(ellipse at center, rgba(35, 129, 140, .12), transparent 62%); }
   .placement__heading { padding-bottom: 18px; border-bottom: 1px solid var(--line); }

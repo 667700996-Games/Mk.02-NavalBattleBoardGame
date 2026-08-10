@@ -650,9 +650,7 @@
       width: 100%;
     }
   }
-</style>
 
-<style>
   .waiting { position: relative; width: min(1120px, 100%); padding: 28px; overflow: hidden; border-radius: 10px 3px 10px 3px; border-color: rgba(104, 195, 204, .22); background: linear-gradient(145deg, rgba(7, 27, 36, .94), rgba(2, 12, 19, .96)); }
   .waiting::before { position: absolute; inset: 0; content: ''; opacity: .22; pointer-events: none; background: repeating-linear-gradient(150deg, transparent 0 12px, rgba(95, 185, 192, .025) 13px 14px); }
   .waiting > * { position: relative; z-index: 1; }

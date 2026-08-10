@@ -350,7 +350,7 @@
   }
 </style>
 
-<style>
+<!-- tactical presentation overrides live in the component stylesheet below -->
   .result { width: min(980px, 100%); padding: 34px; border-radius: 10px 3px 10px 3px; border-color: rgba(83, 233, 232, .3); background: linear-gradient(150deg, rgba(8, 29, 37, .96), rgba(2, 12, 19, .98)); }
   .result--loss { border-color: rgba(238, 86, 103, .28); }
   .result h1 { font-family: var(--font-display); font-size: clamp(42px, 6vw, 62px); letter-spacing: .03em; }
