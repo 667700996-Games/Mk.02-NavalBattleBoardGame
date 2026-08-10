@@ -102,7 +102,7 @@
   let canFire = $derived(
     Boolean(
       selected &&
-      !fireSequence &&
+      (!fireSequence || fireSequence.stage === 'IMPACT') &&
       myTurn &&
       !pending &&
       !disabled &&
@@ -135,7 +135,7 @@
       !myTurn ||
       pending ||
       disabled ||
-      fireSequence ||
+      (fireSequence && fireSequence.stage !== 'IMPACT') ||
       remainingSeconds === 0 ||
       attackedKeys.has(coordinateKey(coordinate))
     )
