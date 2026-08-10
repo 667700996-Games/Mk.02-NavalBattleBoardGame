@@ -446,15 +446,6 @@
     display: flex;
     gap: 2px;
   }
-  .ship-shape i {
-    display: block;
-    width: 11px;
-    height: 8px;
-    border: 1px solid rgba(132, 198, 211, 0.42);
-    border-radius: 2px;
-    background: linear-gradient(180deg, #59869a, #244f63);
-    box-shadow: inset 0 1px rgba(255, 255, 255, 0.15);
-  }
   .placed-check {
     position: absolute;
     top: 6px;
@@ -666,22 +657,8 @@
   .fleet-item.placed {
     border-left: 2px solid var(--safe);
   }
-  .fleet-item:nth-child(1) .ship-shape i,
-  .fleet-item:nth-child(2) .ship-shape i,
-  .fleet-item:nth-child(3) .ship-shape i {
-    height: 10px;
-  }
-  .fleet-item:nth-child(1) .ship-shape i:first-child {
-    border-radius: 60% 2px 2px 60%;
-  }
-  .fleet-item:nth-child(1) .ship-shape i:last-child {
-    border-radius: 2px 60% 60% 2px;
-  }
   .fleet-item:nth-child(4) .ship-shape {
     transform: none;
-  }
-  .fleet-item:nth-child(5) .ship-shape i {
-    width: 13px;
   }
   .ship-shape {
     display: block;

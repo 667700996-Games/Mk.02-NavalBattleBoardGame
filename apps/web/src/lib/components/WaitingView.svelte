@@ -45,7 +45,7 @@
   let hostPlayer = $derived(snapshot.players.find((player) => player.id === snapshot.hostPlayerId));
   let guestPlayer = $derived(snapshot.players.find((player) => player.role === 'GUEST'));
   let isHost = $derived(snapshot.selfPlayerId === snapshot.hostPlayerId);
-  let observedPlayerCount = $state(snapshot.players.length);
+  let observedPlayerCount = $state(0);
   let allReady = $derived(
     snapshot.players.length === 2 &&
       snapshot.players.every((player) => player.readyState === 'READY')

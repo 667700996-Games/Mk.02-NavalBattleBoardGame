@@ -1030,20 +1030,20 @@
   :global(.room-card) article > :global(.ui-button) {
     width: 100%;
   }
-  .rooms-empty {
+  :global(.rooms-empty) {
     min-height: 230px;
     display: grid;
     place-items: center;
     align-content: center;
     text-align: center;
   }
-  .rooms-empty h3 {
+  :global(.rooms-empty h3) {
     margin: 16px 0 7px;
     color: var(--ink-200);
     font: 700 17px var(--font-display);
     letter-spacing: 0.08em;
   }
-  .rooms-empty p {
+  :global(.rooms-empty p) {
     max-width: 480px;
     color: var(--ink-400);
     font-size: 11px;

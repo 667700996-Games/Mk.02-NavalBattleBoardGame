@@ -217,7 +217,6 @@
         {@const isSelected = selected?.row === coordinate.row && selected?.col === coordinate.col}
         <button
           class:cell--ship={Boolean(kind)}
-          class:cell--ship-vertical={Boolean(ship?.vertical)}
           class:cell--preview={preview && previewValid}
           class:cell--invalid={preview && !previewValid}
           class:cell--selected={isSelected}
