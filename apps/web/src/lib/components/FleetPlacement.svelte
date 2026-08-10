@@ -77,7 +77,7 @@
     if (selectedKind)
       orientation =
         placements.find((placement) => placement.kind === selectedKind)?.orientation ?? orientation;
-    sounds.select();
+    sounds.place();
   }
 
   function rotate() {
@@ -96,6 +96,7 @@
     placements = [...placements.filter((placement) => placement.kind !== selectedKind), rotated];
     orientation = rotated.orientation;
     notice = `${shipName(selectedKind)} 방향 전환`;
+    sounds.rotate();
     sounds.select();
   }
 
@@ -104,6 +105,7 @@
     selectedKind = 'CARRIER';
     orientation = placements[0].orientation;
     notice = '함대 자동 배치가 완료되었습니다. 확정 전까지 수정할 수 있습니다.';
+    sounds.place();
   }
 
   function reset() {
@@ -224,7 +226,10 @@
           class="button button--primary button--wide"
           type="button"
           disabled={!fleet.valid || confirmed || submitting}
-          onclick={() => onconfirm(placements)}
+          onclick={() => {
+            sounds.confirm();
+            onconfirm(placements);
+          }}
           ><Check size={17} />
           {submitting ? '배치 확인 중…' : confirmed ? '배치 확정됨' : '배치 확정'}</button
         >

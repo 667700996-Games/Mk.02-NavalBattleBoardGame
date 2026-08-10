@@ -129,6 +129,7 @@
 
   function fire() {
     if (!selected || !canFire) return;
+    sounds.fire();
     onfire(selected);
     selected = null;
   }

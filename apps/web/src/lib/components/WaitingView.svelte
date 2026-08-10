@@ -669,7 +669,6 @@
   .player-slot:first-child { border-top: 2px solid var(--tactical); }
   .player-slot:nth-child(2) { border-top: 2px solid var(--warning); }
   .player-slot--ready { border-color: rgba(104, 215, 170, .38); background: linear-gradient(155deg, rgba(10, 54, 48, .72), rgba(2, 17, 23, .92)); }
-  .player-slot__placeholder { color: var(--ink-400); }
   .player-avatar { border-radius: 50%; color: var(--tactical); background: rgba(83, 233, 232, .08); }
   .player-slot:nth-child(2) .player-avatar { color: var(--warning); background: rgba(237, 181, 82, .08); }
   .player-identity strong { font-family: var(--font-display); font-size: 20px; letter-spacing: .03em; }
@@ -687,7 +686,6 @@
   .start-reason.available { color: var(--safe); }
   .guest-guidance { border-radius: 4px; border-color: rgba(104, 215, 170, .24); background: rgba(104, 215, 170, .06); }
   .system-log { margin-top: 16px; border-color: var(--line); border-radius: 3px; background: rgba(1, 8, 13, .5); }
-  .leave-button { margin-top: 18px; }
   @media (max-width: 820px) { .room-command-grid { grid-template-columns: 1fr; } .player-slots { grid-template-columns: 1fr 1fr; } }
   @media (max-width: 580px) { .waiting { padding: 18px 14px; } .waiting-heading { grid-template-columns: auto 1fr; } .waiting-heading > :global(.ui-badge) { grid-column: 2; justify-self: start; } .player-slots { grid-template-columns: 1fr; } .player-slots::before { top: 50%; } .player-slot { min-height: 145px; } .room-identity { grid-template-columns: 1fr 1fr; } .room-identity > div:first-child { grid-column: 1 / -1; } .room-identity > div:nth-child(2) { border-bottom: 0; } }
 </style>
