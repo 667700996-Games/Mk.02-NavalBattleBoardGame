@@ -879,7 +879,6 @@
   :global(.room-card) { border-radius: 6px 2px 6px 2px; border-color: rgba(113, 178, 190, .17); background: linear-gradient(150deg, rgba(7, 27, 36, .8), rgba(2, 13, 20, .88)); }
   :global(.room-card:hover) { border-color: var(--line-active); transform: translateY(-2px); }
   .room-card__top { border-bottom-color: var(--line); }
-  .room-card__title strong { font-family: var(--font-display); font-size: 18px; letter-spacing: .03em; }
   .room-card__meta { color: var(--ink-500); }
   @media (max-width: 720px) { .lobby { padding-top: 30px; } }
 </style>

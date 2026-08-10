@@ -314,6 +314,17 @@
       </div>
     </div>
 
+    {#if launchSequence}
+      <div class="launch-sequence" role="status" aria-live="polite">
+        <span class="launch-sequence__radar"><i></i><b></b></span>
+        <small>MK.01 / COMMAND LINK</small>
+        <strong>{launchStages[launchStage]}</strong>
+        <div class="launch-sequence__steps">
+          {#each launchStages as stage, index (stage)}<i class:active={index <= launchStage}></i>{/each}
+        </div>
+      </div>
+    {/if}
+
     {#if snapshot.room.status === 'WAITING_FOR_OPPONENT' || snapshot.room.status === 'WAITING_FOR_READY' || snapshot.room.status === 'READY_TO_START'}
       <WaitingView
         {snapshot}
@@ -610,5 +621,16 @@
   .connection-indicator { font-family: var(--font-display); font-size: 9px; letter-spacing: .08em; }
   .load-error, .confirmed-wait { border-radius: 10px 3px 10px 3px; border-color: var(--line); background: linear-gradient(145deg, rgba(7, 28, 36, .9), rgba(2, 13, 20, .96)); }
   .confirmed-wait h1 { font-family: var(--font-display); font-size: 35px; letter-spacing: .03em; }
+  .launch-sequence { position: relative; z-index: 4; display: grid; justify-items: center; gap: 6px; margin: -2px 0 12px; padding: 14px; border: 1px solid rgba(83, 233, 232, .28); border-radius: 5px 2px 5px 2px; background: rgba(2, 16, 22, .94); box-shadow: 0 16px 35px rgba(0, 0, 0, .28); animation: launch-in 180ms var(--ease-out) both; pointer-events: none; }
+  .launch-sequence__radar { position: relative; display: grid; width: 30px; height: 30px; place-items: center; border: 1px solid var(--tactical); border-radius: 50%; color: var(--tactical); }
+  .launch-sequence__radar::before, .launch-sequence__radar::after { position: absolute; content: ''; background: currentColor; opacity: .35; }
+  .launch-sequence__radar::before { width: 100%; height: 1px; } .launch-sequence__radar::after { width: 1px; height: 100%; }
+  .launch-sequence__radar i { position: absolute; inset: 50% 50% 0 0; transform-origin: 100% 0; background: conic-gradient(from 270deg at 100% 0, rgba(83, 233, 232, .6), transparent 38deg); animation: launch-sweep 1.1s linear infinite; }
+  .launch-sequence__radar b { position: relative; z-index: 2; width: 4px; height: 4px; border-radius: 50%; background: var(--tactical); box-shadow: 0 0 9px var(--tactical); }
+  .launch-sequence small { color: var(--ink-500); font: 600 8px var(--font-display); letter-spacing: .18em; } .launch-sequence strong { color: var(--ink-100); font: 700 18px var(--font-display); letter-spacing: .11em; }
+  .launch-sequence__steps { display: flex; gap: 5px; margin-top: 4px; } .launch-sequence__steps i { width: 32px; height: 2px; background: var(--line); } .launch-sequence__steps i.active { background: var(--tactical); box-shadow: 0 0 8px rgba(83, 233, 232, .45); }
+  @keyframes launch-in { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes launch-sweep { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .launch-sequence, .launch-sequence__radar i { animation: none; } }
   @media (max-width: 720px) { .room-page { padding-top: 10px; } .room-meta { padding: 9px; } }
 </style>
