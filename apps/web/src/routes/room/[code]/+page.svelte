@@ -2,7 +2,7 @@
   import { page } from '$app/state';
   import { goto } from '$app/navigation';
   import { resolve } from '$app/paths';
-  import { onMount } from 'svelte';
+  import { onDestroy, onMount } from 'svelte';
   import { ArrowLeft, Check, Rocket, ShieldCheck, Wifi, WifiOff } from '@lucide/svelte';
   import BattleView from '$lib/components/BattleView.svelte';
   import ChatDrawer from '$lib/components/ChatDrawer.svelte';
@@ -35,6 +35,16 @@
   let showStart = $state(false);
   let lastSoundRequest = $state<string | null>(null);
   let resultSoundPlayed = $state(false);
+  let launchSequence = $state(false);
+  let launchStage = $state(0);
+  let previousRoomStatus = '';
+  let launchTimer: ReturnType<typeof setInterval> | null = null;
+  const launchStages = [
+    'OPERATION AUTHORIZED',
+    'ENCRYPTING TACTICAL CHANNEL',
+    'LOADING BATTLESPACE',
+    'DEPLOY FLEET'
+  ];
 
   let snapshot = $derived($gameSnapshot);
   let selfPlayer = $derived(
@@ -46,6 +56,22 @@
   let inviteUrl = $derived(
     typeof location === 'undefined' ? `/join/${routeCode}` : `${location.origin}/join/${routeCode}`
   );
+
+  function startLaunchSequence() {
+    if (launchSequence) return;
+    launchSequence = true;
+    launchStage = 0;
+    if (launchTimer) clearInterval(launchTimer);
+    launchTimer = setInterval(() => {
+      if (launchStage >= launchStages.length - 1) {
+        if (launchTimer) clearInterval(launchTimer);
+        launchTimer = null;
+        setTimeout(() => (launchSequence = false), 480);
+        return;
+      }
+      launchStage += 1;
+    }, 460);
+  }
 
   onMount(() => {
     let active = true;
@@ -78,7 +104,18 @@
       active = false;
       realtime.disconnect();
       resetRoomRealtimeState();
+      if (launchTimer) clearInterval(launchTimer);
     };
+  });
+
+  onDestroy(() => {
+    if (launchTimer) clearInterval(launchTimer);
+  });
+
+  $effect(() => {
+    const status = snapshot?.room.status ?? '';
+    if (status === 'PLACEMENT' && previousRoomStatus !== 'PLACEMENT') startLaunchSequence();
+    previousRoomStatus = status;
   });
 
   $effect(() => {
@@ -564,4 +601,14 @@
       grid-template-columns: 1fr;
     }
   }
+  .room-page { max-width: 1500px; padding-top: 18px; }
+  .room-meta { margin-bottom: 12px; padding: 10px 13px; border-radius: 5px 2px 5px 2px; border-color: var(--line); background: rgba(2, 13, 20, .72); box-shadow: none; }
+  .room-meta > div:first-child { gap: 12px; }
+  .room-meta strong { font-family: var(--font-display); font-size: 16px; letter-spacing: .04em; }
+  .room-meta small { color: var(--ink-500); }
+  .status-pill { border-radius: 3px; }
+  .connection-indicator { font-family: var(--font-display); font-size: 9px; letter-spacing: .08em; }
+  .load-error, .confirmed-wait { border-radius: 10px 3px 10px 3px; border-color: var(--line); background: linear-gradient(145deg, rgba(7, 28, 36, .9), rgba(2, 13, 20, .96)); }
+  .confirmed-wait h1 { font-family: var(--font-display); font-size: 35px; letter-spacing: .03em; }
+  @media (max-width: 720px) { .room-page { padding-top: 10px; } .room-meta { padding: 9px; } }
 </style>

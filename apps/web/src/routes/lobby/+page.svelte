@@ -861,4 +861,25 @@
       grid-template-columns: 1fr;
     }
   }
+  .lobby { position: relative; max-width: 1480px; padding-top: 42px; }
+  .lobby-heading { align-items: end; padding-bottom: 20px; border-bottom: 1px solid var(--line); }
+  .lobby-heading h1 { font-family: var(--font-display); font-size: clamp(34px, 4.2vw, 54px); letter-spacing: .03em; }
+  .heading-signal { border-radius: 50%; border-color: rgba(83, 233, 232, .34); }
+  .command-dashboard { gap: 12px; }
+  :global(.quick-match) { border-radius: 9px 3px 9px 3px; border-color: rgba(83, 233, 232, .3); background: linear-gradient(145deg, rgba(8, 33, 41, .9), rgba(2, 13, 20, .96)); }
+  .quick-match__copy h2 { font-family: var(--font-display); font-size: 30px; letter-spacing: .04em; }
+  .quick-match__copy p { color: var(--ink-400); }
+  .quick-match__radar { border-radius: 8px 3px 8px 3px; }
+  .dashboard-side { gap: 10px; }
+  .dashboard-action, .network-card { border-radius: 5px 2px 5px 2px; border-color: var(--line); background: rgba(3, 16, 23, .72); }
+  .room-section { margin-top: 42px; }
+  .section-heading { padding-bottom: 13px; border-bottom: 1px solid var(--line); }
+  .section-heading h2 { font-family: var(--font-display); font-size: 24px; letter-spacing: .04em; }
+  .room-grid { gap: 10px; }
+  :global(.room-card) { border-radius: 6px 2px 6px 2px; border-color: rgba(113, 178, 190, .17); background: linear-gradient(150deg, rgba(7, 27, 36, .8), rgba(2, 13, 20, .88)); }
+  :global(.room-card:hover) { border-color: var(--line-active); transform: translateY(-2px); }
+  .room-card__top { border-bottom-color: var(--line); }
+  .room-card__title strong { font-family: var(--font-display); font-size: 18px; letter-spacing: .03em; }
+  .room-card__meta { color: var(--ink-500); }
+  @media (max-width: 720px) { .lobby { padding-top: 30px; } }
 </style>

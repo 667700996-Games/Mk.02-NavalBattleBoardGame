@@ -13,6 +13,7 @@
     WifiOff
   } from '@lucide/svelte';
   import { Badge, Button } from '$lib/ui';
+  import { sounds } from '$lib/sound';
   import type { GameSnapshot, PlayerPublic } from '$lib/types';
 
   interface Props {
@@ -201,7 +202,11 @@
           full
           loading={readyPending}
           disabled={!online || startPending}
-          onclick={selfPlayer?.readyState === 'READY' ? onunready : onready}
+          onclick={() => {
+            sounds.ready();
+            if (selfPlayer?.readyState === 'READY') onunready();
+            else onready();
+          }}
         >
           {#if selfPlayer?.readyState === 'READY'}준비 취소{:else}<Check size={17} /> 준비 완료{/if}
         </Button>
@@ -214,7 +219,10 @@
             full
             loading={startPending}
             disabled={!snapshot.canStartGame || !online || readyPending}
-            onclick={onstart}
+            onclick={() => {
+              sounds.start();
+              onstart();
+            }}
           >
             <Rocket size={17} /> 작전 시작
           </Button>
