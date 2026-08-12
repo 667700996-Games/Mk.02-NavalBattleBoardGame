@@ -5,10 +5,17 @@
     kind: ShipKind;
     orientation?: 'HORIZONTAL' | 'VERTICAL';
     state?: 'docked' | 'deployed' | 'preview' | 'invalid' | 'sunk';
+    renderMode?: 'board' | 'manifest';
     label?: string;
   }
 
-  let { kind, orientation = 'HORIZONTAL', state = 'deployed', label }: Props = $props();
+  let {
+    kind,
+    orientation = 'HORIZONTAL',
+    state = 'deployed',
+    renderMode = 'board',
+    label
+  }: Props = $props();
 </script>
 
 <span
@@ -19,7 +26,7 @@
 >
   <svg
     viewBox={orientation === 'VERTICAL' ? '0 0 64 200' : '0 0 200 64'}
-    preserveAspectRatio="none"
+    preserveAspectRatio={renderMode === 'board' ? 'none' : 'xMidYMid meet'}
     aria-hidden={!label}
   >
     <g transform={orientation === 'VERTICAL' ? 'translate(0 200) rotate(-90)' : undefined}>

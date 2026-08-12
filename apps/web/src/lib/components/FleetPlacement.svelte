@@ -212,7 +212,11 @@
               ><strong>{ship.name}</strong><small>{ship.size} CELLS</small></span
             >
             <span class="ship-shape" style={`--ship-cells: ${ship.size}`} aria-hidden="true"
-              ><Vessel kind={ship.kind} state={placed ? 'deployed' : 'docked'} /></span
+              ><Vessel
+                kind={ship.kind}
+                state={placed ? 'deployed' : 'docked'}
+                renderMode="manifest"
+              /></span
             >
             {#if placed}<span class="placed-check"><Check size={15} /></span>{/if}
           </button>
@@ -653,6 +657,7 @@
     letter-spacing: 0.04em;
   }
   .fleet-item {
+    grid-template-columns: minmax(0, 1fr) 126px;
     border-radius: 5px 2px 5px 2px;
     background: rgba(2, 15, 22, 0.62);
   }
@@ -671,8 +676,10 @@
   .ship-shape {
     display: block;
     width: calc(21px * var(--ship-cells));
-    max-width: 46%;
-    height: 30px;
+    max-width: 110px;
+    aspect-ratio: 25 / 8;
+    justify-self: center;
+    align-self: center;
   }
   .ship-shape :global(.vessel) {
     width: 100%;
