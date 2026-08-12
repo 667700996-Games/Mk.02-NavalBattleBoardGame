@@ -17,7 +17,11 @@
   aria-label={label}
   role={label ? 'img' : undefined}
 >
-  <svg viewBox={orientation === 'VERTICAL' ? '0 0 64 200' : '0 0 200 64'} aria-hidden={!label}>
+  <svg
+    viewBox={orientation === 'VERTICAL' ? '0 0 64 200' : '0 0 200 64'}
+    preserveAspectRatio="none"
+    aria-hidden={!label}
+  >
     <g transform={orientation === 'VERTICAL' ? 'translate(0 200) rotate(-90)' : undefined}>
       <path class="vessel__wake" d="M1 32H199" />
       {#if kind === 'CARRIER'}
