@@ -93,6 +93,7 @@ impl AppState {
             turn_timers: Arc::new(DashMap::new()),
         };
         state.restore_active_rooms().await?;
+        state.start_turn_expiry_watchdog();
         Ok(state)
     }
 
@@ -509,50 +510,85 @@ impl AppState {
                 return;
             };
             let mut room = room_ref.lock().await;
-            let record = room
-                .expire_turn(
-                    key.turn_number,
-                    key.active_player_id,
-                    key.deadline,
-                    Utc::now(),
-                )
-                .unwrap_or(None);
-            let Some(record) = record else {
-                if state
+            if !state.resolve_turn_expiry(&mut room, &key).await
+                && state
                     .turn_timers
                     .get(&timer.room_id)
                     .is_some_and(|current| *current == key)
-                {
-                    state.cancel_turn_expiry(timer.room_id);
-                }
-                return;
-            };
-            let finished = record.winner_id.is_some();
-            let next_timer = room.timer_state(Utc::now());
-            let _ = state.store.save_room(&room).await;
-            for player in &room.players {
-                state
-                    .hub
-                    .send(player.session_id, ServerEvent::TurnExpired(record.clone()));
-            }
-            state.broadcast_latest_chat_message(&room);
-            state
-                .broadcast_snapshots(
-                    &room,
-                    if finished {
-                        SnapshotEvent::GameFinished
-                    } else {
-                        SnapshotEvent::TurnChanged
-                    },
-                )
-                .await;
-            if finished {
+            {
                 state.cancel_turn_expiry(timer.room_id);
-            } else {
-                state.broadcast_timer_state(&room, ServerEvent::TurnStarted);
-                state.schedule_turn_expiry(next_timer);
             }
         });
+    }
+
+    fn start_turn_expiry_watchdog(&self) {
+        let state = self.clone();
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(Duration::from_millis(250)).await;
+                let rooms: Vec<_> = state
+                    .rooms
+                    .iter()
+                    .map(|entry| entry.value().clone())
+                    .collect();
+                for room_ref in rooms {
+                    let mut room = room_ref.lock().await;
+                    let Some(timer) = room.timer_state(Utc::now()) else {
+                        continue;
+                    };
+                    let Some(deadline) = timer.turn_deadline_at else {
+                        continue;
+                    };
+                    if Utc::now() < deadline {
+                        continue;
+                    }
+                    let key = TurnTimerKey {
+                        turn_number: timer.turn_number,
+                        active_player_id: timer.active_player_id,
+                        deadline,
+                    };
+                    state.resolve_turn_expiry(&mut room, &key).await;
+                }
+            }
+        });
+    }
+
+    async fn resolve_turn_expiry(&self, room: &mut GameRoom, key: &TurnTimerKey) -> bool {
+        let record = room
+            .expire_turn(
+                key.turn_number,
+                key.active_player_id,
+                key.deadline,
+                Utc::now(),
+            )
+            .unwrap_or(None);
+        let Some(record) = record else {
+            return false;
+        };
+        let finished = record.winner_id.is_some();
+        let next_timer = room.timer_state(Utc::now());
+        let _ = self.store.save_room(room).await;
+        for player in &room.players {
+            self.hub
+                .send(player.session_id, ServerEvent::TurnExpired(record.clone()));
+        }
+        self.broadcast_latest_chat_message(room);
+        self.broadcast_snapshots(
+            room,
+            if finished {
+                SnapshotEvent::GameFinished
+            } else {
+                SnapshotEvent::TurnChanged
+            },
+        )
+        .await;
+        if finished {
+            self.cancel_turn_expiry(room.id);
+        } else {
+            self.broadcast_timer_state(room, ServerEvent::TurnStarted);
+            self.schedule_turn_expiry(next_timer);
+        }
+        true
     }
 
     pub fn cancel_turn_expiry(&self, room_id: Uuid) {
@@ -856,7 +892,6 @@ mod tests {
 
         let original_turn = room.game.as_ref().unwrap().turn_number;
         let original_player = room.game.as_ref().unwrap().current_player_id;
-        let timer = room.timer_state(Utc::now());
         let store = Arc::new(MemoryStore::default());
         store.save_room(&room).await.unwrap();
         let settings = Settings {
@@ -868,7 +903,7 @@ mod tests {
         state
             .rooms
             .insert(room.id, Arc::new(Mutex::new(room.clone())));
-        state.schedule_turn_expiry(timer);
+        state.start_turn_expiry_watchdog();
 
         let deadline = tokio::time::Instant::now() + Duration::from_secs(3);
         loop {
