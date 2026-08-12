@@ -60,7 +60,10 @@
     </div>
 
     <p class="eyebrow">MK.01 / REAL-TIME NAVAL WARFARE</p>
-    <h1 class="display-title">보이지 않는 함대를,<br /><span>좌표 위에서 지휘하십시오.</span></h1>
+    <h1 class="display-title">
+      <span class="display-title__line">보이지 않는 함대를,</span>
+      <span class="display-title__line display-title__line--signal">좌표 위에서 지휘하십시오.</span>
+    </h1>
     <p class="hero__lead">
       다섯 척의 함대를 숨기고 한 칸의 정보로 전장을 재구성하십시오. 당신의 선택은 숨겨지고, 모든
       판정은 서버에서 증명됩니다.
@@ -118,17 +121,34 @@
     <div class="radar-shell">
       <div class="radar-horizon"></div>
       <div class="radar-grid"></div>
+      <div class="radar-ticks"></div>
+      <div class="radar-sector radar-sector--one"></div>
+      <div class="radar-sector radar-sector--two"></div>
       <div class="radar-ring radar-ring--one"></div>
       <div class="radar-ring radar-ring--two"></div>
+      <div class="radar-ring radar-ring--three"></div>
       <div class="radar-cross radar-cross--x"></div>
       <div class="radar-cross radar-cross--y"></div>
       <div class="radar-sweep"></div>
       <div class="radar-origin"><Crosshair size={26} strokeWidth={1} /></div>
-      <span class="contact contact--one"><i></i><em>TGT-04</em></span>
-      <span class="contact contact--two"><i></i><em>TGT-09</em></span>
-      <span class="contact contact--three"><i></i><em>TGT-12</em></span>
+      <div class="radar-bearing radar-bearing--north">000°</div>
+      <div class="radar-bearing radar-bearing--east">090°</div>
+      <div class="radar-bearing radar-bearing--south">180°</div>
+      <div class="radar-bearing radar-bearing--west">270°</div>
+      <div class="radar-range radar-range--outer">025 NM</div>
+      <div class="radar-range radar-range--inner">010</div>
+      <span class="contact contact--one contact--hostile"
+        ><i></i><span><em>TGT-04</em><small>046° / 18.2 NM</small></span></span
+      >
+      <span class="contact contact--two contact--friendly"
+        ><i></i><span><em>FRD-02</em><small>211° / 11.7 NM</small></span></span
+      >
+      <span class="contact contact--three contact--unknown"
+        ><i></i><span><em>UNK-12</em><small>084° / 21.5 NM</small></span></span
+      >
       <div class="fleet-trace fleet-trace--one"><i></i><i></i><i></i><i></i><i></i></div>
       <div class="fleet-trace fleet-trace--two"><i></i><i></i><i></i></div>
+      <div class="radar-readout"><span>PASSIVE ARRAY</span><strong>NOISE 02.8</strong></div>
     </div>
     <div class="telemetry-card telemetry-card--top">
       <small>SONAR ARRAY</small><strong>ACTIVE</strong><span>SCAN RATE 04.8s</span>
@@ -199,6 +219,10 @@
   }
   .display-title {
     max-width: 830px;
+  }
+  .display-title__line {
+    display: block;
+    white-space: nowrap;
   }
   .display-title span {
     color: transparent;
@@ -331,6 +355,36 @@
     background-size: 10% 10%;
     mask-image: radial-gradient(circle, black, transparent 74%);
   }
+  .radar-ticks {
+    position: absolute;
+    inset: 2.8%;
+    border-radius: 50%;
+    opacity: 0.48;
+    background: repeating-conic-gradient(
+      from -1deg,
+      rgba(132, 239, 240, 0.48) 0deg 0.45deg,
+      transparent 0.45deg 4.5deg,
+      rgba(132, 239, 240, 0.25) 4.5deg 5.2deg,
+      transparent 5.2deg 9deg
+    );
+    mask-image: radial-gradient(transparent 0 91%, black 91.4% 100%);
+  }
+  .radar-sector {
+    position: absolute;
+    z-index: 1;
+    top: 50%;
+    left: 50%;
+    width: 42%;
+    height: 1px;
+    transform-origin: 0 0;
+    background: linear-gradient(90deg, rgba(110, 236, 238, 0.22), transparent);
+  }
+  .radar-sector--one {
+    transform: rotate(45deg);
+  }
+  .radar-sector--two {
+    transform: rotate(135deg);
+  }
   .radar-horizon {
     position: absolute;
     inset: 12%;
@@ -345,6 +399,10 @@
   }
   .radar-ring--two {
     inset: 39%;
+  }
+  .radar-ring--three {
+    inset: 10%;
+    border-color: rgba(89, 214, 223, 0.1);
   }
   .radar-cross {
     position: absolute;
@@ -399,7 +457,11 @@
     border-radius: 50%;
     background: var(--cyan-300);
     box-shadow: 0 0 14px var(--cyan-300);
-    animation: pulse 1.6s infinite;
+    animation: pulse 2.6s ease-in-out infinite;
+  }
+  .contact > span {
+    display: grid;
+    gap: 1px;
   }
   .contact em {
     color: var(--cyan-300);
@@ -407,6 +469,34 @@
     font-size: 7px;
     font-style: normal;
     letter-spacing: 0.08em;
+  }
+  .contact small {
+    color: var(--ink-400);
+    font-family: var(--font-mono);
+    font-size: 6px;
+    letter-spacing: 0.04em;
+    white-space: nowrap;
+  }
+  .contact--friendly i {
+    border-radius: 1px;
+    color: var(--safe);
+    background: var(--safe);
+    box-shadow: 0 0 12px rgba(104, 215, 170, 0.45);
+  }
+  .contact--friendly em {
+    color: var(--safe);
+  }
+  .contact--unknown i {
+    width: 8px;
+    height: 8px;
+    border-radius: 0;
+    color: var(--warning);
+    background: transparent;
+    box-shadow: none;
+    transform: rotate(45deg);
+  }
+  .contact--unknown em {
+    color: var(--amber-400);
   }
   .contact--one {
     top: 29%;
@@ -450,6 +540,65 @@
     right: 26%;
     bottom: 30%;
     transform: rotate(36deg);
+  }
+  .radar-bearing,
+  .radar-range,
+  .radar-readout {
+    position: absolute;
+    z-index: 5;
+    color: var(--ink-400);
+    font-family: var(--font-display);
+    font-size: 7px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+  }
+  .radar-bearing--north {
+    top: 6.5%;
+    left: 50%;
+    color: var(--cyan-200);
+    transform: translateX(-50%);
+  }
+  .radar-bearing--east {
+    top: 50%;
+    right: 7.5%;
+    transform: translateY(-50%);
+  }
+  .radar-bearing--south {
+    bottom: 6.5%;
+    left: 50%;
+    transform: translateX(-50%);
+  }
+  .radar-bearing--west {
+    top: 50%;
+    left: 7.5%;
+    transform: translateY(-50%);
+  }
+  .radar-range--outer {
+    top: 18%;
+    right: 23%;
+  }
+  .radar-range--inner {
+    top: 39%;
+    right: 42%;
+    color: rgba(163, 238, 239, 0.62);
+  }
+  .radar-readout {
+    right: 11%;
+    bottom: 11%;
+    display: grid;
+    gap: 2px;
+    padding: 5px 7px;
+    border-left: 1px solid rgba(111, 235, 235, 0.45);
+    background: rgba(2, 13, 20, 0.55);
+  }
+  .radar-readout span {
+    color: var(--ink-500);
+    font-size: 6px;
+  }
+  .radar-readout strong {
+    color: var(--cyan-200);
+    font-size: 8px;
+    letter-spacing: 0.08em;
   }
   .telemetry-card {
     position: absolute;
@@ -659,7 +808,7 @@
   }
   .hero {
     position: relative;
-    max-width: 1520px;
+    max-width: var(--layout-max);
     min-height: min(900px, calc(100vh - 72px));
     overflow: clip;
   }
@@ -675,19 +824,43 @@
     pointer-events: none;
     background: radial-gradient(ellipse at center, rgba(42, 140, 151, 0.16), transparent 65%);
   }
+  .hero::after {
+    position: absolute;
+    z-index: -1;
+    top: 50%;
+    right: 7%;
+    left: 30%;
+    height: 1px;
+    content: '';
+    opacity: 0.58;
+    pointer-events: none;
+    background: linear-gradient(90deg, transparent, rgba(83, 233, 232, 0.28), transparent);
+  }
   .hero__status-line {
     color: var(--ink-500);
     letter-spacing: 0.16em;
   }
   .display-title {
     font-family: var(--font-display);
-    font-size: clamp(48px, 5.4vw, 82px);
-    line-height: 0.94;
-    letter-spacing: -0.01em;
+    font-size: clamp(42px, 4.1vw, 68px);
+    line-height: 1.02;
+    letter-spacing: -0.025em;
+  }
+  .display-title__line--signal {
+    margin-top: 4px;
+    color: transparent;
+    background: linear-gradient(105deg, #d8fbfc 4%, #75e9eb 48%, #4ea4dc 100%);
+    background-clip: text;
   }
   .hero__lead {
     max-width: 620px;
     color: var(--ink-300);
+  }
+  .hero__status-line {
+    margin-bottom: 28px;
+  }
+  .hero__lead {
+    margin-block: 24px 28px;
   }
   :global(.command-entry) {
     border-radius: 8px 3px 8px 3px;
@@ -755,6 +928,12 @@
       font-size: clamp(42px, 11vw, 64px);
       line-height: 0.96;
     }
+    .display-title__line {
+      white-space: normal;
+    }
+    .hero::after {
+      display: none;
+    }
   }
   @media (min-width: 821px) and (max-height: 780px) {
     .hero {
@@ -765,7 +944,7 @@
       margin-bottom: 24px;
     }
     .display-title {
-      font-size: clamp(42px, 4.4vw, 64px);
+      font-size: clamp(40px, 3.9vw, 58px);
       line-height: 0.94;
     }
     .hero__lead {

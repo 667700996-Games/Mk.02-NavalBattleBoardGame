@@ -68,6 +68,7 @@
   --radius-md: 12px;
   --radius-lg: 14px;
   --radius-xl: 22px;
+  --layout-max: 1600px;
   --panel: rgba(5, 19, 27, 0.82);
   --panel-strong: rgba(8, 27, 36, 0.94);
   --panel-soft: rgba(10, 31, 43, 0.48);
@@ -209,7 +210,7 @@ p {
 }
 
 .shell {
-  width: min(1440px, calc(100% - 64px));
+  width: min(var(--layout-max), calc(100% - 64px));
   margin-inline: auto;
 }
 
@@ -485,10 +486,11 @@ p {
 .display-title {
   margin-bottom: 0;
   font-family: var(--font-display);
-  font-size: clamp(48px, 7vw, 96px);
+  font-size: clamp(42px, 4.15vw, 72px);
   font-weight: 600;
-  line-height: 0.88;
-  letter-spacing: -0.035em;
+  line-height: 0.98;
+  letter-spacing: -0.025em;
+  word-break: keep-all;
 }
 
 .page-title {
@@ -1534,7 +1536,7 @@ p {
 
 @media (max-width: 900px) {
   .shell {
-    width: min(100% - 32px, 1440px);
+    width: min(100% - 32px, var(--layout-max));
   }
 
   .app-header__inner {
@@ -1554,7 +1556,7 @@ p {
 
 @media (max-width: 640px) {
   .shell {
-    width: min(100% - 24px, 1440px);
+    width: min(100% - 24px, var(--layout-max));
   }
 
   .app-header__inner {
@@ -1590,7 +1592,7 @@ p {
   }
 
   .display-title {
-    font-size: clamp(43px, 14.5vw, 66px);
+    font-size: clamp(38px, 11.5vw, 54px);
   }
 
   .ui-modal {
