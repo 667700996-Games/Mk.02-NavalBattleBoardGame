@@ -179,6 +179,7 @@
         previewCells={preview.cells ?? []}
         previewKind={selectedKind}
         previewValid={preview.valid}
+        selectedShipKind={selectedKind}
         interactive={!confirmed}
         disabled={confirmed || submitting}
         oncell={place}
@@ -210,7 +211,7 @@
             <span class="fleet-item__meta"
               ><strong>{ship.name}</strong><small>{ship.size} CELLS</small></span
             >
-            <span class="ship-shape" aria-hidden="true"
+            <span class="ship-shape" style={`--ship-cells: ${ship.size}`} aria-hidden="true"
               ><Vessel kind={ship.kind} state={placed ? 'deployed' : 'docked'} /></span
             >
             {#if placed}<span class="placed-check"><Check size={15} /></span>{/if}
@@ -603,13 +604,16 @@
     background: linear-gradient(90deg, rgba(83, 233, 232, 0.08), transparent);
   }
   .placement__layout {
-    grid-template-columns: minmax(0, 1.3fr) minmax(286px, 0.7fr);
-    gap: 12px;
+    grid-template-columns: minmax(0, 1.5fr) minmax(330px, 0.5fr);
+    gap: 16px;
   }
   .placement__board {
     border-radius: 10px 3px 10px 3px;
     border-color: rgba(83, 233, 232, 0.24);
     background: linear-gradient(145deg, rgba(6, 29, 38, 0.9), rgba(2, 13, 20, 0.94));
+  }
+  .placement__board :global(.board-wrap) {
+    margin-inline: auto;
   }
   .board-toolbar {
     padding: 0 3px 8px;
@@ -666,8 +670,9 @@
   }
   .ship-shape {
     display: block;
-    width: 112px;
-    height: 28px;
+    width: calc(21px * var(--ship-cells));
+    max-width: 46%;
+    height: 30px;
   }
   .ship-shape :global(.vessel) {
     width: 100%;

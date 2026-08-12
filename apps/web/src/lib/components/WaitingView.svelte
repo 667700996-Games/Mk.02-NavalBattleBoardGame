@@ -694,8 +694,8 @@
 
   .waiting {
     position: relative;
-    width: min(1120px, 100%);
-    padding: 28px;
+    width: min(1380px, 100%);
+    padding: clamp(22px, 2.2vw, 34px);
     overflow: hidden;
     border-radius: 10px 3px 10px 3px;
     border-color: rgba(104, 195, 204, 0.22);
@@ -755,14 +755,63 @@
     border-color: var(--line-subtle);
     background: rgba(0, 8, 13, 0.62);
   }
-  .room-command-grid {
-    grid-template-columns: minmax(0, 1.35fr) minmax(290px, 0.65fr);
+  .stage-readiness {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
     gap: 12px;
+    align-items: center;
+    margin-top: 18px;
+    padding: 11px 14px;
+    border: 1px solid rgba(111, 181, 202, 0.17);
+    border-left: 2px solid var(--cyan-400);
+    color: var(--ink-400);
+    background: linear-gradient(90deg, rgba(43, 174, 187, 0.08), rgba(2, 13, 20, 0.2));
+  }
+  .stage-readiness.armed {
+    border-color: rgba(104, 215, 170, 0.34);
+    border-left-color: var(--safe);
+    background: linear-gradient(90deg, rgba(104, 215, 170, 0.12), rgba(2, 18, 23, 0.2));
+  }
+  .stage-readiness__signal {
+    display: inline-flex;
+    gap: 7px;
+    align-items: center;
+    color: var(--cyan-300);
+    font: 700 8px var(--font-display);
+    letter-spacing: 0.15em;
+  }
+  .stage-readiness__signal i {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+    box-shadow: 0 0 8px currentColor;
+    animation: pulse 1.8s ease-in-out infinite;
+  }
+  .stage-readiness strong {
+    color: var(--ink-100);
+    font: 700 15px var(--font-display);
+    letter-spacing: 0.08em;
+  }
+  .stage-readiness small {
+    color: var(--ink-500);
+    font: 600 7px var(--font-display);
+    letter-spacing: 0.12em;
+    text-align: right;
+  }
+  .stage-readiness.armed .stage-readiness__signal,
+  .stage-readiness.armed strong {
+    color: var(--safe);
+  }
+  .room-command-grid {
+    grid-template-columns: 1fr;
+    gap: 14px;
+    margin-top: 14px;
   }
   .player-slots {
     position: relative;
-    grid-template-columns: minmax(0, 1fr) minmax(92px, 0.24fr) minmax(0, 1fr);
-    gap: 10px;
+    grid-template-columns: minmax(0, 1fr) minmax(112px, 0.2fr) minmax(0, 1fr);
+    gap: clamp(14px, 2vw, 30px);
     align-items: stretch;
   }
   .player-slots::before {
@@ -770,7 +819,7 @@
   }
   .tactical-link {
     display: grid;
-    min-height: 180px;
+    min-height: 218px;
     align-content: center;
     justify-items: center;
     gap: 9px;
@@ -820,9 +869,10 @@
     background: linear-gradient(transparent, var(--safe));
   }
   .player-slot {
-    min-height: 180px;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    min-height: 218px;
     align-content: center;
-    padding: 22px 16px;
+    padding: 28px clamp(18px, 2vw, 30px);
     border-radius: 7px 2px 7px 2px;
     border-color: rgba(117, 177, 190, 0.18);
     background: linear-gradient(155deg, rgba(7, 35, 45, 0.86), rgba(2, 15, 22, 0.9));
@@ -848,16 +898,21 @@
   }
   .player-identity strong {
     font-family: var(--font-display);
-    font-size: 20px;
+    overflow: hidden;
+    font-size: clamp(19px, 1.65vw, 24px);
     letter-spacing: 0.03em;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .player-badges {
     margin-top: 9px;
   }
   .ready-state {
-    margin-top: 17px;
-    padding-top: 12px;
-    border-top: 1px solid var(--line);
+    min-width: 142px;
+    margin: 0;
+    padding: 8px 0 8px 16px;
+    border-top: 0;
+    border-left: 1px solid var(--line);
   }
   .ready-state strong {
     font: 700 13px var(--font-display);
@@ -872,7 +927,11 @@
     color: var(--tactical);
   }
   .action-body {
-    padding: 20px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(220px, 0.68fr) minmax(250px, 0.94fr);
+    gap: 18px;
+    align-items: center;
+    padding: 20px clamp(20px, 2.2vw, 30px);
   }
   .self-readiness strong {
     font-family: var(--font-display);
@@ -881,8 +940,27 @@
   .self-readiness p {
     color: var(--ink-500);
   }
+  .ready-control,
+  .host-control {
+    display: grid;
+    gap: 10px;
+    align-content: center;
+  }
+  .ready-control {
+    padding-inline: 18px;
+    border-inline: 1px solid var(--line);
+  }
+  .ready-control > small {
+    color: var(--ink-500);
+    font: 700 8px var(--font-display);
+    letter-spacing: 0.13em;
+    text-align: center;
+  }
+  .host-control {
+    min-height: 92px;
+  }
   .start-divider {
-    margin-top: 20px;
+    margin: 0;
   }
   .start-divider::before,
   .start-divider::after {
@@ -906,11 +984,33 @@
     background: rgba(1, 8, 13, 0.5);
   }
   @media (max-width: 820px) {
-    .room-command-grid {
-      grid-template-columns: 1fr;
-    }
     .player-slots {
-      grid-template-columns: minmax(0, 1fr) 88px minmax(0, 1fr);
+      grid-template-columns: minmax(0, 1fr) 78px minmax(0, 1fr);
+      gap: 12px;
+    }
+    .player-slot {
+      grid-template-columns: auto minmax(0, 1fr);
+      min-height: 186px;
+      padding: 22px 16px;
+    }
+    .ready-state {
+      grid-column: 1 / -1;
+      width: 100%;
+      min-width: 0;
+      padding: 11px 0 0;
+      border-top: 1px solid var(--line);
+      border-left: 0;
+    }
+    .action-body {
+      grid-template-columns: minmax(0, 1fr) minmax(220px, 0.9fr);
+    }
+    .host-control {
+      grid-column: 1 / -1;
+      grid-template-columns: minmax(0, 1fr) minmax(230px, 0.75fr);
+      align-items: center;
+    }
+    .host-control .start-divider {
+      display: none;
     }
   }
   @media (max-width: 580px) {
@@ -940,6 +1040,26 @@
     }
     .player-slot {
       min-height: 145px;
+    }
+    .stage-readiness {
+      grid-template-columns: 1fr;
+      gap: 4px;
+      text-align: center;
+    }
+    .stage-readiness__signal {
+      justify-content: center;
+    }
+    .stage-readiness small {
+      text-align: center;
+    }
+    .action-body,
+    .host-control {
+      grid-template-columns: 1fr;
+    }
+    .ready-control {
+      padding: 16px 0;
+      border-block: 1px solid var(--line);
+      border-inline: 0;
     }
     .room-identity {
       grid-template-columns: 1fr 1fr;

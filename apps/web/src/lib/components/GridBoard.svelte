@@ -22,6 +22,7 @@
     ownBoard?: OwnBoardSnapshot | null;
     targetBoard?: TargetBoardSnapshot | null;
     selected?: Coordinate | null;
+    selectedShipKind?: ShipKind | null;
     previewKind?: ShipKind | null;
     previewCells?: Coordinate[];
     previewValid?: boolean;
@@ -40,6 +41,7 @@
     ownBoard = null,
     targetBoard = null,
     selected = null,
+    selectedShipKind = null,
     previewKind = null,
     previewCells = [],
     previewValid = true,
@@ -163,7 +165,7 @@
   }
 </script>
 
-<div class:board-disabled={disabled} class="board-wrap">
+<div class:board-disabled={disabled} class:board-wrap--placement={mode === 'placement'} class="board-wrap">
   <span class="board-wrap__bezel" aria-hidden="true"></span>
   <div
     class="board-grid"
@@ -186,6 +188,7 @@
       {#each vessels as vessel (vessel.kind)}
         <div
           class="vessel-slot"
+          class:vessel-slot--selected={mode === 'placement' && vessel.kind === selectedShipKind}
           style={`grid-row: ${vessel.row + 1} / span ${vessel.vertical ? vessel.length : 1}; grid-column: ${vessel.col + 1} / span ${vessel.vertical ? 1 : vessel.length};`}
         >
           <Vessel
@@ -217,6 +220,7 @@
         {@const isSelected = selected?.row === coordinate.row && selected?.col === coordinate.col}
         <button
           class:cell--ship={Boolean(kind)}
+          class:cell--ship-selected={mode === 'placement' && kind === selectedShipKind}
           class:cell--preview={preview && previewValid}
           class:cell--invalid={preview && !previewValid}
           class:cell--selected={isSelected}
@@ -272,6 +276,9 @@
     container-type: inline-size;
     isolation: isolate;
     perspective: 1100px;
+  }
+  .board-wrap--placement {
+    max-width: 780px;
   }
   .board-wrap::before,
   .board-wrap::after {
@@ -362,12 +369,18 @@
     z-index: 1;
     min-width: 0;
     min-height: 0;
-    padding: 5%;
+    padding: 0;
   }
 
   .vessel-slot--preview {
     z-index: 4;
-    padding: 1%;
+    padding: 0;
+  }
+  .vessel-slot--selected {
+    z-index: 5;
+  }
+  .vessel-slot--selected :global(.vessel) {
+    filter: drop-shadow(0 0 7px rgba(255, 209, 107, 0.48));
   }
   .axis {
     display: grid;
@@ -442,6 +455,11 @@
   }
   .cell--ship {
     background: rgba(46, 116, 132, 0.16);
+  }
+  .cell--ship-selected {
+    z-index: 2;
+    background: rgba(237, 181, 82, 0.15);
+    box-shadow: inset 0 0 0 1px rgba(255, 209, 107, 0.56);
   }
   .cell--preview {
     z-index: 2;
