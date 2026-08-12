@@ -486,8 +486,17 @@ impl AppState {
         self.turn_timers.insert(timer.room_id, key.clone());
         let state = self.clone();
         tokio::spawn(async move {
-            let delay = (deadline - Utc::now()).to_std().unwrap_or_default();
-            tokio::time::sleep(delay).await;
+            // Tokio can resume a timer a few scheduling ticks before the wall-clock deadline.
+            // Keep the server-side timer armed until the authoritative UTC deadline has passed;
+            // otherwise `Game::expire_turn` would correctly reject the early expiry and leave
+            // an inactive turn with no replacement timer.
+            loop {
+                let remaining = deadline - Utc::now();
+                if remaining <= chrono::Duration::zero() {
+                    break;
+                }
+                tokio::time::sleep(remaining.to_std().unwrap_or_default()).await;
+            }
             let still_current = state
                 .turn_timers
                 .get(&timer.room_id)
@@ -818,5 +827,63 @@ mod tests {
                 .sum::<u32>(),
             1
         );
+    }
+
+    #[tokio::test]
+    async fn turn_deadline_advances_without_a_client_event() {
+        let first = session("Alpha");
+        let second = session("Bravo");
+        let mut room = GameRoom::new(
+            "TMR234".to_string(),
+            "Timer progression".to_string(),
+            RoomVisibility::Private,
+            &first,
+        )
+        .unwrap();
+        room.join(&second).unwrap();
+        let first_player_id = room.player_for_session(first.id).unwrap().id;
+        let second_player_id = room.player_for_session(second.id).unwrap().id;
+        room.set_lobby_ready(first.id, Uuid::new_v4(), first_player_id, true)
+            .unwrap();
+        room.set_lobby_ready(second.id, Uuid::new_v4(), second_player_id, true)
+            .unwrap();
+        room.start_placement(first.id, Uuid::new_v4(), first_player_id, room.version)
+            .unwrap();
+        room.place_ships(first.id, fleet(0)).unwrap();
+        room.place_ships(second.id, fleet(5)).unwrap();
+        room.confirm_placement(first.id, &fleet(0), 1).unwrap();
+        room.confirm_placement(second.id, &fleet(5), 1).unwrap();
+
+        let original_turn = room.game.as_ref().unwrap().turn_number;
+        let original_player = room.game.as_ref().unwrap().current_player_id;
+        let timer = room.timer_state(Utc::now());
+        let store = Arc::new(MemoryStore::default());
+        store.save_room(&room).await.unwrap();
+        let settings = Settings {
+            storage_mode: StorageMode::Memory,
+            turn_duration_seconds: 1,
+            ..Settings::default()
+        };
+        let state = AppState::with_store(settings, store);
+        state
+            .rooms
+            .insert(room.id, Arc::new(Mutex::new(room.clone())));
+        state.schedule_turn_expiry(timer);
+
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(3);
+        loop {
+            let active_room = state.room(room.id).await.unwrap();
+            let active_game = active_room.lock().await.game.clone().unwrap();
+            if active_game.turn_number > original_turn {
+                assert_ne!(active_game.current_player_id, original_player);
+                assert_eq!(active_game.total_timeout_counts[&original_player], 1);
+                break;
+            }
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "turn did not expire on the server"
+            );
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
     }
 }
