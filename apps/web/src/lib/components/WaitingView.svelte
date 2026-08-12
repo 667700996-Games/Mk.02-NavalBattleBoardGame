@@ -50,6 +50,9 @@
     snapshot.players.length === 2 &&
       snapshot.players.every((player) => player.readyState === 'READY')
   );
+  let readyPlayerCount = $derived(
+    snapshot.players.filter((player) => player.readyState === 'READY').length
+  );
   let startDisabledReason = $derived.by(() => {
     if (snapshot.gameId || snapshot.roomState === 'PLACEMENT') return '게임이 이미 시작되었습니다.';
     if (snapshot.players.length !== 2) return '상대 지휘관이 아직 입장하지 않았습니다.';
@@ -146,6 +149,16 @@
     </button>
   </div>
 
+  <div class:armed={allReady} class="stage-readiness" aria-live="polite">
+    <span class="stage-readiness__signal"><i></i> FLEET LINK STATUS</span>
+    <strong>{allReady ? 'ALL COMMANDERS READY' : `${readyPlayerCount} / 2 COMMANDERS READY`}</strong>
+    <small>
+      {allReady
+        ? 'HOST AUTHORIZATION AVAILABLE · DEPLOYMENT CHANNEL STANDING BY'
+        : 'EACH COMMANDER MUST CONFIRM READINESS BEFORE LAUNCH'}
+    </small>
+  </div>
+
   <div class="room-command-grid">
     <div class="player-slots" aria-label="지휘관 준비 상태">
       {#each [hostPlayer, guestPlayer] as player, index (player?.role ?? 'EMPTY_GUEST')}
@@ -211,53 +224,58 @@
           >
           <p>준비 상태는 서버에 저장되며 새로고침하거나 잠시 재접속해도 복구됩니다.</p>
         </div>
-        <Button
-          variant={selfPlayer?.readyState === 'READY' ? 'outline' : 'success'}
-          size="lg"
-          full
-          loading={readyPending}
-          disabled={!online || startPending}
-          onclick={() => {
-            sounds.ready();
-            if (selfPlayer?.readyState === 'READY') onunready();
-            else onready();
-          }}
-        >
-          {#if selfPlayer?.readyState === 'READY'}준비 취소{:else}<Check size={17} /> 준비 완료{/if}
-        </Button>
-
-        <div class="start-divider"><span>HOST AUTHORIZATION</span></div>
-        {#if isHost}
+        <div class="ready-control">
+          <small>YOUR READY STATE</small>
           <Button
-            variant="primary"
+            variant={selfPlayer?.readyState === 'READY' ? 'outline' : 'success'}
             size="lg"
             full
-            loading={startPending}
-            disabled={!snapshot.canStartGame || !online || readyPending}
+            loading={readyPending}
+            disabled={!online || startPending}
             onclick={() => {
-              sounds.start();
-              onstart();
+              sounds.ready();
+              if (selfPlayer?.readyState === 'READY') onunready();
+              else onready();
             }}
           >
-            <Rocket size={17} /> 작전 시작
+            {#if selfPlayer?.readyState === 'READY'}준비 취소{:else}<Check size={17} /> 준비 완료{/if}
           </Button>
-          <p class:available={!startDisabledReason} class="start-reason">
-            {startDisabledReason ||
-              '모든 시작 조건이 충족되었습니다. 최종 승인을 진행할 수 있습니다.'}
-          </p>
-        {:else}
-          <div class:ready={allReady} class="guest-guidance">
-            <ShieldCheck size={20} />
-            <span>
-              <strong>{allReady ? '방장의 작전 개시 대기' : '모든 지휘관의 준비 대기'}</strong>
-              <small>
-                {allReady
-                  ? '준비가 완료되었습니다. 방장만 작전을 시작할 수 있습니다.'
-                  : '두 플레이어가 준비 완료 상태가 되어야 합니다.'}
-              </small>
-            </span>
-          </div>
-        {/if}
+        </div>
+
+        <div class="host-control">
+          <div class="start-divider"><span>HOST AUTHORIZATION</span></div>
+          {#if isHost}
+            <Button
+              variant="primary"
+              size="lg"
+              full
+              loading={startPending}
+              disabled={!snapshot.canStartGame || !online || readyPending}
+              onclick={() => {
+                sounds.start();
+                onstart();
+              }}
+            >
+              <Rocket size={17} /> 작전 시작
+            </Button>
+            <p class:available={!startDisabledReason} class="start-reason">
+              {startDisabledReason ||
+                '모든 시작 조건이 충족되었습니다. 최종 승인을 진행할 수 있습니다.'}
+            </p>
+          {:else}
+            <div class:ready={allReady} class="guest-guidance">
+              <ShieldCheck size={20} />
+              <span>
+                <strong>{allReady ? '방장의 작전 개시 대기' : '모든 지휘관의 준비 대기'}</strong>
+                <small>
+                  {allReady
+                    ? '준비가 완료되었습니다. 방장만 작전을 시작할 수 있습니다.'
+                    : '두 플레이어가 준비 완료 상태가 되어야 합니다.'}
+                </small>
+              </span>
+            </div>
+          {/if}
+        </div>
       </div>
     </aside>
   </div>
