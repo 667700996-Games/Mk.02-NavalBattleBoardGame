@@ -151,7 +151,8 @@
 
   <div class:armed={allReady} class="stage-readiness" aria-live="polite">
     <span class="stage-readiness__signal"><i></i> FLEET LINK STATUS</span>
-    <strong>{allReady ? 'ALL COMMANDERS READY' : `${readyPlayerCount} / 2 COMMANDERS READY`}</strong>
+    <strong>{allReady ? 'ALL COMMANDERS READY' : `${readyPlayerCount} / 2 COMMANDERS READY`}</strong
+    >
     <small>
       {allReady
         ? 'HOST AUTHORIZATION AVAILABLE · DEPLOYMENT CHANNEL STANDING BY'

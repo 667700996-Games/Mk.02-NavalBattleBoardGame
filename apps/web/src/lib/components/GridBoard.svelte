@@ -165,7 +165,11 @@
   }
 </script>
 
-<div class:board-disabled={disabled} class:board-wrap--placement={mode === 'placement'} class="board-wrap">
+<div
+  class:board-disabled={disabled}
+  class:board-wrap--placement={mode === 'placement'}
+  class="board-wrap"
+>
   <span class="board-wrap__bezel" aria-hidden="true"></span>
   <div
     class="board-grid"

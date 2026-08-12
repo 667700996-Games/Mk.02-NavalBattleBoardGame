@@ -19,37 +19,37 @@
 >
   <svg viewBox={orientation === 'VERTICAL' ? '0 0 64 200' : '0 0 200 64'} aria-hidden={!label}>
     <g transform={orientation === 'VERTICAL' ? 'translate(0 200) rotate(-90)' : undefined}>
-      <path class="vessel__wake" d="M8 32H192" />
+      <path class="vessel__wake" d="M1 32H199" />
       {#if kind === 'CARRIER'}
-        <path class="vessel__hull" d="M8 32 25 12h150l17 20-17 20H25Z" />
-        <path class="vessel__deck" d="M29 17h132l14 15-14 15H29l10-15Z" />
-        <path class="vessel__island" d="M119 19h22v26h-22z" />
-        <path class="vessel__detail" d="M47 27h55M47 37h55M151 27h9M151 37h9" />
+        <path class="vessel__hull" d="M2 32 18 7h162l18 25-18 25H18Z" />
+        <path class="vessel__deck" d="M18 15h157l15 17-15 17H18l13-17Z" />
+        <path class="vessel__island" d="M119 17h24v30h-24z" />
+        <path class="vessel__detail" d="M37 26h66M37 38h66M153 26h14M153 38h14" />
       {:else if kind === 'BATTLESHIP'}
-        <path class="vessel__hull" d="M10 32 28 16h142l20 16-20 16H28Z" />
-        <path class="vessel__deck" d="M33 20h108l15 12-15 12H33l10-12Z" />
-        <path class="vessel__island" d="M92 18h25v28H92z" />
-        <path class="vessel__detail" d="M49 26h25M49 38h25M128 26h22M128 38h22" />
+        <path class="vessel__hull" d="M2 32 22 13h154l22 19-22 19H22Z" />
+        <path class="vessel__deck" d="M27 18h123l19 14-19 14H27l12-14Z" />
+        <path class="vessel__island" d="M89 16h28v32H89z" />
+        <path class="vessel__detail" d="M41 25h31M41 39h31M128 25h28M128 39h28" />
         <circle class="vessel__turret" cx="61" cy="32" r="7" />
         <circle class="vessel__turret" cx="151" cy="32" r="6" />
       {:else if kind === 'CRUISER'}
-        <path class="vessel__hull" d="M12 32 29 19h142l17 13-17 13H29Z" />
-        <path class="vessel__deck" d="M36 23h102l12 9-12 9H36l9-9Z" />
-        <path class="vessel__island" d="M100 20h19v24h-19z" />
-        <path class="vessel__detail" d="M53 28h32M53 36h32M132 28h17M132 36h17" />
+        <path class="vessel__hull" d="M2 32 22 17h156l20 15-20 15H22Z" />
+        <path class="vessel__deck" d="M28 21h118l17 11-17 11H28l11-11Z" />
+        <path class="vessel__island" d="M98 18h22v28H98z" />
+        <path class="vessel__detail" d="M43 27h36M43 37h36M132 27h22M132 37h22" />
       {:else if kind === 'SUBMARINE'}
         <path
           class="vessel__hull"
-          d="M15 32c10-14 27-21 54-21h61c25 0 43 7 55 21-12 14-30 21-55 21H69c-27 0-44-7-54-21Z"
+          d="M2 32C14 17 31 9 61 9h78c28 0 47 8 59 23-12 15-31 23-59 23H61C31 55 14 47 2 32Z"
         />
-        <path class="vessel__deck" d="M75 27h46v10H75z" />
-        <path class="vessel__island" d="M101 13h18v14h-18z" />
-        <path class="vessel__detail" d="M37 32h24M134 32h27" />
+        <path class="vessel__deck" d="M64 27h73v10H64z" />
+        <path class="vessel__island" d="M98 11h21v16H98z" />
+        <path class="vessel__detail" d="M25 32h32M143 32h31" />
       {:else}
-        <path class="vessel__hull" d="M7 32 39 22h129l25 10-25 10H39Z" />
-        <path class="vessel__deck" d="M48 25h80l14 7-14 7H48l8-7Z" />
-        <path class="vessel__island" d="M90 21h17v22H90z" />
-        <path class="vessel__detail" d="M57 29h22M57 35h22M119 29h25M119 35h25" />
+        <path class="vessel__hull" d="M2 32 35 20h139l24 12-24 12H35Z" />
+        <path class="vessel__deck" d="M40 24h98l17 8-17 8H40l10-8Z" />
+        <path class="vessel__island" d="M88 19h19v26H88z" />
+        <path class="vessel__detail" d="M49 28h26M49 36h26M118 28h30M118 36h30" />
       {/if}
     </g>
   </svg>
@@ -64,7 +64,8 @@
     min-width: 0;
     min-height: 0;
     color: #b8e9eb;
-    filter: drop-shadow(0 4px 5px rgba(0, 0, 0, 0.45));
+    filter: drop-shadow(0 3px 4px rgba(0, 0, 0, 0.45));
+    transition: filter 160ms var(--ease-out);
   }
 
   .vessel svg {
@@ -104,7 +105,7 @@
   }
 
   .vessel__wake {
-    opacity: 0.2;
+    opacity: 0.14;
     stroke-dasharray: 4 8;
   }
 

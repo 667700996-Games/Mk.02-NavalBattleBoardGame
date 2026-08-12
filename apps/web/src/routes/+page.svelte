@@ -224,7 +224,7 @@
     display: block;
     white-space: nowrap;
   }
-  .display-title span {
+  .display-title__line--signal {
     color: transparent;
     background: linear-gradient(110deg, #ecffff 8%, #74f7f7 48%, #2ba6e9 96%);
     background-clip: text;
