@@ -1,16 +1,6 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte';
-  import {
-    Activity,
-    Check,
-    Clock3,
-    Crosshair,
-    Flag,
-    Radio,
-    Shield,
-    Waves,
-    X
-  } from '@lucide/svelte';
+  import { Activity, Check, Clock3, Crosshair, Flag, Radio, Waves, X } from '@lucide/svelte';
   import GridBoard from './GridBoard.svelte';
   import { sounds } from '$lib/sound';
   import { chatMessages, gameError, lastAttack } from '$lib/stores';
@@ -44,7 +34,6 @@
   }: Props = $props();
 
   let selected = $state<Coordinate | null>(null);
-  let activeBoard = $state<'target' | 'own'>('target');
   let showSurrender = $state(false);
   let clientNow = $state(Date.now());
   let timerAnnouncement = $state('');
@@ -356,24 +345,8 @@
     </div>
   {/if}
 
-  <div class="mobile-tabs" role="tablist" aria-label="전투 보드 선택">
-    <button
-      class:active={activeBoard === 'target'}
-      role="tab"
-      aria-selected={activeBoard === 'target'}
-      onclick={() => (activeBoard = 'target')}><Crosshair size={15} /> 공격 해역</button
-    >
-    <button
-      class:active={activeBoard === 'own'}
-      role="tab"
-      aria-selected={activeBoard === 'own'}
-      onclick={() => (activeBoard = 'own')}><Shield size={15} /> 아군 해역</button
-    >
-  </div>
-
   <div class="battle-grid">
     <section
-      class:hidden-mobile={activeBoard !== 'own'}
       class="board-panel board-panel--friendly panel"
       aria-labelledby="friendly-waters-title"
     >
@@ -401,11 +374,7 @@
       </div>
     </section>
 
-    <section
-      class:hidden-mobile={activeBoard !== 'target'}
-      class="board-panel board-panel--hostile panel"
-      aria-labelledby="hostile-waters-title"
-    >
+    <section class="board-panel board-panel--hostile panel" aria-labelledby="hostile-waters-title">
       <div class="board-panel__heading">
         <div>
           <span>HOSTILE WATERS / FOG OF WAR</span>
