@@ -490,12 +490,7 @@ impl AppState {
                 self.coordination_healthy.store(true, Ordering::Relaxed);
                 Ok(())
             }
-            Ok(_) => {
-                self.metrics
-                    .rate_limit_rejections
-                    .fetch_add(1, Ordering::Relaxed);
-                Err(GameError::RateLimited)
-            }
+            Ok(_) => Err(GameError::RateLimited),
             Err(error) if self.settings.distributed_coordination_required => {
                 self.coordination_healthy.store(false, Ordering::Relaxed);
                 tracing::error!(%error, %scope, "required shared rate limiter unavailable");
@@ -748,9 +743,7 @@ impl AppState {
     pub async fn save_room(&self, room: &mut GameRoom) -> Result<(), GameError> {
         match self.store.save_room(room).await {
             Ok(()) => {
-                self.metrics
-                    .room_mutations
-                    .fetch_add(1, Ordering::Relaxed);
+                self.metrics.room_mutations.fetch_add(1, Ordering::Relaxed);
                 Ok(())
             }
             Err(error) => {

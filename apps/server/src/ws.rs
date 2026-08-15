@@ -72,6 +72,12 @@ async fn handle_socket(
                             .enforce_websocket_event_rate_limit(session.id)
                             .await
                         {
+                            if error == GameError::RateLimited {
+                                state
+                                    .metrics
+                                    .rate_limit_rejections
+                                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                            }
                             state
                                 .send_to_session(session.id, error_event(error))
                                 .await;

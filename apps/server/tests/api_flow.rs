@@ -267,6 +267,31 @@ async fn liveness_readiness_and_security_headers_are_exposed() {
         assert!(response.headers().contains_key("content-security-policy"));
         assert_eq!(json_body(response).await["status"], expected_status);
     }
+
+    let metrics_response = send(
+        &app,
+        Request::builder()
+            .uri("/api/metrics")
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(metrics_response.status(), StatusCode::OK);
+    assert!(
+        metrics_response.headers()[header::CONTENT_TYPE]
+            .to_str()
+            .unwrap()
+            .starts_with("text/plain")
+    );
+    let metrics = String::from_utf8(
+        to_bytes(metrics_response.into_body(), 128 * 1024)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap();
+    assert!(metrics.contains("# TYPE mk01_http_requests_total counter"));
+    assert!(metrics.contains("# TYPE mk01_websocket_connections gauge"));
 }
 
 #[tokio::test]

@@ -52,7 +52,10 @@ pub fn router() -> Router<AppState> {
 
 async fn metrics(State(state): State<AppState>) -> impl IntoResponse {
     (
-        [(axum::http::header::CONTENT_TYPE, "text/plain; version=0.0.4")],
+        [(
+            axum::http::header::CONTENT_TYPE,
+            "text/plain; version=0.0.4",
+        )],
         state.metrics.render_prometheus(),
     )
 }
@@ -84,9 +87,15 @@ async fn create_session(
     input: Result<Json<CreateSessionInput>, JsonRejection>,
 ) -> Result<impl IntoResponse, GameError> {
     let client_key = state.client_rate_limit_key(&headers, direct_address);
-    state
-        .enforce_session_creation_rate_limit(&client_key)
-        .await?;
+    if let Err(error) = state.enforce_session_creation_rate_limit(&client_key).await {
+        if error == GameError::RateLimited {
+            state
+                .metrics
+                .rate_limit_rejections
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
+        return Err(error);
+    }
     let input = parse_json(input)?;
     let (session, token) = state.create_session(input.nickname).await?;
     let max_age = time::Duration::seconds(state.settings.session_ttl.as_secs() as i64);
@@ -309,6 +318,14 @@ pub async fn authenticate(
         .get(AUTHORIZATION)
         .and_then(|value| value.to_str().ok());
     let session = state.authenticate(jar, authorization).await?;
-    state.enforce_api_rate_limit(session.id).await?;
+    if let Err(error) = state.enforce_api_rate_limit(session.id).await {
+        if error == GameError::RateLimited {
+            state
+                .metrics
+                .rate_limit_rejections
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
+        return Err(error);
+    }
     Ok(session)
 }
