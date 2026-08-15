@@ -119,7 +119,12 @@ async fn guest_sessions_create_join_and_recover_a_two_player_room() {
             .header(header::CONTENT_TYPE, "application/json")
             .header(header::COOKIE, &host_cookie)
             .body(Body::from(
-                json!({ "name": "North Sea", "visibility": "PUBLIC" }).to_string(),
+                json!({
+                    "name": "North Sea",
+                    "visibility": "PUBLIC",
+                    "rules": { "mode": "SALVO", "turnDurationSeconds": 90 }
+                })
+                .to_string(),
             ))
             .unwrap(),
     )
@@ -138,6 +143,11 @@ async fn guest_sessions_create_join_and_recover_a_two_player_room() {
         created["snapshot"]["selfPlayerId"]
     );
     assert_eq!(created["snapshot"]["canStartGame"], false);
+    assert_eq!(created["snapshot"]["rules"]["mode"], "SALVO");
+    assert_eq!(
+        created["snapshot"]["room"]["rules"]["turnDurationSeconds"],
+        90
+    );
     assert!(created["inviteUrl"].as_str().unwrap().ends_with(room_code));
 
     let list_response = send(
