@@ -147,3 +147,50 @@ impl GameStore for MemoryStore {
         "memory"
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use chrono::Utc;
+
+    use super::*;
+
+    fn session() -> UserSession {
+        UserSession {
+            id: Uuid::new_v4(),
+            nickname: "Alpha".to_string(),
+            token_hash: "test-token-hash".to_string(),
+            created_at: Utc::now(),
+            last_seen_at: Utc::now(),
+            current_room_id: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn stale_room_snapshots_cannot_overwrite_a_newer_revision() {
+        let store = MemoryStore::default();
+        let mut room = GameRoom::new(
+            "CAS234".to_string(),
+            "Original".to_string(),
+            RoomVisibility::Private,
+            &session(),
+        )
+        .unwrap();
+        store.save_room(&mut room).await.unwrap();
+        assert_eq!(room.persistence_revision, 1);
+
+        let mut stale = room.clone();
+        room.name = "Authoritative".to_string();
+        store.save_room(&mut room).await.unwrap();
+        assert_eq!(room.persistence_revision, 2);
+
+        stale.name = "Stale overwrite".to_string();
+        assert_eq!(
+            store.save_room(&mut stale).await.unwrap_err(),
+            GameError::VersionConflict
+        );
+        assert_eq!(
+            store.room_by_id(room.id).await.unwrap().unwrap().name,
+            "Authoritative"
+        );
+    }
+}

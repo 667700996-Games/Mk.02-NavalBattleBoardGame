@@ -209,7 +209,7 @@ impl GameStore for PostgresRedisStore {
                 let mut room: GameRoom =
                     serde_json::from_value(snapshot).map_err(|_| GameError::Internal)?;
                 room.persistence_revision = revision.max(0) as u64;
-                Ok(room)
+                Ok::<GameRoom, GameError>(room)
             })
             .transpose()?;
         if let Some(room) = &room {
@@ -230,7 +230,7 @@ impl GameStore for PostgresRedisStore {
                 let mut room: GameRoom =
                     serde_json::from_value(snapshot).map_err(|_| GameError::Internal)?;
                 room.persistence_revision = revision.max(0) as u64;
-                Ok(room)
+                Ok::<GameRoom, GameError>(room)
             })
             .transpose()?;
         if let Some(room) = &room {
