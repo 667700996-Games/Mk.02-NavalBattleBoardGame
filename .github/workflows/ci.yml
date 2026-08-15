@@ -12,6 +12,32 @@ concurrency:
 jobs:
   quality:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: mk01
+          POSTGRES_PASSWORD: mk01
+          POSTGRES_DB: mk01_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U mk01 -d mk01_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      TEST_DATABASE_URL: postgres://mk01:mk01@127.0.0.1:5432/mk01_test
+      TEST_REDIS_URL: redis://127.0.0.1:6379/
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@master
@@ -42,7 +68,7 @@ jobs:
           node-version: '22'
           cache: npm
       - run: npm ci
-      - run: npx playwright install --with-deps chromium webkit
+      - run: npx playwright install --with-deps chromium firefox webkit
       - run: npm run test:e2e
         env:
           CI: 'true'
