@@ -1388,7 +1388,7 @@ mod tests {
         state
             .rooms
             .insert(room.id, Arc::new(Mutex::new(room.clone())));
-        state.start_turn_expiry_watchdog();
+        state.schedule_turn_expiry(room.timer_state(Utc::now()));
 
         let deadline = tokio::time::Instant::now() + Duration::from_secs(3);
         loop {

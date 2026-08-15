@@ -302,23 +302,23 @@
   :global(.training-console) {
     min-height: 500px;
   }
-  .lesson-copy article {
+  :global(.lesson-copy) article {
     display: flex;
     min-height: 426px;
     flex-direction: column;
   }
-  .lesson-copy small {
+  :global(.lesson-copy) small {
     color: var(--cyan-300);
     font: 700 10px var(--font-display);
     letter-spacing: 0.16em;
   }
-  .lesson-copy h2 {
+  :global(.lesson-copy) h2 {
     margin: 20px 0 18px;
     font-size: clamp(28px, 3vw, 44px);
     line-height: 1.16;
     word-break: keep-all;
   }
-  .lesson-copy > article > p {
+  :global(.lesson-copy) > article > p {
     color: var(--ink-200);
     line-height: 1.9;
     word-break: keep-all;
@@ -331,7 +331,7 @@
     border: 1px solid rgba(79, 226, 173, 0.22);
     background: rgba(79, 226, 173, 0.05);
   }
-  .rule-card svg {
+  .rule-card :global(svg) {
     flex: none;
     color: var(--green-400);
   }
@@ -348,7 +348,7 @@
     font-size: 10px;
     line-height: 1.6;
   }
-  .training-console {
+  :global(.training-console) {
     overflow: hidden;
     background:
       radial-gradient(circle at 50% 46%, rgba(40, 223, 232, 0.11), transparent 50%),
@@ -402,7 +402,7 @@
     margin-top: 22px;
     color: var(--cyan-300);
   }
-  .demo-readout svg {
+  .demo-readout :global(svg) {
     grid-row: span 2;
   }
   .demo-readout strong {
@@ -588,7 +588,7 @@
     :global(.training-console) {
       min-height: auto;
     }
-    .lesson-copy article {
+    :global(.lesson-copy) article {
       min-height: 360px;
     }
   }
