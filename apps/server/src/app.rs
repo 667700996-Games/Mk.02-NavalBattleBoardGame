@@ -409,7 +409,7 @@ impl AppState {
         match self.store.save_room(room).await {
             Ok(()) => Ok(()),
             Err(GameError::VersionConflict) => {
-                if let Ok(Some(latest)) = self.store.room_by_id(room.id).await {
+                if let Ok(Some(latest)) = self.store.room_by_id_authoritative(room.id).await {
                     *room = latest;
                 }
                 Err(GameError::VersionConflict)

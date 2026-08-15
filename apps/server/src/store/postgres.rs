@@ -71,6 +71,22 @@ impl PostgresRedisStore {
         }
         Ok(())
     }
+
+    async fn room_by_id_from_database(&self, id: Uuid) -> Result<Option<GameRoom>, GameError> {
+        let row: Option<(serde_json::Value, i64)> = sqlx::query_as(
+            "SELECT snapshot, persistence_revision FROM game_rooms WHERE id=$1",
+        )
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await?;
+        row.map(|(snapshot, revision)| {
+            let mut room: GameRoom =
+                serde_json::from_value(snapshot).map_err(|_| GameError::Internal)?;
+            room.persistence_revision = revision.max(0) as u64;
+            Ok(room)
+        })
+        .transpose()
+    }
 }
 
 #[async_trait]
@@ -184,34 +200,18 @@ impl GameStore for PostgresRedisStore {
     }
 
     async fn room_by_id(&self, id: Uuid) -> Result<Option<GameRoom>, GameError> {
-        if let Some(mut cache) = self.cache.clone() {
-            let key = Self::room_cache_key(id);
-            match cache.get::<_, Option<String>>(&key).await {
-                Ok(Some(cached)) => {
-                    if let Ok(room) = serde_json::from_str(&cached) {
-                        return Ok(Some(room));
-                    }
-                }
-                Ok(None) => {}
-                Err(error) => {
-                    tracing::warn!(%error, room_id = %id, "redis cache read skipped");
-                }
-            }
+        // A stale cached snapshot is unacceptable for an authoritative game mutation. PostgreSQL
+        // remains the read authority until the distributed room-owner protocol can provide fenced,
+        // revision-aware cache reads.
+        let room = self.room_by_id_from_database(id).await?;
+        if let Some(room) = &room {
+            self.cache_room(room).await?;
         }
-        let row: Option<(serde_json::Value, i64)> = sqlx::query_as(
-            "SELECT snapshot, persistence_revision FROM game_rooms WHERE id=$1",
-        )
-        .bind(id)
-        .fetch_optional(&self.pool)
-        .await?;
-        let room = row
-            .map(|(snapshot, revision)| {
-                let mut room: GameRoom =
-                    serde_json::from_value(snapshot).map_err(|_| GameError::Internal)?;
-                room.persistence_revision = revision.max(0) as u64;
-                Ok::<GameRoom, GameError>(room)
-            })
-            .transpose()?;
+        Ok(room)
+    }
+
+    async fn room_by_id_authoritative(&self, id: Uuid) -> Result<Option<GameRoom>, GameError> {
+        let room = self.room_by_id_from_database(id).await?;
         if let Some(room) = &room {
             self.cache_room(room).await?;
         }
