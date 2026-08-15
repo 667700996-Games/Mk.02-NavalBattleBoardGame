@@ -346,6 +346,10 @@ export type ServerEvent =
   | { type: 'chat:typing'; payload: ChatTypingEvent }
   | { type: 'turn:started' | 'game:timer-sync'; payload: GameTimerState }
   | { type: 'turn:expired'; payload: TurnExpiredRecord }
+  | {
+      type: 'matchmaking:queued' | 'matchmaking:cancelled';
+      payload: { queued: boolean; queuedAt: string | null };
+    }
   | { type: 'heartbeat'; payload: { serverTime: string } };
 
 export const QUICK_COMMANDS: ReadonlyArray<{ id: QuickCommandId; label: string }> = [

@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   GAME_PROTOCOL_VERSION,
   isCompatibleGameSnapshot,
-  isCompatibleProtocolEnvelope
+  isCompatibleProtocolEnvelope,
+  isCompatibleServerEvent
 } from './protocol';
 
 const currentSnapshot = {
@@ -51,5 +52,13 @@ describe('game protocol compatibility', () => {
         room: { status: 'WAITING_FOR_READY' }
       })
     ).toBe(false);
+  });
+
+  it('rejects unknown WebSocket envelopes before state mutation', () => {
+    expect(isCompatibleServerEvent({ type: 'root:override', payload: {} })).toBe(false);
+    expect(isCompatibleServerEvent({ type: 'heartbeat', payload: { serverTime: 'now' } })).toBe(
+      true
+    );
+    expect(isCompatibleServerEvent({ type: 'game:snapshot', payload: currentSnapshot })).toBe(true);
   });
 });

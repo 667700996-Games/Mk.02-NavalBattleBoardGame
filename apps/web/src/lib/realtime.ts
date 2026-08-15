@@ -16,6 +16,7 @@ import type { ClientEvent, GameSnapshot, ServerEvent } from '$lib/types';
 import { sounds } from '$lib/sound';
 import {
   isCompatibleGameSnapshot,
+  isCompatibleServerEvent,
   SERVER_PROTOCOL_MISMATCH_CODE,
   SERVER_PROTOCOL_MISMATCH_MESSAGE
 } from '$lib/protocol';
@@ -116,12 +117,14 @@ class RealtimeClient {
   }
 
   private onMessage(raw: string): void {
-    let event: ServerEvent;
+    let parsed: unknown;
     try {
-      event = JSON.parse(raw) as ServerEvent;
+      parsed = JSON.parse(raw) as unknown;
     } catch {
       return;
     }
+    if (!isCompatibleServerEvent(parsed)) return;
+    const event: ServerEvent = parsed;
     if (
       event.type === 'room:updated' ||
       event.type === 'player:joined' ||

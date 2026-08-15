@@ -1,4 +1,4 @@
-import type { GameSnapshot, RoomStatus } from '$lib/types';
+import type { GameSnapshot, RoomStatus, ServerEvent } from '$lib/types';
 
 export const GAME_PROTOCOL_VERSION = 2;
 export const SERVER_PROTOCOL_MISMATCH_CODE = 'SERVER_PROTOCOL_MISMATCH';
@@ -13,6 +13,46 @@ const ROOM_STATES = new Set<RoomStatus>([
   'PLAYING',
   'FINISHED',
   'CANCELLED'
+]);
+
+const SNAPSHOT_EVENTS = new Set([
+  'room:updated',
+  'player:joined',
+  'player:left',
+  'game:placement-started',
+  'placement:accepted',
+  'game:started',
+  'turn:changed',
+  'game:finished',
+  'player:disconnected',
+  'player:reconnected',
+  'game:snapshot'
+]);
+
+const SERVER_EVENTS = new Set([
+  'room:created',
+  ...SNAPSHOT_EVENTS,
+  'placement:rejected',
+  'error',
+  'player:ready:accepted',
+  'player:unready:accepted',
+  'game:start:accepted',
+  'player:ready:rejected',
+  'player:unready:rejected',
+  'game:start:rejected',
+  'chat:rejected',
+  'attack:result',
+  'ship:sunk',
+  'game:surrendered',
+  'chat:message',
+  'chat:history',
+  'chat:typing',
+  'turn:started',
+  'game:timer-sync',
+  'turn:expired',
+  'matchmaking:queued',
+  'matchmaking:cancelled',
+  'heartbeat'
 ]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -39,4 +79,19 @@ export function isCompatibleProtocolEnvelope(value: unknown): value is {
   protocolVersion: number;
 } {
   return isRecord(value) && value.protocolVersion === GAME_PROTOCOL_VERSION;
+}
+
+export function isCompatibleServerEvent(value: unknown): value is ServerEvent {
+  if (!isRecord(value) || typeof value.type !== 'string' || !SERVER_EVENTS.has(value.type)) {
+    return false;
+  }
+  if (!('payload' in value) || !isRecord(value.payload)) return false;
+  if (SNAPSHOT_EVENTS.has(value.type)) return isCompatibleGameSnapshot(value.payload);
+  if (value.type === 'room:created') {
+    return (
+      typeof value.payload.inviteUrl === 'string' &&
+      isCompatibleGameSnapshot(value.payload.snapshot)
+    );
+  }
+  return true;
 }
