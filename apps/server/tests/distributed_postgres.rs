@@ -75,6 +75,44 @@ async fn postgres_fences_stale_writes_and_atomically_completes_distributed_match
         .unwrap();
     assert_eq!(persisted.persistence_revision, 2);
 
+    let first_owner = Uuid::new_v4();
+    let second_owner = Uuid::new_v4();
+    let stale_lease = first_store
+        .acquire_room_authority(authoritative.id, first_owner, Duration::from_millis(150))
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(
+        second_store
+            .acquire_room_authority(authoritative.id, second_owner, Duration::from_secs(2),)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    tokio::time::sleep(Duration::from_millis(180)).await;
+    let takeover_lease = second_store
+        .acquire_room_authority(authoritative.id, second_owner, Duration::from_secs(2))
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(takeover_lease.fencing_token > stale_lease.fencing_token);
+    let mut stale_owner_room = persisted.clone();
+    stale_owner_room.name = "Stale paused owner".to_string();
+    assert_eq!(
+        first_store
+            .save_room_fenced(&mut stale_owner_room, stale_lease)
+            .await
+            .unwrap_err(),
+        mk01_server::error::GameError::VersionConflict
+    );
+    let mut takeover_room = persisted.clone();
+    takeover_room.name = "Lease takeover".to_string();
+    second_store
+        .save_room_fenced(&mut takeover_room, takeover_lease)
+        .await
+        .unwrap();
+    assert_eq!(takeover_room.persistence_revision, 3);
+
     let queued = first_store.enqueue_matchmaking(&alpha).await.unwrap();
     assert!(queued.claim.is_none());
     let matched = second_store.enqueue_matchmaking(&bravo).await.unwrap();

@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use redis::{AsyncCommands, aio::ConnectionManager};
@@ -9,7 +11,9 @@ use crate::{
     error::GameError,
 };
 
-use super::{GameHistoryItem, GameStore, MatchmakingClaim, MatchmakingEnqueueResult};
+use super::{
+    GameHistoryItem, GameStore, MatchmakingClaim, MatchmakingEnqueueResult, RoomAuthorityLease,
+};
 
 #[derive(Clone)]
 pub struct PostgresRedisStore {
@@ -87,6 +91,94 @@ impl PostgresRedisStore {
         })
         .transpose()
     }
+
+    async fn persist_room(
+        &self,
+        room: &mut GameRoom,
+        lease: Option<RoomAuthorityLease>,
+    ) -> Result<(), GameError> {
+        let expected_revision =
+            i64::try_from(room.persistence_revision).map_err(|_| GameError::Internal)?;
+        let next_revision = expected_revision
+            .checked_add(1)
+            .ok_or(GameError::Internal)?;
+        let mut persisted = room.clone();
+        persisted.persistence_revision = next_revision as u64;
+        let snapshot = serde_json::to_value(&persisted).map_err(|_| GameError::Internal)?;
+        let status = serde_json::to_value(room.status)
+            .map_err(|_| GameError::Internal)?
+            .as_str()
+            .unwrap_or("CANCELLED")
+            .to_string();
+        let visibility = serde_json::to_value(room.visibility)
+            .map_err(|_| GameError::Internal)?
+            .as_str()
+            .unwrap_or("PRIVATE")
+            .to_string();
+        let mut transaction = self.pool.begin().await?;
+        let result = if let Some(lease) = lease {
+            let fencing_token =
+                i64::try_from(lease.fencing_token).map_err(|_| GameError::Internal)?;
+            sqlx::query(
+                "UPDATE game_rooms SET code=$2, name=$3, visibility=$4, status=$5, snapshot=$6, created_at=$7, updated_at=$8, persistence_revision=$9, authority_owner_id=NULL, authority_lease_expires_at=NULL WHERE id=$1 AND persistence_revision=$10 AND authority_owner_id=$11 AND authority_fencing_token=$12 AND authority_lease_expires_at > now()",
+            )
+            .bind(room.id)
+            .bind(&room.code)
+            .bind(&room.name)
+            .bind(visibility)
+            .bind(status)
+            .bind(snapshot)
+            .bind(room.created_at)
+            .bind(room.updated_at)
+            .bind(next_revision)
+            .bind(expected_revision)
+            .bind(lease.owner_instance_id)
+            .bind(fencing_token)
+            .execute(&mut *transaction)
+            .await?
+        } else {
+            sqlx::query(
+                "INSERT INTO game_rooms (id, code, name, visibility, status, snapshot, created_at, updated_at, persistence_revision) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (id) DO UPDATE SET name=$3, visibility=$4, status=$5, snapshot=$6, updated_at=$8, persistence_revision=$9 WHERE game_rooms.persistence_revision=$10 AND game_rooms.authority_owner_id IS NULL",
+            )
+            .bind(room.id)
+            .bind(&room.code)
+            .bind(&room.name)
+            .bind(visibility)
+            .bind(status)
+            .bind(snapshot)
+            .bind(room.created_at)
+            .bind(room.updated_at)
+            .bind(next_revision)
+            .bind(expected_revision)
+            .execute(&mut *transaction)
+            .await?
+        };
+        if result.rows_affected() == 0 {
+            return Err(GameError::VersionConflict);
+        }
+        if let Some(result) = room.game.as_ref().and_then(|game| game.result.as_ref()) {
+            let participant_session_ids: Vec<_> = room
+                .players
+                .iter()
+                .map(|player| player.session_id)
+                .collect();
+            let result_json = serde_json::to_value(result).map_err(|_| GameError::Internal)?;
+            sqlx::query(
+                "INSERT INTO game_results (room_id, room_name, participant_session_ids, result, finished_at) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (room_id) DO UPDATE SET result=$4, finished_at=$5",
+            )
+            .bind(room.id)
+            .bind(&room.name)
+            .bind(participant_session_ids)
+            .bind(result_json)
+            .bind(result.finished_at)
+            .execute(&mut *transaction)
+            .await?;
+        }
+        transaction.commit().await?;
+        room.persistence_revision = persisted.persistence_revision;
+        self.cache_room(&persisted).await?;
+        Ok(())
+    }
 }
 
 #[async_trait]
@@ -154,48 +246,56 @@ impl GameStore for PostgresRedisStore {
     }
 
     async fn save_room(&self, room: &mut GameRoom) -> Result<(), GameError> {
-        let expected_revision =
-            i64::try_from(room.persistence_revision).map_err(|_| GameError::Internal)?;
-        let next_revision = expected_revision
-            .checked_add(1)
-            .ok_or(GameError::Internal)?;
-        let mut persisted = room.clone();
-        persisted.persistence_revision = next_revision as u64;
-        let snapshot = serde_json::to_value(&persisted).map_err(|_| GameError::Internal)?;
-        let status = serde_json::to_value(room.status)
-            .map_err(|_| GameError::Internal)?
-            .as_str()
-            .unwrap_or("CANCELLED")
-            .to_string();
-        let visibility = serde_json::to_value(room.visibility)
-            .map_err(|_| GameError::Internal)?
-            .as_str()
-            .unwrap_or("PRIVATE")
-            .to_string();
-        let mut transaction = self.pool.begin().await?;
-        let result = sqlx::query(
-            "INSERT INTO game_rooms (id, code, name, visibility, status, snapshot, created_at, updated_at, persistence_revision) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (id) DO UPDATE SET name=$3, visibility=$4, status=$5, snapshot=$6, updated_at=$8, persistence_revision=$9 WHERE game_rooms.persistence_revision=$10"
-        ).bind(room.id).bind(&room.code).bind(&room.name).bind(visibility).bind(status)
-            .bind(snapshot).bind(room.created_at).bind(room.updated_at).bind(next_revision)
-            .bind(expected_revision).execute(&mut *transaction).await?;
-        if result.rows_affected() == 0 {
+        self.persist_room(room, None).await
+    }
+
+    async fn acquire_room_authority(
+        &self,
+        room_id: Uuid,
+        owner_instance_id: Uuid,
+        lease_duration: Duration,
+    ) -> Result<Option<RoomAuthorityLease>, GameError> {
+        let lease_millis = i64::try_from(lease_duration.as_millis().max(1)).unwrap_or(i64::MAX);
+        let token: Option<i64> = sqlx::query_scalar(
+            "UPDATE game_rooms SET authority_owner_id=$2, authority_fencing_token=authority_fencing_token+1, authority_lease_expires_at=now()+($3 * interval '1 millisecond') WHERE id=$1 AND (authority_owner_id IS NULL OR authority_owner_id=$2 OR authority_lease_expires_at <= now()) RETURNING authority_fencing_token",
+        )
+        .bind(room_id)
+        .bind(owner_instance_id)
+        .bind(lease_millis)
+        .fetch_optional(&self.pool)
+        .await?;
+        token
+            .map(|fencing_token| {
+                Ok(RoomAuthorityLease {
+                    room_id,
+                    owner_instance_id,
+                    fencing_token: u64::try_from(fencing_token).map_err(|_| GameError::Internal)?,
+                })
+            })
+            .transpose()
+    }
+
+    async fn save_room_fenced(
+        &self,
+        room: &mut GameRoom,
+        lease: RoomAuthorityLease,
+    ) -> Result<(), GameError> {
+        if room.id != lease.room_id {
             return Err(GameError::VersionConflict);
         }
-        if let Some(result) = room.game.as_ref().and_then(|game| game.result.as_ref()) {
-            let participant_session_ids: Vec<_> = room
-                .players
-                .iter()
-                .map(|player| player.session_id)
-                .collect();
-            let result_json = serde_json::to_value(result).map_err(|_| GameError::Internal)?;
-            sqlx::query(
-                "INSERT INTO game_results (room_id, room_name, participant_session_ids, result, finished_at) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (room_id) DO UPDATE SET result=$4, finished_at=$5"
-            ).bind(room.id).bind(&room.name).bind(participant_session_ids).bind(result_json).bind(result.finished_at)
-                .execute(&mut *transaction).await?;
-        }
-        transaction.commit().await?;
-        room.persistence_revision = persisted.persistence_revision;
-        self.cache_room(&persisted).await?;
+        self.persist_room(room, Some(lease)).await
+    }
+
+    async fn release_room_authority(&self, lease: RoomAuthorityLease) -> Result<(), GameError> {
+        let fencing_token = i64::try_from(lease.fencing_token).map_err(|_| GameError::Internal)?;
+        sqlx::query(
+            "UPDATE game_rooms SET authority_owner_id=NULL, authority_lease_expires_at=NULL WHERE id=$1 AND authority_owner_id=$2 AND authority_fencing_token=$3",
+        )
+        .bind(lease.room_id)
+        .bind(lease.owner_instance_id)
+        .bind(fencing_token)
+        .execute(&self.pool)
+        .await?;
         Ok(())
     }
 

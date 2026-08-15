@@ -73,10 +73,7 @@ pub trait GameStore: Send + Sync {
     ) -> Result<(), GameError> {
         self.save_room(room).await
     }
-    async fn release_room_authority(
-        &self,
-        _lease: RoomAuthorityLease,
-    ) -> Result<(), GameError> {
+    async fn release_room_authority(&self, _lease: RoomAuthorityLease) -> Result<(), GameError> {
         Ok(())
     }
     async fn room_by_id(&self, id: Uuid) -> Result<Option<GameRoom>, GameError>;

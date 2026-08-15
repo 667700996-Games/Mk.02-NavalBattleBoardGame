@@ -30,6 +30,7 @@ use tower_http::{
 use uuid::Uuid;
 
 const DISTRIBUTED_EVENT_CHANNEL: &str = "mk01:server-events:v1";
+const ROOM_AUTHORITY_LEASE_DURATION: Duration = Duration::from_secs(5);
 const DISTRIBUTED_RATE_LIMIT_SCRIPT: &str = r#"
 local current = redis.call('INCR', KEYS[1])
 if current == 1 then
@@ -85,6 +86,8 @@ pub struct ServerMetrics {
     pub distributed_event_failures: AtomicU64,
     pub room_mutations: AtomicU64,
     pub room_version_conflicts: AtomicU64,
+    pub room_authority_acquisitions: AtomicU64,
+    pub room_authority_conflicts: AtomicU64,
     pub matchmaking_queued: AtomicU64,
     pub matchmaking_completed: AtomicU64,
     pub matchmaking_cancelled: AtomicU64,
@@ -102,6 +105,8 @@ impl Default for ServerMetrics {
             distributed_event_failures: AtomicU64::new(0),
             room_mutations: AtomicU64::new(0),
             room_version_conflicts: AtomicU64::new(0),
+            room_authority_acquisitions: AtomicU64::new(0),
+            room_authority_conflicts: AtomicU64::new(0),
             matchmaking_queued: AtomicU64::new(0),
             matchmaking_completed: AtomicU64::new(0),
             matchmaking_cancelled: AtomicU64::new(0),
@@ -165,6 +170,16 @@ impl ServerMetrics {
                 "mk01_room_version_conflicts_total",
                 "Rejected stale room persistence revisions.",
                 &self.room_version_conflicts,
+            ),
+            counter(
+                "mk01_room_authority_acquisitions_total",
+                "Successfully acquired room mutation authority leases.",
+                &self.room_authority_acquisitions,
+            ),
+            counter(
+                "mk01_room_authority_conflicts_total",
+                "Room mutations rejected because another authority lease was active.",
+                &self.room_authority_conflicts,
             ),
             counter(
                 "mk01_matchmaking_queued_total",
@@ -628,6 +643,37 @@ impl AppState {
     }
 
     pub async fn room(&self, id: Uuid) -> Result<Arc<Mutex<GameRoom>>, GameError> {
+        if self.store.kind() == "postgres+redis" {
+            let mut latest = self
+                .store
+                .room_by_id_authoritative(id)
+                .await?
+                .ok_or(GameError::RoomNotFound)?;
+            if let Some(room) = self.rooms.get(&id).map(|entry| entry.clone()) {
+                let mut cached = room.lock().await;
+                if latest.persistence_revision > cached.persistence_revision {
+                    self.reconcile_runtime_state(&mut latest).await?;
+                    *cached = latest;
+                }
+                drop(cached);
+                return Ok(room);
+            }
+            self.reconcile_runtime_state(&mut latest).await?;
+            let deadlines: Vec<_> = latest
+                .disconnected_deadlines
+                .iter()
+                .map(|(player_id, deadline)| (*player_id, *deadline))
+                .collect();
+            let turn_timer = latest.timer_state(Utc::now());
+            let room = Arc::new(Mutex::new(latest));
+            self.rooms.insert(id, room.clone());
+            for (player_id, deadline) in deadlines {
+                self.schedule_disconnect_expiry(id, player_id, deadline);
+            }
+            self.schedule_turn_expiry(turn_timer);
+            self.schedule_ai_turn(id);
+            return Ok(room);
+        }
         if let Some(room) = self.rooms.get(&id) {
             return Ok(room.clone());
         }
@@ -779,7 +825,44 @@ impl AppState {
     }
 
     pub async fn save_room(&self, room: &mut GameRoom) -> Result<(), GameError> {
-        match self.store.save_room(room).await {
+        let lease = if self.store.kind() == "postgres+redis" && room.persistence_revision > 0 {
+            match self
+                .store
+                .acquire_room_authority(room.id, self.instance_id, ROOM_AUTHORITY_LEASE_DURATION)
+                .await?
+            {
+                Some(lease) => {
+                    self.metrics
+                        .room_authority_acquisitions
+                        .fetch_add(1, Ordering::Relaxed);
+                    Some(lease)
+                }
+                None => {
+                    self.metrics
+                        .room_authority_conflicts
+                        .fetch_add(1, Ordering::Relaxed);
+                    if let Ok(Some(latest)) = self.store.room_by_id_authoritative(room.id).await {
+                        *room = latest;
+                    } else {
+                        self.rooms.remove(&room.id);
+                    }
+                    return Err(GameError::VersionConflict);
+                }
+            }
+        } else {
+            None
+        };
+        let save_result = if let Some(lease) = lease {
+            self.store.save_room_fenced(room, lease).await
+        } else {
+            self.store.save_room(room).await
+        };
+        if save_result.is_err() {
+            if let Some(lease) = lease {
+                let _ = self.store.release_room_authority(lease).await;
+            }
+        }
+        match save_result {
             Ok(()) => {
                 self.metrics.room_mutations.fetch_add(1, Ordering::Relaxed);
                 Ok(())
