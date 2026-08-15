@@ -834,10 +834,9 @@ impl ConnectionHub {
         let send_result = connection.sender.try_send(event);
         drop(connection);
         if let Err(error) = send_result {
-            let reason = if error.is_full() {
-                "websocket slow consumer disconnected"
-            } else {
-                "websocket closed consumer removed"
+            let reason = match error {
+                mpsc::error::TrySendError::Full(_) => "websocket slow consumer disconnected",
+                mpsc::error::TrySendError::Closed(_) => "websocket closed consumer removed",
             };
             if self.disconnect_if_current(session_id, connection_id) {
                 tracing::warn!(%session_id, %connection_id, %reason);

@@ -70,14 +70,14 @@ async fn readiness(State(state): State<AppState>) -> Result<Json<HealthResponse>
 
 async fn create_session(
     State(state): State<AppState>,
-    connect_info: Option<ConnectInfo<SocketAddr>>,
+    ConnectInfo(direct_address): ConnectInfo<SocketAddr>,
     jar: CookieJar,
     headers: HeaderMap,
     input: Result<Json<CreateSessionInput>, JsonRejection>,
 ) -> Result<impl IntoResponse, GameError> {
     let client_key = client_rate_limit_key(
         &headers,
-        connect_info.map(|ConnectInfo(address)| address),
+        Some(direct_address),
         state.settings.trust_proxy_headers,
     );
     state.enforce_session_creation_rate_limit(&client_key)?;

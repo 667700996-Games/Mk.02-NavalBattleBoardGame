@@ -39,6 +39,10 @@ fn test_app() -> Router {
 }
 
 async fn send(app: &Router, request: Request<Body>) -> Response<Body> {
+    let mut request = request;
+    request.extensions_mut().insert(axum::extract::ConnectInfo(
+        SocketAddr::from(([127, 0, 0, 1], 45_000)),
+    ));
     app.clone().oneshot(request).await.unwrap()
 }
 
