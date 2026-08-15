@@ -206,6 +206,16 @@
 
     <div class="dashboard-side">
       <Surface tone="interactive" padding="md">
+        <a class="dashboard-action" href={resolve('/tutorial')}>
+          <span><ShieldCheck size={19} /></span>
+          <div>
+            <small>COMMAND ACADEMY</small><strong>작전 튜토리얼</strong>
+            <p>배치·공격·턴·재접속 훈련</p>
+          </div>
+          <ArrowRight size={16} />
+        </a>
+      </Surface>
+      <Surface tone="interactive" padding="md">
         <a class="dashboard-action" href={resolve('/stats')}>
           <span><History size={19} /></span>
           <div>

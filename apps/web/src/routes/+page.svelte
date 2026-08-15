@@ -315,6 +315,18 @@
     font-size: 7px;
     letter-spacing: 0.12em;
   }
+  .tutorial-link {
+    display: inline-flex;
+    gap: 8px;
+    align-items: center;
+    margin-top: 18px;
+    color: var(--cyan-300);
+    font: 700 10px var(--font-display);
+    letter-spacing: 0.04em;
+  }
+  .tutorial-link:hover {
+    color: var(--cyan-200);
+  }
   .command-visual {
     position: relative;
     display: grid;
