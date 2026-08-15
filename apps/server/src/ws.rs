@@ -57,8 +57,7 @@ async fn handle_socket(
     loop {
         tokio::select! {
             outgoing = event_receiver.recv() => {
-                let Some(event) = outgoing else { break };
-                let Ok(json) = serde_json::to_string(&event) else { continue };
+                let Some(json) = outgoing else { break };
                 if socket_sender.send(Message::Text(json.into())).await.is_err() { break; }
             }
             incoming = socket_receiver.next() => {

@@ -1,4 +1,12 @@
-use std::{collections::VecDeque, net::SocketAddr, sync::Arc, time::Duration};
+use std::{
+    collections::VecDeque,
+    net::SocketAddr,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::Duration,
+};
 
 use axum::{
     Router,
@@ -9,7 +17,10 @@ use axum_extra::extract::CookieJar;
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use chrono::Utc;
 use dashmap::DashMap;
+use futures_util::StreamExt;
 use rand::RngCore;
+use redis::{AsyncCommands, aio::ConnectionManager};
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tokio::sync::{Mutex, OwnedSemaphorePermit, Semaphore, mpsc};
 use tower_http::{
@@ -17,6 +28,8 @@ use tower_http::{
     timeout::TimeoutLayer, trace::TraceLayer,
 };
 use uuid::Uuid;
+
+const DISTRIBUTED_EVENT_CHANNEL: &str = "mk01:server-events:v1";
 
 use crate::{
     api,
@@ -42,6 +55,9 @@ pub struct AppState {
     session_creation_rate_limiter: FixedWindowRateLimiter,
     websocket_event_rate_limiter: FixedWindowRateLimiter,
     websocket_slots: Arc<Semaphore>,
+    instance_id: Uuid,
+    distributed_event_publisher: Option<ConnectionManager>,
+    coordination_healthy: Arc<AtomicBool>,
 }
 
 impl std::fmt::Debug for AppState {
@@ -65,6 +81,14 @@ struct TurnTimerKey {
     turn_number: u32,
     active_player_id: Uuid,
     deadline: chrono::DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DistributedEventEnvelope {
+    origin_instance_id: Uuid,
+    session_id: Uuid,
+    event_json: String,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -111,6 +135,14 @@ impl AppState {
             100_000,
         );
         let websocket_slots = Arc::new(Semaphore::new(settings.max_websocket_connections));
+        let instance_id = Uuid::new_v4();
+        let (distributed_event_publisher, distributed_event_subscriber) =
+            connect_distributed_events(&settings).await?;
+        let coordination_healthy = Arc::new(AtomicBool::new(
+            settings.storage_mode == StorageMode::Memory
+                || distributed_event_publisher.is_some()
+                || !settings.distributed_coordination_required,
+        ));
         let state = Self {
             settings: Arc::new(settings),
             store,
@@ -123,7 +155,13 @@ impl AppState {
             session_creation_rate_limiter,
             websocket_event_rate_limiter,
             websocket_slots,
+            instance_id,
+            distributed_event_publisher,
+            coordination_healthy,
         };
+        if let Some((client, subscriber)) = distributed_event_subscriber {
+            state.start_distributed_event_subscriber(client, subscriber);
+        }
         state.restore_active_rooms().await?;
         state.start_turn_expiry_watchdog();
         Ok(state)
@@ -151,6 +189,10 @@ impl AppState {
             100_000,
         );
         let websocket_slots = Arc::new(Semaphore::new(settings.max_websocket_connections));
+        let coordination_healthy = Arc::new(AtomicBool::new(
+            settings.storage_mode == StorageMode::Memory
+                || !settings.distributed_coordination_required,
+        ));
         Self {
             settings: Arc::new(settings),
             store,
@@ -163,7 +205,104 @@ impl AppState {
             session_creation_rate_limiter,
             websocket_event_rate_limiter,
             websocket_slots,
+            instance_id: Uuid::new_v4(),
+            distributed_event_publisher: None,
+            coordination_healthy,
         }
+    }
+
+    pub async fn health_check(&self) -> Result<(), GameError> {
+        self.store.health_check().await?;
+        if self.settings.distributed_coordination_required
+            && !self.coordination_healthy.load(Ordering::Relaxed)
+        {
+            return Err(GameError::StorageUnavailable);
+        }
+        Ok(())
+    }
+
+    pub async fn send_to_session(&self, session_id: Uuid, event: ServerEvent) {
+        let Ok(event_json) = serde_json::to_string(&event) else {
+            tracing::error!(%session_id, "server event serialization failed");
+            return;
+        };
+        self.hub.send_serialized(session_id, event_json.clone());
+
+        let Some(mut publisher) = self.distributed_event_publisher.clone() else {
+            return;
+        };
+        let envelope = DistributedEventEnvelope {
+            origin_instance_id: self.instance_id,
+            session_id,
+            event_json,
+        };
+        let Ok(payload) = serde_json::to_string(&envelope) else {
+            tracing::error!(%session_id, "distributed event serialization failed");
+            return;
+        };
+        match publisher
+            .publish::<_, _, usize>(DISTRIBUTED_EVENT_CHANNEL, payload)
+            .await
+        {
+            Ok(_) => self.coordination_healthy.store(true, Ordering::Relaxed),
+            Err(error) => {
+                self.coordination_healthy.store(false, Ordering::Relaxed);
+                tracing::error!(%error, %session_id, "distributed event publish failed");
+            }
+        }
+    }
+
+    fn start_distributed_event_subscriber(
+        &self,
+        client: redis::Client,
+        subscriber: redis::aio::PubSub,
+    ) {
+        let hub = self.hub.clone();
+        let instance_id = self.instance_id;
+        let coordination_healthy = self.coordination_healthy.clone();
+        tokio::spawn(async move {
+            let mut initial = Some(subscriber);
+            loop {
+                let mut subscriber = if let Some(subscriber) = initial.take() {
+                    subscriber
+                } else {
+                    match client.get_async_pubsub().await {
+                        Ok(mut subscriber) => {
+                            if let Err(error) = subscriber.subscribe(DISTRIBUTED_EVENT_CHANNEL).await
+                            {
+                                coordination_healthy.store(false, Ordering::Relaxed);
+                                tracing::error!(%error, "distributed event resubscribe failed");
+                                tokio::time::sleep(Duration::from_secs(1)).await;
+                                continue;
+                            }
+                            subscriber
+                        }
+                        Err(error) => {
+                            coordination_healthy.store(false, Ordering::Relaxed);
+                            tracing::error!(%error, "distributed event subscriber reconnect failed");
+                            tokio::time::sleep(Duration::from_secs(1)).await;
+                            continue;
+                        }
+                    }
+                };
+                coordination_healthy.store(true, Ordering::Relaxed);
+                let mut messages = subscriber.on_message();
+                while let Some(message) = messages.next().await {
+                    let Ok(payload) = message.get_payload::<String>() else {
+                        continue;
+                    };
+                    let Ok(envelope) = serde_json::from_str::<DistributedEventEnvelope>(&payload)
+                    else {
+                        continue;
+                    };
+                    if envelope.origin_instance_id != instance_id {
+                        hub.send_serialized(envelope.session_id, envelope.event_json);
+                    }
+                }
+                coordination_healthy.store(false, Ordering::Relaxed);
+                tokio::time::sleep(Duration::from_secs(1)).await;
+            }
+        });
     }
 
     pub fn enforce_api_rate_limit(&self, session_id: Uuid) -> Result<(), GameError> {
@@ -833,6 +972,41 @@ impl AppState {
     }
 }
 
+async fn connect_distributed_events(
+    settings: &Settings,
+) -> Result<
+    (
+        Option<ConnectionManager>,
+        Option<(redis::Client, redis::aio::PubSub)>,
+    ),
+    GameError,
+> {
+    if settings.storage_mode == StorageMode::Memory {
+        return Ok((None, None));
+    }
+    let connection = async {
+        let client = redis::Client::open(settings.redis_url.as_str())?;
+        let publisher = ConnectionManager::new(client.clone()).await?;
+        let mut subscriber = client.get_async_pubsub().await?;
+        subscriber.subscribe(DISTRIBUTED_EVENT_CHANNEL).await?;
+        Ok::<_, redis::RedisError>((publisher, client, subscriber))
+    }
+    .await;
+    match connection {
+        Ok((publisher, client, subscriber)) => {
+            Ok((Some(publisher), Some((client, subscriber))))
+        }
+        Err(error) if settings.distributed_coordination_required => {
+            tracing::error!(%error, "required distributed event coordination unavailable");
+            Err(GameError::StorageUnavailable)
+        }
+        Err(error) => {
+            tracing::warn!(%error, "distributed event coordination disabled; running single-instance only");
+            Ok((None, None))
+        }
+    }
+}
+
 fn validate_nickname(nickname: &str) -> Result<(), GameError> {
     let count = nickname.chars().count();
     let valid = (2..=16).contains(&count)
@@ -854,7 +1028,7 @@ pub fn hash_token(token: &str) -> String {
 #[derive(Debug, Clone)]
 struct ConnectionEntry {
     connection_id: Uuid,
-    sender: mpsc::Sender<ServerEvent>,
+    sender: mpsc::Sender<String>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -863,7 +1037,7 @@ pub struct ConnectionHub {
 }
 
 impl ConnectionHub {
-    pub fn connect(&self, session_id: Uuid, sender: mpsc::Sender<ServerEvent>) -> Uuid {
+    pub fn connect(&self, session_id: Uuid, sender: mpsc::Sender<String>) -> Uuid {
         let connection_id = Uuid::new_v4();
         self.connections.insert(
             session_id,
@@ -888,11 +1062,19 @@ impl ConnectionHub {
     }
 
     pub fn send(&self, session_id: Uuid, event: ServerEvent) {
+        let Ok(serialized) = serde_json::to_string(&event) else {
+            tracing::error!(%session_id, "server event serialization failed");
+            return;
+        };
+        self.send_serialized(session_id, serialized);
+    }
+
+    pub fn send_serialized(&self, session_id: Uuid, serialized: String) {
         let Some(connection) = self.connections.get(&session_id) else {
             return;
         };
         let connection_id = connection.connection_id;
-        let send_result = connection.sender.try_send(event);
+        let send_result = connection.sender.try_send(serialized);
         drop(connection);
         if let Err(error) = send_result {
             let reason = match error {

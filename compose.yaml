@@ -59,6 +59,7 @@ services:
       WEBSOCKET_SEND_QUEUE_CAPACITY: 256
       MAX_WEBSOCKET_CONNECTIONS: 10000
       TRUST_PROXY_HEADERS: "true"
+      DISTRIBUTED_COORDINATION_REQUIRED: "true"
       RUST_LOG: mk01_server=info,tower_http=info
     depends_on:
       postgres:

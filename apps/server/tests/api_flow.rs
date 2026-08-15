@@ -32,6 +32,7 @@ fn test_settings() -> Settings {
         websocket_send_queue_capacity: 32,
         max_websocket_connections: 100,
         trust_proxy_headers: false,
+        distributed_coordination_required: false,
     }
 }
 
