@@ -15,7 +15,7 @@ use axum::{
 };
 use axum_extra::extract::CookieJar;
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
-use chrono::Utc;
+use chrono::{Datelike, Utc};
 use dashmap::DashMap;
 use futures_util::StreamExt;
 use rand::RngCore;
@@ -46,14 +46,21 @@ use crate::{
     api,
     config::{Settings, StorageMode},
     domain::{
-        AiDifficulty, AttackOutcome, ChatMessage, ChatTypingEvent, Coordinate, GameRoom,
-        GameTimerState, Orientation, PlayerKind, RoomVisibility, ShipKind, ShipPlacement,
-        UserSession,
+        AccountSession, AchievementProgress, ActivePenalty, AiDifficulty, AttackOutcome,
+        ChatMessage, ChatTypingEvent, Coordinate, FinishReason, GameRoom, GameTimerState,
+        IntegritySignalKind, IntegritySignalPage, MissionCadence, MissionProgress,
+        ModerationAction, ModerationActionKind, ModerationCasePage, NewIntegritySignal,
+        NewModerationAction, NewPlayerReport, Orientation, PlayerAccount, PlayerKind,
+        PlayerProgression, PlayerReportReceipt, ReportCategory, ReportStatus, RoomVisibility,
+        ShipKind, ShipPlacement, SocialRelationship, UserSession,
     },
     error::GameError,
-    protocol::{CreateRoomInput, ServerEvent},
+    protocol::{CreateRoomInput, ProtocolError, ServerEvent},
     rate_limit::FixedWindowRateLimiter,
-    store::{GameStore, MatchmakingQueueStats, MemoryStore, PostgresRedisStore},
+    store::{
+        GameHistoryItem, GameStore, MatchmakingQueueStats, MemoryStore, MissionReward,
+        PostgresRedisStore,
+    },
     ws,
 };
 
@@ -73,6 +80,7 @@ pub struct AppState {
     instance_id: Uuid,
     distributed_event_publisher: Option<ConnectionManager>,
     coordination_healthy: Arc<AtomicBool>,
+    integrity_signal_cooldowns: Arc<DashMap<(Uuid, IntegritySignalKind), std::time::Instant>>,
 }
 
 #[derive(Debug)]
@@ -91,6 +99,13 @@ pub struct ServerMetrics {
     pub matchmaking_queued: AtomicU64,
     pub matchmaking_completed: AtomicU64,
     pub matchmaking_cancelled: AtomicU64,
+    pub retention_sessions_deleted: AtomicU64,
+    pub retention_rooms_deleted: AtomicU64,
+    pub retention_matchmaking_deleted: AtomicU64,
+    pub integrity_impossible_order: AtomicU64,
+    pub integrity_automation: AtomicU64,
+    pub integrity_collusion: AtomicU64,
+    pub integrity_stalling: AtomicU64,
 }
 
 impl Default for ServerMetrics {
@@ -110,6 +125,13 @@ impl Default for ServerMetrics {
             matchmaking_queued: AtomicU64::new(0),
             matchmaking_completed: AtomicU64::new(0),
             matchmaking_cancelled: AtomicU64::new(0),
+            retention_sessions_deleted: AtomicU64::new(0),
+            retention_rooms_deleted: AtomicU64::new(0),
+            retention_matchmaking_deleted: AtomicU64::new(0),
+            integrity_impossible_order: AtomicU64::new(0),
+            integrity_automation: AtomicU64::new(0),
+            integrity_collusion: AtomicU64::new(0),
+            integrity_stalling: AtomicU64::new(0),
         }
     }
 }
@@ -196,6 +218,41 @@ impl ServerMetrics {
                 "Successfully cancelled matchmaking entries.",
                 &self.matchmaking_cancelled,
             ),
+            counter(
+                "mk01_retention_sessions_deleted_total",
+                "Expired inactive sessions removed by retention sweeps.",
+                &self.retention_sessions_deleted,
+            ),
+            counter(
+                "mk01_retention_rooms_deleted_total",
+                "Expired completed rooms removed by retention sweeps.",
+                &self.retention_rooms_deleted,
+            ),
+            counter(
+                "mk01_retention_matchmaking_deleted_total",
+                "Abandoned matchmaking entries removed by retention sweeps.",
+                &self.retention_matchmaking_deleted,
+            ),
+            counter(
+                "mk01_integrity_impossible_order_total",
+                "Impossible or out-of-order authoritative commands detected.",
+                &self.integrity_impossible_order,
+            ),
+            counter(
+                "mk01_integrity_automation_total",
+                "Automation-like event bursts detected.",
+                &self.integrity_automation,
+            ),
+            counter(
+                "mk01_integrity_collusion_total",
+                "Repeated suspicious short-match pairings detected.",
+                &self.integrity_collusion,
+            ),
+            counter(
+                "mk01_integrity_stalling_total",
+                "Repeated authoritative turn timeouts detected.",
+                &self.integrity_stalling,
+            ),
             gauge(
                 "mk01_matchmaking_queue_depth",
                 "Current durable matchmaking queue entries.",
@@ -234,6 +291,8 @@ struct DistributedEventEnvelope {
     origin_instance_id: Uuid,
     session_id: Uuid,
     event_json: String,
+    #[serde(default)]
+    close_after_delivery: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -303,10 +362,13 @@ impl AppState {
             instance_id,
             distributed_event_publisher,
             coordination_healthy,
+            integrity_signal_cooldowns: Arc::new(DashMap::new()),
         };
         if let Some((client, subscriber)) = distributed_event_subscriber {
             state.start_distributed_event_subscriber(client, subscriber);
         }
+        state.run_retention_sweep().await?;
+        state.start_retention_worker();
         state.restore_active_rooms().await?;
         Ok(state)
     }
@@ -352,6 +414,7 @@ impl AppState {
             instance_id: Uuid::new_v4(),
             distributed_event_publisher: None,
             coordination_healthy,
+            integrity_signal_cooldowns: Arc::new(DashMap::new()),
         }
     }
 
@@ -363,6 +426,53 @@ impl AppState {
             return Err(GameError::StorageUnavailable);
         }
         Ok(())
+    }
+
+    async fn run_retention_sweep(&self) -> Result<(), GameError> {
+        let to_chrono = |duration: Duration| {
+            chrono::Duration::from_std(duration).unwrap_or(chrono::Duration::MAX)
+        };
+        let now = Utc::now();
+        let stats = self
+            .store
+            .prune_expired_data(
+                now - to_chrono(self.settings.session_ttl),
+                now - to_chrono(self.settings.completed_room_retention),
+                now - to_chrono(self.settings.matchmaking_entry_ttl),
+            )
+            .await?;
+        self.metrics
+            .retention_sessions_deleted
+            .fetch_add(stats.sessions_deleted, Ordering::Relaxed);
+        self.metrics
+            .retention_rooms_deleted
+            .fetch_add(stats.rooms_deleted, Ordering::Relaxed);
+        self.metrics
+            .retention_matchmaking_deleted
+            .fetch_add(stats.matchmaking_entries_deleted, Ordering::Relaxed);
+        if stats.sessions_deleted + stats.rooms_deleted + stats.matchmaking_entries_deleted > 0 {
+            tracing::info!(
+                sessions_deleted = stats.sessions_deleted,
+                rooms_deleted = stats.rooms_deleted,
+                matchmaking_entries_deleted = stats.matchmaking_entries_deleted,
+                "retention sweep completed"
+            );
+        }
+        Ok(())
+    }
+
+    fn start_retention_worker(&self) {
+        let state = self.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(state.settings.retention_sweep_interval);
+            interval.tick().await;
+            loop {
+                interval.tick().await;
+                if let Err(error) = state.run_retention_sweep().await {
+                    tracing::error!(error_code = error.code(), "retention sweep failed");
+                }
+            }
+        });
     }
 
     pub async fn send_to_session(&self, session_id: Uuid, event: ServerEvent) {
@@ -379,6 +489,7 @@ impl AppState {
             origin_instance_id: self.instance_id,
             session_id,
             event_json,
+            close_after_delivery: false,
         };
         let Ok(payload) = serde_json::to_string(&envelope) else {
             tracing::error!(%session_id, "distributed event serialization failed");
@@ -450,12 +561,56 @@ impl AppState {
                     };
                     if envelope.origin_instance_id != instance_id {
                         hub.send_serialized(envelope.session_id, envelope.event_json);
+                        if envelope.close_after_delivery {
+                            hub.close(envelope.session_id);
+                        }
                     }
                 }
                 coordination_healthy.store(false, Ordering::Relaxed);
                 tokio::time::sleep(Duration::from_secs(1)).await;
             }
         });
+    }
+
+    async fn close_session_everywhere(&self, session_id: Uuid, error: GameError) {
+        let event = ServerEvent::Error(ProtocolError {
+            code: error.code().to_string(),
+            message: error.to_string(),
+            retryable: false,
+            request_id: Uuid::new_v4(),
+        });
+        let Ok(event_json) = serde_json::to_string(&event) else {
+            self.hub.close(session_id);
+            return;
+        };
+        self.hub.send_serialized(session_id, event_json.clone());
+        self.hub.close(session_id);
+        let Some(mut publisher) = self.distributed_event_publisher.clone() else {
+            return;
+        };
+        let envelope = DistributedEventEnvelope {
+            origin_instance_id: self.instance_id,
+            session_id,
+            event_json,
+            close_after_delivery: true,
+        };
+        let Ok(payload) = serde_json::to_string(&envelope) else {
+            return;
+        };
+        if let Err(error) = publisher
+            .publish::<_, _, usize>(DISTRIBUTED_EVENT_CHANNEL, payload)
+            .await
+        {
+            self.metrics
+                .distributed_event_failures
+                .fetch_add(1, Ordering::Relaxed);
+            self.coordination_healthy.store(false, Ordering::Relaxed);
+            tracing::error!(%error, %session_id, "distributed session close publish failed");
+        } else {
+            self.metrics
+                .distributed_events_published
+                .fetch_add(1, Ordering::Relaxed);
+        }
     }
 
     pub async fn enforce_api_rate_limit(&self, session_id: Uuid) -> Result<(), GameError> {
@@ -610,13 +765,12 @@ impl AppState {
     ) -> Result<(UserSession, String), GameError> {
         let nickname = nickname.trim().to_string();
         validate_nickname(&nickname)?;
-        let mut bytes = [0_u8; 32];
-        rand::rng().fill_bytes(&mut bytes);
-        let token = URL_SAFE_NO_PAD.encode(bytes);
+        let token = random_token();
         let token_hash = hash_token(&token);
         let now = Utc::now();
         let session = UserSession {
             id: Uuid::new_v4(),
+            account_id: None,
             nickname,
             token_hash,
             created_at: now,
@@ -625,6 +779,568 @@ impl AppState {
         };
         self.store.save_session(&session).await?;
         Ok((session, token))
+    }
+
+    pub async fn upgrade_account(
+        &self,
+        session: &UserSession,
+        handle: String,
+    ) -> Result<(PlayerAccount, String, String), GameError> {
+        if session.account_id.is_some() {
+            return Err(GameError::InvalidState);
+        }
+        if session.current_room_id.is_some() {
+            return Err(GameError::InvalidState);
+        }
+        let handle = handle.trim().to_string();
+        validate_nickname(&handle)?;
+        let recovery_key = random_token();
+        let next_session_token = random_token();
+        let account = PlayerAccount {
+            id: Uuid::new_v4(),
+            handle,
+            created_at: Utc::now(),
+        };
+        self.store
+            .create_account(
+                session.id,
+                &account,
+                &hash_token(&recovery_key),
+                &hash_token(&next_session_token),
+            )
+            .await?;
+        Ok((account, recovery_key, next_session_token))
+    }
+
+    pub async fn login_account(
+        &self,
+        account_id: Uuid,
+        recovery_key: String,
+    ) -> Result<(UserSession, String), GameError> {
+        if recovery_key.len() != 43
+            || !recovery_key
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
+        {
+            return Err(GameError::Unauthorized);
+        }
+        let account = self
+            .store
+            .account_by_credentials(account_id, &hash_token(&recovery_key))
+            .await?
+            .ok_or(GameError::Unauthorized)?;
+        match self.store.active_penalty(account.id, account.id).await? {
+            Some(ActivePenalty::Banned) => return Err(GameError::AccountBanned),
+            Some(ActivePenalty::Suspended(_)) => return Err(GameError::AccountSuspended),
+            None => {}
+        }
+        let token = random_token();
+        let now = Utc::now();
+        let session = UserSession {
+            id: Uuid::new_v4(),
+            account_id: Some(account.id),
+            nickname: account.handle,
+            token_hash: hash_token(&token),
+            created_at: now,
+            last_seen_at: now,
+            current_room_id: None,
+        };
+        self.store.save_session(&session).await?;
+        Ok((session, token))
+    }
+
+    pub async fn account_sessions(
+        &self,
+        session: &UserSession,
+    ) -> Result<Vec<AccountSession>, GameError> {
+        self.store
+            .sessions_for_account(session.account_id.ok_or(GameError::Unauthorized)?)
+            .await
+    }
+
+    pub async fn progression(&self, session: &UserSession) -> Result<PlayerProgression, GameError> {
+        let history = self.store.history_for_session(session.id).await?;
+        let rewards = match session.account_id {
+            Some(account_id) => self.store.mission_rewards(account_id).await?,
+            None => Vec::new(),
+        };
+        Ok(build_progression(session, &history, &rewards, Utc::now()))
+    }
+
+    pub async fn claim_mission_reward(
+        &self,
+        session: &UserSession,
+        mission_id: &str,
+    ) -> Result<PlayerProgression, GameError> {
+        let account_id = session.account_id.ok_or(GameError::Unauthorized)?;
+        let history = self.store.history_for_session(session.id).await?;
+        let rewards = self.store.mission_rewards(account_id).await?;
+        let now = Utc::now();
+        let progression = build_progression(session, &history, &rewards, now);
+        let mission = progression
+            .missions
+            .iter()
+            .find(|mission| mission.id == mission_id)
+            .ok_or(GameError::InvalidRequest)?;
+        if !mission.completed {
+            return Err(GameError::InvalidState);
+        }
+        let period_key = mission_period_key(mission.cadence, now);
+        self.store
+            .claim_mission_reward(account_id, mission.id, &period_key, mission.reward_xp)
+            .await?;
+        let rewards = self.store.mission_rewards(account_id).await?;
+        Ok(build_progression(session, &history, &rewards, now))
+    }
+
+    pub async fn social_relationships(
+        &self,
+        session: &UserSession,
+    ) -> Result<Vec<SocialRelationship>, GameError> {
+        self.store
+            .social_relationships(session.account_id.unwrap_or(session.id))
+            .await
+    }
+
+    pub async fn update_social_relationship(
+        &self,
+        session: &UserSession,
+        room_id: Uuid,
+        target_player_id: Uuid,
+        muted: bool,
+        blocked: bool,
+    ) -> Result<SocialRelationship, GameError> {
+        let room = self.room(room_id).await?;
+        let room = room.lock().await;
+        let actor = room.player_for_session(session.id)?;
+        let target = room
+            .players
+            .iter()
+            .find(|player| player.id == target_player_id)
+            .ok_or(GameError::InvalidRequest)?;
+        if actor.id == target.id || target.kind == PlayerKind::Ai {
+            return Err(GameError::InvalidRequest);
+        }
+        let target_identity_id = self
+            .store
+            .identity_for_session(target.session_id)
+            .await?
+            .ok_or(GameError::InvalidRequest)?;
+        let actor_identity_id = session.account_id.unwrap_or(session.id);
+        if actor_identity_id == target_identity_id {
+            return Err(GameError::InvalidRequest);
+        }
+        let relationship = SocialRelationship {
+            target_identity_id,
+            target_nickname: target.nickname.clone(),
+            muted,
+            blocked,
+            updated_at: Utc::now(),
+        };
+        self.store
+            .set_social_relationship(actor_identity_id, relationship.clone())
+            .await?;
+        Ok(relationship)
+    }
+
+    pub async fn report_player(
+        &self,
+        session: &UserSession,
+        room_id: Uuid,
+        target_player_id: Uuid,
+        category: ReportCategory,
+        details: String,
+    ) -> Result<PlayerReportReceipt, GameError> {
+        let details = details.trim().to_string();
+        if details.chars().count() < 4
+            || details.chars().count() > 1000
+            || details
+                .chars()
+                .any(|character| character.is_control() && character != '\n' && character != '\t')
+        {
+            return Err(GameError::InvalidRequest);
+        }
+        let room = self.room(room_id).await?;
+        let room = room.lock().await;
+        let reporter = room.player_for_session(session.id)?;
+        let target = room
+            .players
+            .iter()
+            .find(|player| player.id == target_player_id)
+            .ok_or(GameError::InvalidRequest)?;
+        if reporter.id == target.id || target.kind == PlayerKind::Ai {
+            return Err(GameError::InvalidRequest);
+        }
+        let target_identity_id = self
+            .store
+            .identity_for_session(target.session_id)
+            .await?
+            .ok_or(GameError::InvalidRequest)?;
+        let reporter_identity_id = session.account_id.unwrap_or(session.id);
+        let created_at = Utc::now();
+        let report_id = Uuid::new_v4();
+        let evidence = serde_json::json!({
+            "protocolVersion": crate::PROTOCOL_VERSION,
+            "roomId": room.id,
+            "roomVersion": room.version,
+            "roomState": room.status,
+            "reportedPlayerId": target.id,
+            "reportedNickname": target.nickname.clone(),
+            "messages": room.chat_messages.iter().rev().take(20).cloned().collect::<Vec<_>>(),
+            "recentAttacks": room.game.as_ref().map(|game| game.attacks.iter().rev().take(20).cloned().collect::<Vec<_>>()).unwrap_or_default(),
+            "capturedAt": created_at,
+        });
+        self.store
+            .create_player_report(&NewPlayerReport {
+                id: report_id,
+                reporter_identity_id,
+                target_identity_id,
+                room_id,
+                target_player_id,
+                target_nickname: target.nickname.clone(),
+                category,
+                details,
+                evidence,
+                created_at,
+            })
+            .await?;
+        Ok(PlayerReportReceipt {
+            report_id,
+            status: "OPEN",
+            created_at,
+        })
+    }
+
+    pub fn authorize_operator(&self, token: &str) -> Result<(), GameError> {
+        let expected = self
+            .settings
+            .admin_token_hash
+            .as_deref()
+            .ok_or(GameError::Unauthorized)?;
+        if constant_time_equal(hash_token(token).as_bytes(), expected.as_bytes()) {
+            Ok(())
+        } else {
+            Err(GameError::Unauthorized)
+        }
+    }
+
+    pub async fn moderation_cases(
+        &self,
+        search: Option<String>,
+        status: Option<ReportStatus>,
+        before: Option<chrono::DateTime<Utc>>,
+        limit: Option<u32>,
+    ) -> Result<ModerationCasePage, GameError> {
+        let search = search
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
+        if search.as_ref().is_some_and(|value| value.len() > 128) {
+            return Err(GameError::InvalidRequest);
+        }
+        let limit = limit.unwrap_or(25).clamp(1, 100) as usize;
+        self.store
+            .moderation_cases(search.as_deref(), status, before, limit)
+            .await
+    }
+
+    pub async fn integrity_signals(
+        &self,
+        search: Option<String>,
+        kind: Option<IntegritySignalKind>,
+        before: Option<chrono::DateTime<Utc>>,
+        limit: Option<u32>,
+    ) -> Result<IntegritySignalPage, GameError> {
+        let search = search
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
+        if search.as_ref().is_some_and(|value| value.len() > 128) {
+            return Err(GameError::InvalidRequest);
+        }
+        self.store
+            .integrity_signals(
+                search.as_deref(),
+                kind,
+                before,
+                limit.unwrap_or(25).clamp(1, 100) as usize,
+            )
+            .await
+    }
+
+    pub async fn record_integrity_signal(
+        &self,
+        session: &UserSession,
+        room_id: Option<Uuid>,
+        kind: IntegritySignalKind,
+        severity: u8,
+        confidence: f64,
+        evidence: serde_json::Value,
+    ) {
+        if room_id.is_none() {
+            let key = (session.id, kind);
+            let now = std::time::Instant::now();
+            if self
+                .integrity_signal_cooldowns
+                .get(&key)
+                .is_some_and(|last| now.duration_since(*last) < Duration::from_secs(60))
+            {
+                return;
+            }
+            self.integrity_signal_cooldowns.insert(key, now);
+        }
+        let signal = NewIntegritySignal {
+            id: Uuid::new_v4(),
+            subject_identity_id: session.account_id.unwrap_or(session.id),
+            room_id,
+            kind,
+            severity: severity.clamp(1, 5),
+            confidence: confidence.clamp(0.0, 1.0),
+            evidence,
+            observed_at: Utc::now(),
+        };
+        match self.store.record_integrity_signal(&signal).await {
+            Ok(stored) => {
+                let metric = match kind {
+                    IntegritySignalKind::ImpossibleOrder => {
+                        &self.metrics.integrity_impossible_order
+                    }
+                    IntegritySignalKind::Automation => &self.metrics.integrity_automation,
+                    IntegritySignalKind::Collusion => &self.metrics.integrity_collusion,
+                    IntegritySignalKind::IntentionalStalling => &self.metrics.integrity_stalling,
+                };
+                metric.fetch_add(1, Ordering::Relaxed);
+                tracing::warn!(
+                    signal_id = %stored.id,
+                    subject_identity_id = %stored.subject_identity_id,
+                    signal_kind = kind.as_str(),
+                    severity = stored.severity,
+                    occurrences = stored.occurrences,
+                    "game integrity signal recorded"
+                );
+            }
+            Err(error) => tracing::error!(
+                error_code = error.code(),
+                signal_kind = kind.as_str(),
+                "game integrity signal persistence failed"
+            ),
+        }
+    }
+
+    async fn detect_finished_match_integrity(&self, room: &GameRoom) -> Result<(), GameError> {
+        let Some(game) = room.game.as_ref() else {
+            return Ok(());
+        };
+        let Some(result) = game.result.as_ref() else {
+            return Ok(());
+        };
+        let human_players: Vec<_> = room
+            .players
+            .iter()
+            .filter(|player| player.kind == PlayerKind::Human)
+            .collect();
+        for player in &human_players {
+            let timeouts = game
+                .total_timeout_counts
+                .get(&player.id)
+                .copied()
+                .unwrap_or(0);
+            if timeouts >= 3
+                || (result.finish_reason == FinishReason::TurnTimeout
+                    && result.loser_id == player.id)
+            {
+                let identity = self
+                    .store
+                    .identity_for_session(player.session_id)
+                    .await?
+                    .unwrap_or(player.session_id);
+                self.record_integrity_signal(
+                    &UserSession {
+                        id: player.session_id,
+                        account_id: (identity != player.session_id).then_some(identity),
+                        nickname: player.nickname.clone(),
+                        token_hash: String::new(),
+                        created_at: result.finished_at,
+                        last_seen_at: result.finished_at,
+                        current_room_id: Some(room.id),
+                    },
+                    Some(room.id),
+                    IntegritySignalKind::IntentionalStalling,
+                    if result.finish_reason == FinishReason::TurnTimeout {
+                        4
+                    } else {
+                        3
+                    },
+                    0.92,
+                    serde_json::json!({
+                        "protocolVersion": crate::PROTOCOL_VERSION,
+                        "gameId": room.game_id,
+                        "playerId": player.id,
+                        "totalTimeouts": timeouts,
+                        "finishReason": result.finish_reason,
+                        "totalTurns": result.total_turns,
+                    }),
+                )
+                .await;
+            }
+        }
+        if human_players.len() == 2
+            && result.total_turns <= 5
+            && result.finish_reason != FinishReason::FleetDestroyed
+        {
+            let first_identity = self
+                .store
+                .identity_for_session(human_players[0].session_id)
+                .await?
+                .unwrap_or(human_players[0].session_id);
+            let second_identity = self
+                .store
+                .identity_for_session(human_players[1].session_id)
+                .await?
+                .unwrap_or(human_players[1].session_id);
+            let count = self
+                .store
+                .suspicious_short_match_count(
+                    first_identity,
+                    second_identity,
+                    Utc::now() - chrono::Duration::days(7),
+                )
+                .await?;
+            if count >= 3 {
+                let first_session_id = human_players[0].session_id;
+                for player in &human_players {
+                    let identity = if player.session_id == first_session_id {
+                        first_identity
+                    } else {
+                        second_identity
+                    };
+                    self.record_integrity_signal(
+                        &UserSession {
+                            id: player.session_id,
+                            account_id: (identity != player.session_id).then_some(identity),
+                            nickname: player.nickname.clone(),
+                            token_hash: String::new(),
+                            created_at: result.finished_at,
+                            last_seen_at: result.finished_at,
+                            current_room_id: Some(room.id),
+                        },
+                        Some(room.id),
+                        IntegritySignalKind::Collusion,
+                        4,
+                        0.82,
+                        serde_json::json!({
+                            "protocolVersion": crate::PROTOCOL_VERSION,
+                            "gameId": room.game_id,
+                            "pairedIdentityIds": [first_identity, second_identity],
+                            "suspiciousShortMatchesSevenDays": count,
+                            "finishReason": result.finish_reason,
+                            "totalTurns": result.total_turns,
+                        }),
+                    )
+                    .await;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn moderate_player_report(
+        &self,
+        operator_id: String,
+        report_id: Uuid,
+        action: ModerationActionKind,
+        reason: String,
+        duration_hours: Option<u32>,
+        reverses_action_id: Option<Uuid>,
+    ) -> Result<ModerationAction, GameError> {
+        let operator_id = operator_id.trim().to_string();
+        if operator_id.len() < 2
+            || operator_id.len() > 64
+            || !operator_id.bytes().all(|byte| {
+                byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'@' | b'-')
+            })
+        {
+            return Err(GameError::InvalidRequest);
+        }
+        let reason = reason.trim().to_string();
+        if reason.chars().count() < 4
+            || reason.chars().count() > 1000
+            || reason.chars().any(char::is_control)
+        {
+            return Err(GameError::InvalidRequest);
+        }
+        let expires_at = match action {
+            ModerationActionKind::Suspend => {
+                let hours = duration_hours.filter(|hours| (1..=8_760).contains(hours));
+                let hours = hours.ok_or(GameError::InvalidRequest)?;
+                if reverses_action_id.is_some() {
+                    return Err(GameError::InvalidRequest);
+                }
+                Some(Utc::now() + chrono::Duration::hours(i64::from(hours)))
+            }
+            ModerationActionKind::Reverse => {
+                if duration_hours.is_some() || reverses_action_id.is_none() {
+                    return Err(GameError::InvalidRequest);
+                }
+                None
+            }
+            _ => {
+                if duration_hours.is_some() || reverses_action_id.is_some() {
+                    return Err(GameError::InvalidRequest);
+                }
+                None
+            }
+        };
+        let stored = self
+            .store
+            .apply_moderation_action(&NewModerationAction {
+                id: Uuid::new_v4(),
+                report_id,
+                operator_id,
+                action,
+                reason,
+                expires_at,
+                reverses_action_id,
+                created_at: Utc::now(),
+            })
+            .await?;
+        if matches!(
+            action,
+            ModerationActionKind::Suspend | ModerationActionKind::Ban
+        ) {
+            for session_id in self
+                .store
+                .session_ids_for_identity(stored.target_identity_id)
+                .await?
+            {
+                self.close_session_everywhere(
+                    session_id,
+                    if action == ModerationActionKind::Ban {
+                        GameError::AccountBanned
+                    } else {
+                        GameError::AccountSuspended
+                    },
+                )
+                .await;
+                self.disconnect_session(session_id).await;
+            }
+        }
+        Ok(stored)
+    }
+
+    pub async fn revoke_account_session(
+        &self,
+        session: &UserSession,
+        target_session_id: Uuid,
+    ) -> Result<bool, GameError> {
+        let account_id = session.account_id.ok_or(GameError::Unauthorized)?;
+        if target_session_id == session.id {
+            return Err(GameError::InvalidRequest);
+        }
+        self.close_session_everywhere(target_session_id, GameError::Unauthorized)
+            .await;
+        self.disconnect_session(target_session_id).await;
+        self.store
+            .delete_account_session(account_id, target_session_id)
+            .await
     }
 
     pub async fn authenticate(
@@ -648,6 +1364,15 @@ impl AppState {
         let age = Utc::now().signed_duration_since(session.last_seen_at);
         if age.num_seconds() > self.settings.session_ttl.as_secs() as i64 {
             return Err(GameError::Unauthorized);
+        }
+        match self
+            .store
+            .active_penalty(session.account_id.unwrap_or(session.id), session.id)
+            .await?
+        {
+            Some(ActivePenalty::Banned) => return Err(GameError::AccountBanned),
+            Some(ActivePenalty::Suspended(_)) => return Err(GameError::AccountSuspended),
+            None => {}
         }
         Ok(session)
     }
@@ -748,6 +1473,9 @@ impl AppState {
         if session.current_room_id.is_some() {
             return Err(GameError::AlreadyJoined);
         }
+        if self.store.active_rooms().await?.len() >= self.settings.max_active_rooms {
+            return Err(GameError::CapacityReached);
+        }
         let code = self.unique_room_code().await?;
         let mut room = GameRoom::new_with_rules(
             code,
@@ -815,6 +1543,21 @@ impl AppState {
             return Err(GameError::AlreadyJoined);
         }
         let room = self.room_by_code(code).await?;
+        let existing_session_ids: Vec<_> = {
+            let room = room.lock().await;
+            room.players
+                .iter()
+                .map(|player| player.session_id)
+                .collect()
+        };
+        for existing_session_id in existing_session_ids {
+            if self
+                .sessions_blocked(session.id, existing_session_id)
+                .await?
+            {
+                return Err(GameError::PlayerBlocked);
+            }
+        }
         let mut room = room.lock().await;
         room.join(session)?;
         self.save_room(&mut room).await?;
@@ -881,6 +1624,15 @@ impl AppState {
         match save_result {
             Ok(()) => {
                 self.metrics.room_mutations.fetch_add(1, Ordering::Relaxed);
+                if room.game.as_ref().is_some_and(|game| game.result.is_some()) {
+                    if let Err(error) = self.detect_finished_match_integrity(room).await {
+                        tracing::error!(
+                            room_id = %room.id,
+                            error_code = error.code(),
+                            "finished match integrity assessment failed"
+                        );
+                    }
+                }
                 Ok(())
             }
             Err(error) => {
@@ -972,6 +1724,30 @@ impl AppState {
 
     pub async fn broadcast_chat_message(&self, room: &GameRoom, message: &ChatMessage) {
         for player in &room.players {
+            if let Some(sender_player_id) = message.player_id {
+                let Some(sender) = room
+                    .players
+                    .iter()
+                    .find(|candidate| candidate.id == sender_player_id)
+                else {
+                    continue;
+                };
+                match self
+                    .communication_suppressed(player.session_id, sender.session_id)
+                    .await
+                {
+                    Ok(true) => continue,
+                    Ok(false) => {}
+                    Err(error) => {
+                        tracing::error!(
+                            error_code = error.code(),
+                            recipient_session_id = %player.session_id,
+                            "chat relationship check failed closed"
+                        );
+                        continue;
+                    }
+                }
+            }
             self.send_to_session(player.session_id, ServerEvent::ChatMessage(message.clone()))
                 .await;
         }
@@ -984,12 +1760,107 @@ impl AppState {
     }
 
     pub async fn broadcast_chat_typing(&self, room: &GameRoom, event: &ChatTypingEvent) {
+        let Some(sender) = room
+            .players
+            .iter()
+            .find(|candidate| candidate.id == event.player_id)
+        else {
+            return;
+        };
         for player in &room.players {
-            if player.id != event.player_id {
+            if player.id != event.player_id
+                && self
+                    .communication_suppressed(player.session_id, sender.session_id)
+                    .await
+                    .is_ok_and(|suppressed| !suppressed)
+            {
                 self.send_to_session(player.session_id, ServerEvent::ChatTyping(event.clone()))
                     .await;
             }
         }
+    }
+
+    pub async fn chat_history_for(
+        &self,
+        room: &GameRoom,
+        recipient_session_id: Uuid,
+    ) -> Result<Vec<ChatMessage>, GameError> {
+        let messages = room.chat_history(recipient_session_id)?;
+        let mut filtered = Vec::with_capacity(messages.len());
+        for message in messages {
+            let Some(sender_player_id) = message.player_id else {
+                filtered.push(message);
+                continue;
+            };
+            let Some(sender) = room
+                .players
+                .iter()
+                .find(|player| player.id == sender_player_id)
+            else {
+                continue;
+            };
+            if !self
+                .communication_suppressed(recipient_session_id, sender.session_id)
+                .await?
+            {
+                filtered.push(message);
+            }
+        }
+        Ok(filtered)
+    }
+
+    async fn communication_suppressed(
+        &self,
+        recipient_session_id: Uuid,
+        sender_session_id: Uuid,
+    ) -> Result<bool, GameError> {
+        if recipient_session_id == sender_session_id {
+            return Ok(false);
+        }
+        let Some(recipient_identity) = self
+            .store
+            .identity_for_session(recipient_session_id)
+            .await?
+        else {
+            return Ok(true);
+        };
+        let Some(sender_identity) = self.store.identity_for_session(sender_session_id).await?
+        else {
+            return Ok(true);
+        };
+        Ok(self
+            .store
+            .social_relationship_between(recipient_identity, sender_identity)
+            .await?
+            .is_some_and(|relationship| relationship.muted || relationship.blocked))
+    }
+
+    async fn sessions_blocked(
+        &self,
+        first_session_id: Uuid,
+        second_session_id: Uuid,
+    ) -> Result<bool, GameError> {
+        let first_identity = self
+            .store
+            .identity_for_session(first_session_id)
+            .await?
+            .ok_or(GameError::Unauthorized)?;
+        let second_identity = self
+            .store
+            .identity_for_session(second_session_id)
+            .await?
+            .ok_or(GameError::Unauthorized)?;
+        let first_blocks = self
+            .store
+            .social_relationship_between(first_identity, second_identity)
+            .await?
+            .is_some_and(|relationship| relationship.blocked);
+        let second_blocks = self
+            .store
+            .social_relationship_between(second_identity, first_identity)
+            .await?
+            .is_some_and(|relationship| relationship.blocked);
+        Ok(first_blocks || second_blocks)
     }
 
     pub async fn broadcast_timer_state(
@@ -1312,6 +2183,12 @@ impl AppState {
         if session.current_room_id.is_some() {
             return Err(GameError::AlreadyJoined);
         }
+        if self.store.matchmaking_time(session.id).await?.is_none()
+            && self.store.matchmaking_queue_stats().await?.queued
+                >= self.settings.max_matchmaking_queue
+        {
+            return Err(GameError::CapacityReached);
+        }
         let queued = self.store.enqueue_matchmaking(&session).await?;
         let Some(claim) = queued.claim else {
             self.metrics
@@ -1384,6 +2261,213 @@ impl AppState {
             }
         }
         Err(GameError::Internal)
+    }
+}
+
+fn build_progression(
+    session: &UserSession,
+    history: &[GameHistoryItem],
+    rewards: &[MissionReward],
+    now: chrono::DateTime<Utc>,
+) -> PlayerProgression {
+    let mut wins = 0_u32;
+    let mut shots = 0_u32;
+    let mut hits = 0_u32;
+    let mut ships_sunk = 0_u32;
+    let mut daily_games = 0_u32;
+    let mut daily_hits = 0_u32;
+    let mut weekly_wins = 0_u32;
+    for item in history {
+        let won = item.result.winner_id == item.self_player_id;
+        wins += u32::from(won);
+        let player = item
+            .result
+            .players
+            .iter()
+            .find(|player| player.player_id == item.self_player_id);
+        if let Some(player) = player {
+            shots = shots.saturating_add(player.shots);
+            hits = hits.saturating_add(player.hits);
+            ships_sunk = ships_sunk.saturating_add(u32::from(player.ships_sunk));
+        }
+        let finished_date = item.result.finished_at.date_naive();
+        if finished_date == now.date_naive() {
+            daily_games += 1;
+            daily_hits = daily_hits.saturating_add(player.map_or(0, |stats| stats.hits));
+        }
+        if finished_date.iso_week() == now.date_naive().iso_week() {
+            weekly_wins += u32::from(won);
+        }
+    }
+    let games_played = u32::try_from(history.len()).unwrap_or(u32::MAX);
+    let losses = games_played.saturating_sub(wins);
+    // Progression is a deterministic projection of the authoritative result ledger. Re-saving a
+    // result cannot double-award XP, and correcting/removing a result automatically rolls it back.
+    let result_xp = u64::from(games_played) * 100
+        + u64::from(wins) * 100
+        + u64::from(hits) * 3
+        + u64::from(ships_sunk) * 15;
+    let total_xp = result_xp.saturating_add(
+        rewards
+            .iter()
+            .map(|reward| u64::from(reward.xp))
+            .sum::<u64>(),
+    );
+    const XP_PER_LEVEL: u64 = 500;
+    let level = (total_xp / XP_PER_LEVEL + 1).min(100) as u32;
+    let level_xp = if level == 100 {
+        XP_PER_LEVEL
+    } else {
+        total_xp % XP_PER_LEVEL
+    };
+    let xp_to_next_level = if level == 100 {
+        0
+    } else {
+        XP_PER_LEVEL - level_xp
+    };
+    let rank_title = match level {
+        1..=4 => "CADET",
+        5..=14 => "LIEUTENANT",
+        15..=29 => "COMMANDER",
+        30..=49 => "CAPTAIN",
+        50..=74 => "COMMODORE",
+        _ => "ADMIRAL",
+    }
+    .to_string();
+    let accuracy_percent = if shots == 0 {
+        0
+    } else {
+        ((u64::from(hits) * 100) / u64::from(shots)) as u32
+    };
+    let achievement =
+        |id, title, description, progress: u32, target: u32, unlocked: bool| AchievementProgress {
+            id,
+            title,
+            description,
+            progress,
+            target,
+            unlocked,
+        };
+    let mission = |id: &'static str,
+                   cadence,
+                   title: &'static str,
+                   description: &'static str,
+                   progress: u32,
+                   target: u32,
+                   reward_xp: u32| {
+        let period_key = mission_period_key(cadence, now);
+        let claimed = rewards
+            .iter()
+            .any(|reward| reward.mission_id == id && reward.period_key == period_key);
+        MissionProgress {
+            id,
+            cadence,
+            title,
+            description,
+            progress,
+            target,
+            reward_xp,
+            completed: progress >= target,
+            claimed,
+            claimable: session.account_id.is_some() && progress >= target && !claimed,
+        }
+    };
+    PlayerProgression {
+        account_id: session.account_id,
+        handle: session.nickname.clone(),
+        level,
+        rank_title,
+        total_xp,
+        level_xp,
+        xp_to_next_level,
+        games_played,
+        wins,
+        losses,
+        total_shots: shots,
+        total_hits: hits,
+        total_ships_sunk: ships_sunk,
+        achievements: vec![
+            achievement(
+                "FIRST_CONTACT",
+                "첫 접촉",
+                "첫 번째 교전을 완료했습니다.",
+                games_played,
+                1,
+                games_played >= 1,
+            ),
+            achievement(
+                "FIRST_VICTORY",
+                "첫 승전보",
+                "첫 번째 승리를 기록했습니다.",
+                wins,
+                1,
+                wins >= 1,
+            ),
+            achievement(
+                "FLEET_BREAKER",
+                "함대 파쇄자",
+                "적 함선 25척을 격침했습니다.",
+                ships_sunk,
+                25,
+                ships_sunk >= 25,
+            ),
+            achievement(
+                "SHARPSHOOTER",
+                "명사수",
+                "20발 이상 사격하고 누적 명중률 60%를 달성했습니다.",
+                accuracy_percent,
+                60,
+                shots >= 20 && accuracy_percent >= 60,
+            ),
+            achievement(
+                "VETERAN",
+                "베테랑 지휘관",
+                "교전 25회를 완료했습니다.",
+                games_played,
+                25,
+                games_played >= 25,
+            ),
+        ],
+        missions: vec![
+            mission(
+                "DAILY_DEPLOYMENT",
+                MissionCadence::Daily,
+                "오늘의 출항",
+                "오늘 교전 1회를 완료하십시오.",
+                daily_games,
+                1,
+                100,
+            ),
+            mission(
+                "DAILY_ACCURACY",
+                MissionCadence::Daily,
+                "정밀 포격",
+                "오늘 적 함선 칸 10개를 명중시키십시오.",
+                daily_hits,
+                10,
+                150,
+            ),
+            mission(
+                "WEEKLY_SUPREMACY",
+                MissionCadence::Weekly,
+                "주간 제해권",
+                "이번 주 교전 3회에서 승리하십시오.",
+                weekly_wins,
+                3,
+                400,
+            ),
+        ],
+        calculated_at: now,
+    }
+}
+
+fn mission_period_key(cadence: MissionCadence, now: chrono::DateTime<Utc>) -> String {
+    match cadence {
+        MissionCadence::Daily => now.format("%Y-%m-%d").to_string(),
+        MissionCadence::Weekly => {
+            let week = now.date_naive().iso_week();
+            format!("{}-W{:02}", week.year(), week.week())
+        }
     }
 }
 
@@ -1500,9 +2584,27 @@ fn validate_nickname(nickname: &str) -> Result<(), GameError> {
     }
 }
 
+fn random_token() -> String {
+    let mut bytes = [0_u8; 32];
+    rand::rng().fill_bytes(&mut bytes);
+    URL_SAFE_NO_PAD.encode(bytes)
+}
+
 pub fn hash_token(token: &str) -> String {
     let digest = Sha256::digest(token.as_bytes());
     digest.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+fn constant_time_equal(left: &[u8], right: &[u8]) -> bool {
+    if left.len() != right.len() {
+        return false;
+    }
+    left.iter()
+        .zip(right)
+        .fold(0_u8, |difference, (left, right)| {
+            difference | (left ^ right)
+        })
+        == 0
 }
 
 #[derive(Debug, Clone)]
@@ -1692,6 +2794,7 @@ mod tests {
         let now = Utc::now();
         UserSession {
             id: Uuid::new_v4(),
+            account_id: None,
             nickname: nickname.to_string(),
             token_hash: Uuid::new_v4().to_string(),
             created_at: now,
@@ -1718,6 +2821,48 @@ mod tests {
             orientation: Orientation::Horizontal,
         })
         .collect()
+    }
+
+    #[test]
+    fn progression_is_a_deterministic_projection_of_results() {
+        use crate::domain::{FinishReason, GameResult, PlayerStatistics, WinType};
+
+        let commander = session("Commander");
+        let player_id = Uuid::new_v4();
+        let now = Utc::now();
+        let history = vec![GameHistoryItem {
+            room_id: Uuid::new_v4(),
+            room_name: "Progression test".to_string(),
+            self_player_id: player_id,
+            result: GameResult {
+                winner_id: player_id,
+                loser_id: Uuid::new_v4(),
+                total_turns: 20,
+                duration_seconds: 300,
+                finished_at: now,
+                players: vec![PlayerStatistics {
+                    player_id,
+                    shots: 20,
+                    hits: 12,
+                    ships_sunk: 5,
+                    accuracy: 0.6,
+                    total_timeouts: 0,
+                }],
+                finish_reason: FinishReason::FleetDestroyed,
+                win_type: WinType::NormalVictory,
+            },
+        }];
+        let first = build_progression(&commander, &history, &[], now);
+        let repeated = build_progression(&commander, &history, &[], now);
+        assert_eq!(first.total_xp, 311);
+        assert_eq!(first.total_xp, repeated.total_xp);
+        assert_eq!(first.games_played, 1);
+        assert_eq!(first.wins, 1);
+        assert!(first.achievements[0].unlocked);
+        assert!(first.achievements[1].unlocked);
+        assert!(first.achievements[3].unlocked);
+        assert!(first.missions[0].completed);
+        assert!(first.missions[1].completed);
     }
 
     #[test]

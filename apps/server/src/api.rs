@@ -1,12 +1,12 @@
 use axum::{
     Json, Router,
     extract::{
-        ConnectInfo, Path, State,
+        ConnectInfo, Path, Query, State,
         rejection::{JsonRejection, PathRejection},
     },
     http::{HeaderMap, StatusCode, header::AUTHORIZATION},
     response::IntoResponse,
-    routing::{get, post},
+    routing::{delete, get, post},
 };
 use axum_extra::extract::{
     CookieJar,
@@ -19,11 +19,15 @@ use uuid::Uuid;
 
 use crate::{
     app::{AppState, SnapshotEvent},
-    domain::GameSnapshot,
+    domain::{GameSnapshot, IntegritySignalPage, ModerationCasePage, PlayerProgression},
     error::GameError,
     protocol::{
-        CreatePracticeInput, CreateRoomInput, CreateSessionInput, HealthResponse, JoinRoomInput,
-        MatchmakingResponse, RoomCreatedResponse, RoomListResponse, SessionResponse,
+        AccountLoginInput, AccountSessionsResponse, AccountUpgradeInput, AccountUpgradeResponse,
+        CreatePracticeInput, CreateRoomInput, CreateSessionInput, HealthResponse,
+        IntegritySignalQuery, JoinRoomInput, MatchmakingResponse, ModerationActionInput,
+        ModerationActionResponse, ModerationReportQuery, PlayerReportInput, PlayerReportResponse,
+        RoomCreatedResponse, RoomListResponse, SessionResponse, SocialRelationshipInput,
+        SocialRelationshipsResponse,
     },
     store::GameHistoryItem,
 };
@@ -34,6 +38,29 @@ pub fn router() -> Router<AppState> {
         .route("/ready", get(readiness))
         .route("/metrics", get(metrics))
         .route("/sessions", post(create_session))
+        .route("/accounts/upgrade", post(upgrade_account))
+        .route("/accounts/login", post(login_account))
+        .route("/accounts/sessions", get(account_sessions))
+        .route(
+            "/accounts/sessions/{session_id}",
+            delete(revoke_account_session),
+        )
+        .route("/profile", get(player_profile))
+        .route(
+            "/profile/missions/{mission_id}/claim",
+            post(claim_mission_reward),
+        )
+        .route(
+            "/social/relationships",
+            get(social_relationships).post(update_social_relationship),
+        )
+        .route("/reports", post(report_player))
+        .route("/admin/moderation/reports", get(moderation_reports))
+        .route("/admin/integrity/signals", get(integrity_signals))
+        .route(
+            "/admin/moderation/reports/{report_id}/actions",
+            post(apply_moderation_action),
+        )
         .route(
             "/sessions/current",
             get(current_session).delete(delete_current_session),
@@ -105,14 +132,7 @@ async fn create_session(
     }
     let input = parse_json(input)?;
     let (session, token) = state.create_session(input.nickname).await?;
-    let max_age = time::Duration::seconds(state.settings.session_ttl.as_secs() as i64);
-    let cookie = Cookie::build(("mk01_session", token))
-        .path("/")
-        .http_only(true)
-        .same_site(SameSite::Lax)
-        .secure(state.settings.secure_cookies)
-        .max_age(max_age)
-        .build();
+    let cookie = session_cookie(&state, token);
     let expires_at =
         Utc::now() + ChronoDuration::seconds(state.settings.session_ttl.as_secs() as i64);
     Ok((
@@ -121,6 +141,7 @@ async fn create_session(
             StatusCode::CREATED,
             Json(SessionResponse {
                 id: session.id,
+                account_id: session.account_id,
                 nickname: session.nickname,
                 current_room_id: session.current_room_id,
                 expires_at,
@@ -153,11 +174,248 @@ async fn current_session(
     let session = authenticate(&state, &jar, &headers).await?;
     Ok(Json(SessionResponse {
         id: session.id,
+        account_id: session.account_id,
         nickname: session.nickname,
         current_room_id: session.current_room_id,
         expires_at: session.last_seen_at
             + ChronoDuration::seconds(state.settings.session_ttl.as_secs() as i64),
     }))
+}
+
+async fn upgrade_account(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+    input: Result<Json<AccountUpgradeInput>, JsonRejection>,
+) -> Result<impl IntoResponse, GameError> {
+    let input = parse_json(input)?;
+    let session = authenticate(&state, &jar, &headers).await?;
+    let (account, recovery_key, session_token) =
+        state.upgrade_account(&session, input.handle).await?;
+    Ok((
+        jar.add(session_cookie(&state, session_token)),
+        Json(AccountUpgradeResponse {
+            account,
+            recovery_key,
+        }),
+    ))
+}
+
+async fn login_account(
+    State(state): State<AppState>,
+    ConnectInfo(direct_address): ConnectInfo<SocketAddr>,
+    jar: CookieJar,
+    headers: HeaderMap,
+    input: Result<Json<AccountLoginInput>, JsonRejection>,
+) -> Result<impl IntoResponse, GameError> {
+    let client_key = state.client_rate_limit_key(&headers, direct_address);
+    state
+        .enforce_session_creation_rate_limit(&client_key)
+        .await?;
+    let input = parse_json(input)?;
+    let (session, token) = state
+        .login_account(input.account_id, input.recovery_key)
+        .await?;
+    let expires_at =
+        Utc::now() + ChronoDuration::seconds(state.settings.session_ttl.as_secs() as i64);
+    Ok((
+        jar.add(session_cookie(&state, token)),
+        (
+            StatusCode::CREATED,
+            Json(SessionResponse {
+                id: session.id,
+                account_id: session.account_id,
+                nickname: session.nickname,
+                current_room_id: session.current_room_id,
+                expires_at,
+            }),
+        ),
+    ))
+}
+
+async fn account_sessions(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+) -> Result<Json<AccountSessionsResponse>, GameError> {
+    let session = authenticate(&state, &jar, &headers).await?;
+    Ok(Json(AccountSessionsResponse {
+        current_session_id: session.id,
+        sessions: state.account_sessions(&session).await?,
+    }))
+}
+
+async fn revoke_account_session(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+    Path(session_id): Path<Uuid>,
+) -> Result<StatusCode, GameError> {
+    let session = authenticate(&state, &jar, &headers).await?;
+    if state.revoke_account_session(&session, session_id).await? {
+        Ok(StatusCode::NO_CONTENT)
+    } else {
+        Err(GameError::Unauthorized)
+    }
+}
+
+async fn player_profile(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+) -> Result<Json<PlayerProgression>, GameError> {
+    let session = authenticate(&state, &jar, &headers).await?;
+    Ok(Json(state.progression(&session).await?))
+}
+
+async fn claim_mission_reward(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+    Path(mission_id): Path<String>,
+) -> Result<Json<PlayerProgression>, GameError> {
+    let session = authenticate(&state, &jar, &headers).await?;
+    Ok(Json(
+        state.claim_mission_reward(&session, &mission_id).await?,
+    ))
+}
+
+async fn social_relationships(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+) -> Result<Json<SocialRelationshipsResponse>, GameError> {
+    let session = authenticate(&state, &jar, &headers).await?;
+    Ok(Json(SocialRelationshipsResponse {
+        relationships: state.social_relationships(&session).await?,
+    }))
+}
+
+async fn update_social_relationship(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+    input: Result<Json<SocialRelationshipInput>, JsonRejection>,
+) -> Result<Json<crate::domain::SocialRelationship>, GameError> {
+    let input = parse_json(input)?;
+    let session = authenticate(&state, &jar, &headers).await?;
+    Ok(Json(
+        state
+            .update_social_relationship(
+                &session,
+                input.room_id,
+                input.target_player_id,
+                input.muted,
+                input.blocked,
+            )
+            .await?,
+    ))
+}
+
+async fn report_player(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+    input: Result<Json<PlayerReportInput>, JsonRejection>,
+) -> Result<impl IntoResponse, GameError> {
+    let input = parse_json(input)?;
+    let session = authenticate(&state, &jar, &headers).await?;
+    Ok((
+        StatusCode::CREATED,
+        Json(PlayerReportResponse {
+            report: state
+                .report_player(
+                    &session,
+                    input.room_id,
+                    input.target_player_id,
+                    input.category,
+                    input.details,
+                )
+                .await?,
+        }),
+    ))
+}
+
+async fn moderation_reports(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<ModerationReportQuery>,
+) -> Result<Json<ModerationCasePage>, GameError> {
+    authenticate_operator(&state, &headers, false)?;
+    Ok(Json(
+        state
+            .moderation_cases(query.search, query.status, query.before, query.limit)
+            .await?,
+    ))
+}
+
+async fn integrity_signals(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<IntegritySignalQuery>,
+) -> Result<Json<IntegritySignalPage>, GameError> {
+    authenticate_operator(&state, &headers, false)?;
+    Ok(Json(
+        state
+            .integrity_signals(query.search, query.kind, query.before, query.limit)
+            .await?,
+    ))
+}
+
+async fn apply_moderation_action(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(report_id): Path<Uuid>,
+    input: Result<Json<ModerationActionInput>, JsonRejection>,
+) -> Result<Json<ModerationActionResponse>, GameError> {
+    let input = parse_json(input)?;
+    let operator_id = authenticate_operator(&state, &headers, true)?;
+    Ok(Json(ModerationActionResponse {
+        action: state
+            .moderate_player_report(
+                operator_id,
+                report_id,
+                input.action,
+                input.reason,
+                input.duration_hours,
+                input.reverses_action_id,
+            )
+            .await?,
+    }))
+}
+
+fn authenticate_operator(
+    state: &AppState,
+    headers: &HeaderMap,
+    require_operator_id: bool,
+) -> Result<String, GameError> {
+    let token = headers
+        .get(AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+        .ok_or(GameError::Unauthorized)?;
+    state.authorize_operator(token)?;
+    let operator_id = headers
+        .get("x-operator-id")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    if require_operator_id && operator_id.is_empty() {
+        return Err(GameError::InvalidRequest);
+    }
+    Ok(operator_id)
+}
+
+fn session_cookie(state: &AppState, token: String) -> Cookie<'static> {
+    let max_age = time::Duration::seconds(state.settings.session_ttl.as_secs() as i64);
+    Cookie::build(("mk01_session", token))
+        .path("/")
+        .http_only(true)
+        .same_site(SameSite::Lax)
+        .secure(state.settings.secure_cookies)
+        .max_age(max_age)
+        .build()
 }
 
 async fn list_rooms(State(state): State<AppState>) -> Result<Json<RoomListResponse>, GameError> {
@@ -289,9 +547,9 @@ async fn game_history(
     headers: HeaderMap,
 ) -> Result<Json<HistoryResponse>, GameError> {
     let session = authenticate(&state, &jar, &headers).await?;
-    Ok(Json(HistoryResponse {
-        games: state.store.history_for_session(session.id).await?,
-    }))
+    let mut games = state.store.history_for_session(session.id).await?;
+    games.truncate(50);
+    Ok(Json(HistoryResponse { games }))
 }
 
 async fn enqueue_matchmaking(

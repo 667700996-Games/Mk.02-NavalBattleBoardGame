@@ -3,9 +3,11 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::domain::{
-    AiDifficulty, AttackRecord, ChatMessage, ChatMessageType, ChatTypingEvent, Coordinate,
-    GameSnapshot, GameStartRecord, GameTimerState, MatchRules, PlayerReadyRecord, RoomSummary,
-    RoomVisibility, ShipPlacement, SurrenderRecord, TurnExpiredRecord,
+    AccountSession, AiDifficulty, AttackRecord, ChatMessage, ChatMessageType, ChatTypingEvent,
+    Coordinate, GameSnapshot, GameStartRecord, GameTimerState, IntegritySignalKind, MatchRules,
+    ModerationAction, ModerationActionKind, PlayerAccount, PlayerReadyRecord, PlayerReportReceipt,
+    ReportCategory, ReportStatus, RoomSummary, RoomVisibility, ShipPlacement, SocialRelationship,
+    SurrenderRecord, TurnExpiredRecord,
 };
 
 #[derive(Debug, Clone, Deserialize)]
@@ -18,9 +20,100 @@ pub struct CreateSessionInput {
 #[serde(rename_all = "camelCase")]
 pub struct SessionResponse {
     pub id: Uuid,
+    pub account_id: Option<Uuid>,
     pub nickname: String,
     pub current_room_id: Option<Uuid>,
     pub expires_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AccountUpgradeInput {
+    pub handle: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AccountLoginInput {
+    pub account_id: Uuid,
+    pub recovery_key: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountUpgradeResponse {
+    pub account: PlayerAccount,
+    pub recovery_key: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountSessionsResponse {
+    pub current_session_id: Uuid,
+    pub sessions: Vec<AccountSession>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SocialRelationshipInput {
+    pub room_id: Uuid,
+    pub target_player_id: Uuid,
+    pub muted: bool,
+    pub blocked: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SocialRelationshipsResponse {
+    pub relationships: Vec<SocialRelationship>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PlayerReportInput {
+    pub room_id: Uuid,
+    pub target_player_id: Uuid,
+    pub category: ReportCategory,
+    pub details: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlayerReportResponse {
+    pub report: PlayerReportReceipt,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ModerationReportQuery {
+    pub status: Option<ReportStatus>,
+    pub search: Option<String>,
+    pub before: Option<DateTime<Utc>>,
+    pub limit: Option<u32>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ModerationActionInput {
+    pub action: ModerationActionKind,
+    pub reason: String,
+    pub duration_hours: Option<u32>,
+    pub reverses_action_id: Option<Uuid>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModerationActionResponse {
+    pub action: ModerationAction,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct IntegritySignalQuery {
+    pub kind: Option<IntegritySignalKind>,
+    pub search: Option<String>,
+    pub before: Option<DateTime<Utc>>,
+    pub limit: Option<u32>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

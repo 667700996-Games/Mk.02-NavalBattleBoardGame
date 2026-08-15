@@ -2,9 +2,12 @@ use std::{sync::Arc, time::Duration};
 
 use chrono::Utc;
 use mk01_server::{
-    AppState,
+    AppState, PROTOCOL_VERSION,
     config::{Settings, StorageMode},
-    domain::{GameRoom, RoomVisibility, UserSession},
+    domain::{
+        ConnectionState, Coordinate, GameRoom, Orientation, RoomStatus, RoomVisibility, ShipKind,
+        ShipPlacement, UserSession,
+    },
     protocol::{HeartbeatResponse, ServerEvent},
     store::{GameStore, PostgresRedisStore},
 };
@@ -22,12 +25,33 @@ fn session(nickname: &str) -> UserSession {
     let now = Utc::now();
     UserSession {
         id: Uuid::new_v4(),
+        account_id: None,
         nickname: nickname.to_string(),
         token_hash: Uuid::new_v4().simple().to_string(),
         created_at: now,
         last_seen_at: now,
         current_room_id: None,
     }
+}
+
+fn fleet(first_row: u8) -> Vec<ShipPlacement> {
+    [
+        (ShipKind::Carrier, 0_u8),
+        (ShipKind::Battleship, 1),
+        (ShipKind::Cruiser, 2),
+        (ShipKind::Submarine, 3),
+        (ShipKind::Destroyer, 4),
+    ]
+    .into_iter()
+    .map(|(kind, offset)| ShipPlacement {
+        kind,
+        origin: Coordinate {
+            row: first_row + offset,
+            col: 0,
+        },
+        orientation: Orientation::Horizontal,
+    })
+    .collect()
 }
 
 async fn store(database_url: &str, redis_url: &str) -> Arc<PostgresRedisStore> {
@@ -190,4 +214,123 @@ async fn redis_fans_events_out_between_application_instances() {
     assert_eq!(value["type"], "heartbeat");
     first.health_check().await.unwrap();
     second.health_check().await.unwrap();
+}
+
+#[tokio::test]
+async fn rolling_instance_replacement_recovers_and_advances_an_active_match() {
+    let Some((database_url, redis_url)) = integration_urls() else {
+        eprintln!("skipping distributed integration test without TEST_DATABASE_URL/TEST_REDIS_URL");
+        return;
+    };
+    let settings = Settings {
+        storage_mode: StorageMode::Postgres,
+        database_url,
+        redis_url,
+        distributed_coordination_required: true,
+        reconnect_grace: Duration::from_secs(10),
+        turn_duration_seconds: 60,
+        ..Settings::default()
+    };
+    let departing_instance = AppState::new(settings.clone()).await.unwrap();
+    let alpha = session("Rolling Alpha");
+    let bravo = session("Rolling Bravo");
+    departing_instance.store.save_session(&alpha).await.unwrap();
+    departing_instance.store.save_session(&bravo).await.unwrap();
+
+    let mut room = GameRoom::new(
+        Uuid::new_v4().simple().to_string()[..6].to_ascii_uppercase(),
+        "Rolling deployment match".to_string(),
+        RoomVisibility::Private,
+        &alpha,
+    )
+    .unwrap();
+    room.join(&bravo).unwrap();
+    let alpha_player_id = room.player_for_session(alpha.id).unwrap().id;
+    let bravo_player_id = room.player_for_session(bravo.id).unwrap().id;
+    room.set_lobby_ready(alpha.id, Uuid::new_v4(), alpha_player_id, true)
+        .unwrap();
+    room.set_lobby_ready(bravo.id, Uuid::new_v4(), bravo_player_id, true)
+        .unwrap();
+    room.start_placement(alpha.id, Uuid::new_v4(), alpha_player_id, room.version)
+        .unwrap();
+    room.place_ships(alpha.id, fleet(0)).unwrap();
+    room.place_ships(bravo.id, fleet(5)).unwrap();
+    room.confirm_placement(alpha.id, &fleet(0), 60).unwrap();
+    room.confirm_placement(bravo.id, &fleet(5), 60).unwrap();
+    let game_id = room.game_id.unwrap();
+    let original_turn = room.game.as_ref().unwrap().turn_number;
+    departing_instance.save_room(&mut room).await.unwrap();
+    departing_instance
+        .store
+        .update_session_room(alpha.id, Some(room.id))
+        .await
+        .unwrap();
+    departing_instance
+        .store
+        .update_session_room(bravo.id, Some(room.id))
+        .await
+        .unwrap();
+
+    room.disconnect(alpha.id, 10).unwrap();
+    departing_instance.save_room(&mut room).await.unwrap();
+    let room_id = room.id;
+    let recovery_started = std::time::Instant::now();
+    drop(departing_instance);
+
+    let replacement = AppState::new(settings).await.unwrap();
+    let persisted_alpha = replacement
+        .store
+        .session_by_token_hash(&alpha.token_hash)
+        .await
+        .unwrap()
+        .unwrap();
+    replacement.restore_connection(&persisted_alpha).await;
+    let recovered_ref = replacement.room(room_id).await.unwrap();
+    let mut recovered = recovered_ref.lock().await;
+    assert!(recovery_started.elapsed() < Duration::from_secs(10));
+    assert_eq!(recovered.status, RoomStatus::Playing);
+    assert_eq!(recovered.game_id, Some(game_id));
+    assert_eq!(recovered.game.as_ref().unwrap().turn_number, original_turn);
+    assert_eq!(
+        recovered
+            .player_for_session(alpha.id)
+            .unwrap()
+            .connection_state,
+        ConnectionState::Online
+    );
+    let snapshot = recovered.snapshot_for(alpha.id).unwrap();
+    assert_eq!(snapshot.protocol_version, PROTOCOL_VERSION);
+    assert!(snapshot.target_board.is_some());
+    assert!(snapshot.revealed_board.is_none());
+
+    let active_player_id = recovered.game.as_ref().unwrap().current_player_id;
+    let active_session = recovered
+        .players
+        .iter()
+        .find(|player| player.id == active_player_id)
+        .unwrap()
+        .session_id;
+    let target_row = if active_session == alpha.id { 5 } else { 0 };
+    let version = recovered.version;
+    recovered
+        .fire(
+            active_session,
+            Uuid::new_v4(),
+            active_player_id,
+            Coordinate {
+                row: target_row,
+                col: 0,
+            },
+            version,
+            original_turn,
+        )
+        .unwrap();
+    replacement.save_room(&mut recovered).await.unwrap();
+    let committed = replacement
+        .store
+        .room_by_id_authoritative(room_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(committed.game.as_ref().unwrap().attacks.len(), 1);
 }

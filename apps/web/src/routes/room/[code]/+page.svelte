@@ -52,6 +52,9 @@
   let selfPlayer = $derived(
     snapshot?.players.find((player) => player.id === snapshot?.selfPlayerId)
   );
+  let opponentPlayer = $derived(
+    snapshot?.players.find((player) => player.id !== snapshot?.selfPlayerId && player.kind !== 'AI')
+  );
   let hasDisconnectedPlayer = $derived(
     snapshot?.players.some((player) => player.connectionState !== 'ONLINE') ?? false
   );
@@ -426,6 +429,8 @@
       selfPlayerId={snapshot.selfPlayerId}
       online={$socketStatus === 'online'}
       readOnly={snapshot.room.status === 'CANCELLED'}
+      targetPlayerId={opponentPlayer?.id}
+      targetNickname={opponentPlayer?.nickname}
     />
     {#if hasDisconnectedPlayer && (snapshot.room.status === 'PLACEMENT' || snapshot.room.status === 'PLAYING')}
       <DisconnectedOverlay deadline={snapshot.reconnectDeadline} />

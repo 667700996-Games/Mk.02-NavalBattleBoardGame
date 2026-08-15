@@ -1,14 +1,20 @@
 mod board;
 mod chat;
 mod game;
+mod integrity;
+mod progression;
 mod room;
 mod session;
+mod social;
 
 pub use board::*;
 pub use chat::*;
 pub use game::*;
+pub use integrity::*;
+pub use progression::*;
 pub use room::*;
 pub use session::*;
+pub use social::*;
 
 use serde::{Deserialize, Serialize};
 

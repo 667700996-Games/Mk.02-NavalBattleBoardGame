@@ -7,13 +7,19 @@ use sqlx::{PgPool, postgres::PgPoolOptions};
 use uuid::Uuid;
 
 use crate::{
-    domain::{GameRoom, RoomSummary, UserSession},
+    domain::{
+        AccountSession, ActivePenalty, GameRoom, IntegritySignal, IntegritySignalKind,
+        IntegritySignalPage, ModerationAction, ModerationActionKind, ModerationCase,
+        ModerationCasePage, NewIntegritySignal, NewModerationAction, NewPlayerReport,
+        PlayerAccount, PlayerReport, ReportCategory, ReportStatus, RoomSummary, SocialRelationship,
+        UserSession,
+    },
     error::GameError,
 };
 
 use super::{
     GameHistoryItem, GameStore, MatchmakingClaim, MatchmakingEnqueueResult, MatchmakingQueueStats,
-    RoomAuthorityLease,
+    MissionReward, RetentionStats, RoomAuthorityLease,
 };
 
 #[derive(Clone)]
@@ -163,17 +169,42 @@ impl PostgresRedisStore {
                 .iter()
                 .map(|player| player.session_id)
                 .collect();
+            let participant_identities: Vec<(Uuid, Option<Uuid>)> =
+                sqlx::query_as("SELECT id, account_id FROM user_sessions WHERE id=ANY($1)")
+                    .bind(&participant_session_ids)
+                    .fetch_all(&mut *transaction)
+                    .await?;
+            let participant_account_ids: Vec<Uuid> = participant_identities
+                .iter()
+                .filter_map(|(_, account_id)| *account_id)
+                .collect();
             let result_json = serde_json::to_value(result).map_err(|_| GameError::Internal)?;
             sqlx::query(
-                "INSERT INTO game_results (room_id, room_name, participant_session_ids, result, finished_at) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (room_id) DO UPDATE SET result=$4, finished_at=$5",
+                "INSERT INTO game_results (room_id, room_name, participant_session_ids, participant_account_ids, result, finished_at) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (room_id) DO UPDATE SET participant_account_ids=$4, result=$5, finished_at=$6",
             )
             .bind(room.id)
             .bind(&room.name)
             .bind(participant_session_ids)
+            .bind(participant_account_ids)
             .bind(result_json)
             .bind(result.finished_at)
             .execute(&mut *transaction)
             .await?;
+            for player in &room.players {
+                let account_id = participant_identities
+                    .iter()
+                    .find(|(session_id, _)| *session_id == player.session_id)
+                    .and_then(|(_, account_id)| *account_id);
+                sqlx::query(
+                    "INSERT INTO game_result_participants (room_id, player_id, session_id, account_id) VALUES ($1,$2,$3,$4) ON CONFLICT (room_id,player_id) DO UPDATE SET session_id=$3, account_id=$4",
+                )
+                .bind(room.id)
+                .bind(player.id)
+                .bind(player.session_id)
+                .bind(account_id)
+                .execute(&mut *transaction)
+                .await?;
+            }
         }
         transaction.commit().await?;
         room.persistence_revision = persisted.persistence_revision;
@@ -193,10 +224,10 @@ impl GameStore for PostgresRedisStore {
 
     async fn save_session(&self, session: &UserSession) -> Result<(), GameError> {
         sqlx::query(
-            "INSERT INTO user_sessions (id, nickname, token_hash, created_at, last_seen_at, current_room_id) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (id) DO UPDATE SET nickname=$2, token_hash=$3, last_seen_at=$5, current_room_id=$6"
+            "INSERT INTO user_sessions (id, nickname, token_hash, created_at, last_seen_at, current_room_id, account_id) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (id) DO UPDATE SET nickname=$2, token_hash=$3, last_seen_at=$5, current_room_id=$6, account_id=$7"
         )
         .bind(session.id).bind(&session.nickname).bind(&session.token_hash)
-        .bind(session.created_at).bind(session.last_seen_at).bind(session.current_room_id)
+        .bind(session.created_at).bind(session.last_seen_at).bind(session.current_room_id).bind(session.account_id)
         .execute(&self.pool).await?;
         Ok(())
     }
@@ -205,17 +236,20 @@ impl GameStore for PostgresRedisStore {
         &self,
         token_hash: &str,
     ) -> Result<Option<UserSession>, GameError> {
-        let row = sqlx::query_as::<_, (Uuid, String, String, chrono::DateTime<chrono::Utc>, chrono::DateTime<chrono::Utc>, Option<Uuid>)>(
-            "SELECT id, nickname, token_hash, created_at, last_seen_at, current_room_id FROM user_sessions WHERE token_hash=$1"
+        let row = sqlx::query_as::<_, (Uuid, String, String, chrono::DateTime<chrono::Utc>, chrono::DateTime<chrono::Utc>, Option<Uuid>, Option<Uuid>)>(
+            "SELECT id, nickname, token_hash, created_at, last_seen_at, current_room_id, account_id FROM user_sessions WHERE token_hash=$1"
         ).bind(token_hash).fetch_optional(&self.pool).await?;
         Ok(row.map(
-            |(id, nickname, token_hash, created_at, last_seen_at, current_room_id)| UserSession {
-                id,
-                nickname,
-                token_hash,
-                created_at,
-                last_seen_at,
-                current_room_id,
+            |(id, nickname, token_hash, created_at, last_seen_at, current_room_id, account_id)| {
+                UserSession {
+                    id,
+                    account_id,
+                    nickname,
+                    token_hash,
+                    created_at,
+                    last_seen_at,
+                    current_room_id,
+                }
             },
         ))
     }
@@ -244,6 +278,111 @@ impl GameStore for PostgresRedisStore {
             .execute(&self.pool)
             .await?;
         Ok(())
+    }
+
+    async fn create_account(
+        &self,
+        session_id: Uuid,
+        account: &PlayerAccount,
+        recovery_key_hash: &str,
+        next_token_hash: &str,
+    ) -> Result<(), GameError> {
+        let mut transaction = self.pool.begin().await?;
+        let existing: Option<Option<Uuid>> =
+            sqlx::query_scalar("SELECT account_id FROM user_sessions WHERE id=$1 FOR UPDATE")
+                .bind(session_id)
+                .fetch_optional(&mut *transaction)
+                .await?;
+        match existing {
+            None => return Err(GameError::Unauthorized),
+            Some(Some(_)) => return Err(GameError::InvalidState),
+            Some(None) => {}
+        }
+        if let Err(error) = sqlx::query(
+            "INSERT INTO player_accounts (id, handle, recovery_key_hash, created_at) VALUES ($1,$2,$3,$4)",
+        )
+        .bind(account.id)
+        .bind(&account.handle)
+        .bind(recovery_key_hash)
+        .bind(account.created_at)
+        .execute(&mut *transaction)
+        .await
+        {
+            if error
+                .as_database_error()
+                .is_some_and(|database| database.is_unique_violation())
+            {
+                return Err(GameError::AccountHandleTaken);
+            }
+            return Err(error.into());
+        }
+        sqlx::query(
+            "UPDATE user_sessions SET account_id=$2, nickname=$3, token_hash=$4, last_seen_at=now() WHERE id=$1",
+        )
+        .bind(session_id)
+        .bind(account.id)
+        .bind(&account.handle)
+        .bind(next_token_hash)
+        .execute(&mut *transaction)
+        .await?;
+        transaction.commit().await?;
+        Ok(())
+    }
+
+    async fn account_by_credentials(
+        &self,
+        account_id: Uuid,
+        recovery_key_hash: &str,
+    ) -> Result<Option<PlayerAccount>, GameError> {
+        let row: Option<(Uuid, String, DateTime<Utc>)> = sqlx::query_as(
+            "SELECT id, handle, created_at FROM player_accounts WHERE id=$1 AND recovery_key_hash=$2",
+        )
+        .bind(account_id)
+        .bind(recovery_key_hash)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(|(id, handle, created_at)| PlayerAccount {
+            id,
+            handle,
+            created_at,
+        }))
+    }
+
+    async fn sessions_for_account(
+        &self,
+        account_id: Uuid,
+    ) -> Result<Vec<AccountSession>, GameError> {
+        let rows: Vec<(Uuid, String, DateTime<Utc>, DateTime<Utc>, Option<Uuid>)> = sqlx::query_as(
+            "SELECT id, nickname, created_at, last_seen_at, current_room_id FROM user_sessions WHERE account_id=$1 ORDER BY last_seen_at DESC",
+        )
+        .bind(account_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(
+                |(id, nickname, created_at, last_seen_at, current_room_id)| AccountSession {
+                    id,
+                    nickname,
+                    created_at,
+                    last_seen_at,
+                    current_room_id,
+                },
+            )
+            .collect())
+    }
+
+    async fn delete_account_session(
+        &self,
+        account_id: Uuid,
+        session_id: Uuid,
+    ) -> Result<bool, GameError> {
+        let deleted = sqlx::query("DELETE FROM user_sessions WHERE id=$1 AND account_id=$2")
+            .bind(session_id)
+            .bind(account_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(deleted.rows_affected() == 1)
     }
 
     async fn save_room(&self, room: &mut GameRoom) -> Result<(), GameError> {
@@ -374,19 +513,11 @@ impl GameStore for PostgresRedisStore {
         &self,
         session_id: Uuid,
     ) -> Result<Vec<GameHistoryItem>, GameError> {
-        let rows: Vec<(Uuid, String, serde_json::Value, serde_json::Value)> = sqlx::query_as(
-            "SELECT results.room_id, results.room_name, results.result, rooms.snapshot FROM game_results results JOIN game_rooms rooms ON rooms.id = results.room_id WHERE $1 = ANY(results.participant_session_ids) ORDER BY results.finished_at DESC LIMIT 50"
+        let rows: Vec<(Uuid, String, serde_json::Value, Uuid)> = sqlx::query_as(
+            "WITH identity AS (SELECT account_id FROM user_sessions WHERE id=$1) SELECT results.room_id, results.room_name, results.result, participants.player_id FROM game_results results JOIN game_result_participants participants ON participants.room_id=results.room_id WHERE participants.session_id=$1 OR ((SELECT account_id FROM identity) IS NOT NULL AND participants.account_id=(SELECT account_id FROM identity)) ORDER BY results.finished_at DESC LIMIT 5000"
         ).bind(session_id).fetch_all(&self.pool).await?;
         rows.into_iter()
-            .map(|(room_id, room_name, value, snapshot)| {
-                let room: GameRoom =
-                    serde_json::from_value(snapshot).map_err(|_| GameError::Internal)?;
-                let self_player_id = room
-                    .players
-                    .iter()
-                    .find(|player| player.session_id == session_id)
-                    .map(|player| player.id)
-                    .ok_or(GameError::Internal)?;
+            .map(|(room_id, room_name, value, self_player_id)| {
                 let result = serde_json::from_value(value).map_err(|_| GameError::Internal)?;
                 Ok(GameHistoryItem {
                     room_id,
@@ -445,6 +576,7 @@ impl GameStore for PostgresRedisStore {
             });
         }
 
+        let own_identity = session.account_id.unwrap_or(session.id);
         let opponent: Option<(
             Uuid,
             String,
@@ -452,14 +584,17 @@ impl GameStore for PostgresRedisStore {
             DateTime<Utc>,
             DateTime<Utc>,
             Option<Uuid>,
+            Option<Uuid>,
         )> = sqlx::query_as(
-            "SELECT sessions.id, sessions.nickname, sessions.token_hash, sessions.created_at, sessions.last_seen_at, sessions.current_room_id FROM matchmaking_queue queue JOIN user_sessions sessions ON sessions.id=queue.session_id WHERE queue.session_id<>$1 AND queue.claim_id IS NULL AND sessions.current_room_id IS NULL ORDER BY queue.queued_at ASC FOR UPDATE OF queue SKIP LOCKED LIMIT 1",
+            "SELECT sessions.id, sessions.nickname, sessions.token_hash, sessions.created_at, sessions.last_seen_at, sessions.current_room_id, sessions.account_id FROM matchmaking_queue queue JOIN user_sessions sessions ON sessions.id=queue.session_id WHERE queue.session_id<>$1 AND queue.claim_id IS NULL AND sessions.current_room_id IS NULL AND NOT EXISTS (SELECT 1 FROM player_relationships relationships WHERE relationships.blocked AND ((relationships.actor_identity_id=$2 AND relationships.target_identity_id=COALESCE(sessions.account_id,sessions.id)) OR (relationships.actor_identity_id=COALESCE(sessions.account_id,sessions.id) AND relationships.target_identity_id=$2))) ORDER BY queue.queued_at ASC FOR UPDATE OF queue SKIP LOCKED LIMIT 1",
         )
         .bind(session.id)
+        .bind(own_identity)
         .fetch_optional(&mut *transaction)
         .await?;
 
-        let Some((id, nickname, token_hash, created_at, last_seen_at, current_room_id)) = opponent
+        let Some((id, nickname, token_hash, created_at, last_seen_at, current_room_id, account_id)) =
+            opponent
         else {
             transaction.commit().await?;
             return Ok(MatchmakingEnqueueResult {
@@ -486,6 +621,7 @@ impl GameStore for PostgresRedisStore {
                 id: claim_id,
                 opponent: UserSession {
                     id,
+                    account_id,
                     nickname,
                     token_hash,
                     created_at,
@@ -594,6 +730,466 @@ impl GameStore for PostgresRedisStore {
         Ok(result.rows_affected() == 1)
     }
 
+    async fn mission_rewards(&self, account_id: Uuid) -> Result<Vec<MissionReward>, GameError> {
+        let rows: Vec<(String, String, i32)> = sqlx::query_as(
+            "SELECT source_id, period_key, xp FROM progression_reward_ledger WHERE account_id=$1 AND source_kind='MISSION' AND reversed_at IS NULL ORDER BY created_at",
+        )
+        .bind(account_id)
+        .fetch_all(&self.pool)
+        .await?;
+        rows.into_iter()
+            .map(|(mission_id, period_key, xp)| {
+                Ok(MissionReward {
+                    mission_id,
+                    period_key,
+                    xp: u32::try_from(xp).map_err(|_| GameError::Internal)?,
+                })
+            })
+            .collect()
+    }
+
+    async fn claim_mission_reward(
+        &self,
+        account_id: Uuid,
+        mission_id: &str,
+        period_key: &str,
+        xp: u32,
+    ) -> Result<bool, GameError> {
+        let result = sqlx::query(
+            "INSERT INTO progression_reward_ledger (id,account_id,source_kind,source_id,period_key,xp) VALUES ($1,$2,'MISSION',$3,$4,$5) ON CONFLICT (account_id,source_kind,source_id,period_key) DO NOTHING",
+        )
+        .bind(Uuid::new_v4())
+        .bind(account_id)
+        .bind(mission_id)
+        .bind(period_key)
+        .bind(i32::try_from(xp).map_err(|_| GameError::Internal)?)
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected() == 1)
+    }
+
+    async fn identity_for_session(&self, session_id: Uuid) -> Result<Option<Uuid>, GameError> {
+        sqlx::query_scalar("SELECT COALESCE(account_id,id) FROM user_sessions WHERE id=$1")
+            .bind(session_id)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(Into::into)
+    }
+
+    async fn set_social_relationship(
+        &self,
+        actor_identity_id: Uuid,
+        relationship: SocialRelationship,
+    ) -> Result<(), GameError> {
+        if !relationship.muted && !relationship.blocked {
+            sqlx::query(
+                "DELETE FROM player_relationships WHERE actor_identity_id=$1 AND target_identity_id=$2",
+            )
+            .bind(actor_identity_id)
+            .bind(relationship.target_identity_id)
+            .execute(&self.pool)
+            .await?;
+            return Ok(());
+        }
+        sqlx::query(
+            "INSERT INTO player_relationships (actor_identity_id,target_identity_id,target_nickname,muted,blocked,updated_at) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (actor_identity_id,target_identity_id) DO UPDATE SET target_nickname=$3,muted=$4,blocked=$5,updated_at=$6",
+        )
+        .bind(actor_identity_id)
+        .bind(relationship.target_identity_id)
+        .bind(&relationship.target_nickname)
+        .bind(relationship.muted)
+        .bind(relationship.blocked)
+        .bind(relationship.updated_at)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    async fn social_relationships(
+        &self,
+        actor_identity_id: Uuid,
+    ) -> Result<Vec<SocialRelationship>, GameError> {
+        let rows: Vec<(Uuid, String, bool, bool, DateTime<Utc>)> = sqlx::query_as(
+            "SELECT target_identity_id,target_nickname,muted,blocked,updated_at FROM player_relationships WHERE actor_identity_id=$1 ORDER BY updated_at DESC",
+        )
+        .bind(actor_identity_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(
+                |(target_identity_id, target_nickname, muted, blocked, updated_at)| {
+                    SocialRelationship {
+                        target_identity_id,
+                        target_nickname,
+                        muted,
+                        blocked,
+                        updated_at,
+                    }
+                },
+            )
+            .collect())
+    }
+
+    async fn social_relationship_between(
+        &self,
+        actor_identity_id: Uuid,
+        target_identity_id: Uuid,
+    ) -> Result<Option<SocialRelationship>, GameError> {
+        let row: Option<(String, bool, bool, DateTime<Utc>)> = sqlx::query_as(
+            "SELECT target_nickname,muted,blocked,updated_at FROM player_relationships WHERE actor_identity_id=$1 AND target_identity_id=$2",
+        )
+        .bind(actor_identity_id)
+        .bind(target_identity_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(
+            |(target_nickname, muted, blocked, updated_at)| SocialRelationship {
+                target_identity_id,
+                target_nickname,
+                muted,
+                blocked,
+                updated_at,
+            },
+        ))
+    }
+
+    async fn create_player_report(&self, report: &NewPlayerReport) -> Result<(), GameError> {
+        sqlx::query(
+            "INSERT INTO player_reports (id,reporter_identity_id,target_identity_id,room_id,target_player_id,target_nickname,category,details,evidence,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$10)",
+        )
+        .bind(report.id)
+        .bind(report.reporter_identity_id)
+        .bind(report.target_identity_id)
+        .bind(report.room_id)
+        .bind(report.target_player_id)
+        .bind(&report.target_nickname)
+        .bind(report.category.as_str())
+        .bind(&report.details)
+        .bind(&report.evidence)
+        .bind(report.created_at)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    async fn moderation_cases(
+        &self,
+        search: Option<&str>,
+        status: Option<ReportStatus>,
+        before: Option<DateTime<Utc>>,
+        limit: usize,
+    ) -> Result<ModerationCasePage, GameError> {
+        type ReportRow = (
+            Uuid,
+            Uuid,
+            Uuid,
+            Uuid,
+            Uuid,
+            String,
+            String,
+            String,
+            serde_json::Value,
+            String,
+            DateTime<Utc>,
+            DateTime<Utc>,
+        );
+        let search_pattern = search.map(|value| format!("%{}%", value.to_lowercase()));
+        let fetch_limit =
+            i64::try_from(limit.saturating_add(1)).map_err(|_| GameError::Internal)?;
+        let rows: Vec<ReportRow> = sqlx::query_as(
+            "SELECT id,reporter_identity_id,target_identity_id,room_id,target_player_id,target_nickname,category,details,evidence,status,created_at,updated_at FROM player_reports WHERE ($1::text IS NULL OR status=$1) AND ($2::timestamptz IS NULL OR created_at < $2) AND ($3::text IS NULL OR lower(target_nickname) LIKE $3 OR lower(details) LIKE $3 OR lower(evidence::text) LIKE $3) ORDER BY created_at DESC,id DESC LIMIT $4",
+        )
+        .bind(status.map(ReportStatus::as_str))
+        .bind(before)
+        .bind(search_pattern)
+        .bind(fetch_limit)
+        .fetch_all(&self.pool)
+        .await?;
+        let has_more = rows.len() > limit;
+        let mut cases = Vec::with_capacity(rows.len().min(limit));
+        for row in rows.into_iter().take(limit) {
+            let report = PlayerReport {
+                id: row.0,
+                reporter_identity_id: row.1,
+                target_identity_id: row.2,
+                room_id: row.3,
+                target_player_id: row.4,
+                target_nickname: row.5,
+                category: ReportCategory::parse(&row.6).ok_or(GameError::Internal)?,
+                details: row.7,
+                evidence: row.8,
+                status: ReportStatus::parse(&row.9).ok_or(GameError::Internal)?,
+                created_at: row.10,
+                updated_at: row.11,
+            };
+            let action_rows: Vec<(
+                Uuid,
+                Uuid,
+                String,
+                String,
+                String,
+                Option<DateTime<Utc>>,
+                Option<Uuid>,
+                DateTime<Utc>,
+            )> = sqlx::query_as(
+                "SELECT id,target_identity_id,operator_id,action_type,reason,expires_at,reverses_action_id,created_at FROM player_moderation_actions WHERE report_id=$1 ORDER BY created_at,id",
+            )
+            .bind(report.id)
+            .fetch_all(&self.pool)
+            .await?;
+            let actions = action_rows
+                .into_iter()
+                .map(|action| {
+                    Ok(ModerationAction {
+                        id: action.0,
+                        report_id: report.id,
+                        target_identity_id: action.1,
+                        operator_id: action.2,
+                        action: ModerationActionKind::parse(&action.3)
+                            .ok_or(GameError::Internal)?,
+                        reason: action.4,
+                        expires_at: action.5,
+                        reverses_action_id: action.6,
+                        created_at: action.7,
+                    })
+                })
+                .collect::<Result<Vec<_>, GameError>>()?;
+            cases.push(ModerationCase { report, actions });
+        }
+        let next_before = has_more
+            .then(|| cases.last().map(|case| case.report.created_at))
+            .flatten();
+        Ok(ModerationCasePage { cases, next_before })
+    }
+
+    async fn apply_moderation_action(
+        &self,
+        action: &NewModerationAction,
+    ) -> Result<ModerationAction, GameError> {
+        let mut transaction = self.pool.begin().await?;
+        let target_identity_id: Uuid = sqlx::query_scalar(
+            "SELECT target_identity_id FROM player_reports WHERE id=$1 FOR UPDATE",
+        )
+        .bind(action.report_id)
+        .fetch_optional(&mut *transaction)
+        .await?
+        .ok_or(GameError::ReportNotFound)?;
+        if action.action == ModerationActionKind::Reverse {
+            let reversed_id = action.reverses_action_id.ok_or(GameError::InvalidRequest)?;
+            let reversed: Option<(Uuid, Uuid, String)> = sqlx::query_as(
+                "SELECT report_id,target_identity_id,action_type FROM player_moderation_actions WHERE id=$1 FOR UPDATE",
+            )
+            .bind(reversed_id)
+            .fetch_optional(&mut *transaction)
+            .await?;
+            let Some((report_id, target_id, action_type)) = reversed else {
+                return Err(GameError::InvalidRequest);
+            };
+            let already_reversed: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM player_moderation_actions WHERE reverses_action_id=$1)",
+            )
+            .bind(reversed_id)
+            .fetch_one(&mut *transaction)
+            .await?;
+            if report_id != action.report_id
+                || target_id != target_identity_id
+                || matches!(action_type.as_str(), "REVERSE" | "DISMISS")
+                || already_reversed
+            {
+                return Err(GameError::InvalidRequest);
+            }
+        } else if action.reverses_action_id.is_some() {
+            return Err(GameError::InvalidRequest);
+        }
+        sqlx::query(
+            "INSERT INTO player_moderation_actions (id,report_id,target_identity_id,operator_id,action_type,reason,expires_at,reverses_action_id,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)",
+        )
+        .bind(action.id)
+        .bind(action.report_id)
+        .bind(target_identity_id)
+        .bind(&action.operator_id)
+        .bind(action.action.as_str())
+        .bind(&action.reason)
+        .bind(action.expires_at)
+        .bind(action.reverses_action_id)
+        .bind(action.created_at)
+        .execute(&mut *transaction)
+        .await?;
+        let status = match action.action {
+            ModerationActionKind::Dismiss => ReportStatus::Dismissed,
+            ModerationActionKind::Reverse => ReportStatus::Reviewing,
+            _ => ReportStatus::Actioned,
+        };
+        sqlx::query("UPDATE player_reports SET status=$2,updated_at=$3 WHERE id=$1")
+            .bind(action.report_id)
+            .bind(status.as_str())
+            .bind(action.created_at)
+            .execute(&mut *transaction)
+            .await?;
+        transaction.commit().await?;
+        Ok(ModerationAction {
+            id: action.id,
+            report_id: action.report_id,
+            target_identity_id,
+            operator_id: action.operator_id.clone(),
+            action: action.action,
+            reason: action.reason.clone(),
+            expires_at: action.expires_at,
+            reverses_action_id: action.reverses_action_id,
+            created_at: action.created_at,
+        })
+    }
+
+    async fn active_penalty(
+        &self,
+        identity_id: Uuid,
+        session_id: Uuid,
+    ) -> Result<Option<ActivePenalty>, GameError> {
+        let row: Option<(String, Option<DateTime<Utc>>)> = sqlx::query_as(
+            "SELECT action_type,expires_at FROM player_moderation_actions action WHERE (target_identity_id=$1 OR target_identity_id=$2 OR target_identity_id IN (SELECT id FROM user_sessions WHERE account_id=$1)) AND action_type IN ('BAN','SUSPEND') AND (action_type='BAN' OR expires_at > now()) AND NOT EXISTS (SELECT 1 FROM player_moderation_actions reversal WHERE reversal.reverses_action_id=action.id) ORDER BY (action_type='BAN') DESC,expires_at DESC NULLS FIRST LIMIT 1",
+        )
+        .bind(identity_id)
+        .bind(session_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        match row {
+            Some((action, _)) if action == "BAN" => Ok(Some(ActivePenalty::Banned)),
+            Some((action, Some(expires_at))) if action == "SUSPEND" => {
+                Ok(Some(ActivePenalty::Suspended(expires_at)))
+            }
+            Some(_) => Err(GameError::Internal),
+            None => Ok(None),
+        }
+    }
+
+    async fn session_ids_for_identity(&self, identity_id: Uuid) -> Result<Vec<Uuid>, GameError> {
+        sqlx::query_scalar("SELECT id FROM user_sessions WHERE id=$1 OR account_id=$1")
+            .bind(identity_id)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(Into::into)
+    }
+
+    async fn record_integrity_signal(
+        &self,
+        signal: &NewIntegritySignal,
+    ) -> Result<IntegritySignal, GameError> {
+        type SignalRow = (
+            Uuid,
+            Uuid,
+            Option<Uuid>,
+            String,
+            i16,
+            f64,
+            serde_json::Value,
+            i32,
+            DateTime<Utc>,
+            DateTime<Utc>,
+        );
+        let row: SignalRow = sqlx::query_as(
+            "INSERT INTO integrity_signals (id,subject_identity_id,room_id,kind,severity,confidence,evidence,first_observed_at,last_observed_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$8) ON CONFLICT (subject_identity_id,room_id,kind) WHERE room_id IS NOT NULL DO UPDATE SET severity=GREATEST(integrity_signals.severity,EXCLUDED.severity),confidence=GREATEST(integrity_signals.confidence,EXCLUDED.confidence),evidence=EXCLUDED.evidence,occurrences=integrity_signals.occurrences+1,last_observed_at=EXCLUDED.last_observed_at RETURNING id,subject_identity_id,room_id,kind,severity,confidence,evidence,occurrences,first_observed_at,last_observed_at",
+        )
+        .bind(signal.id)
+        .bind(signal.subject_identity_id)
+        .bind(signal.room_id)
+        .bind(signal.kind.as_str())
+        .bind(i16::from(signal.severity))
+        .bind(signal.confidence)
+        .bind(&signal.evidence)
+        .bind(signal.observed_at)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(IntegritySignal {
+            id: row.0,
+            subject_identity_id: row.1,
+            room_id: row.2,
+            kind: IntegritySignalKind::parse(&row.3).ok_or(GameError::Internal)?,
+            severity: u8::try_from(row.4).map_err(|_| GameError::Internal)?,
+            confidence: row.5,
+            evidence: row.6,
+            occurrences: u32::try_from(row.7).map_err(|_| GameError::Internal)?,
+            first_observed_at: row.8,
+            last_observed_at: row.9,
+        })
+    }
+
+    async fn integrity_signals(
+        &self,
+        search: Option<&str>,
+        kind: Option<IntegritySignalKind>,
+        before: Option<DateTime<Utc>>,
+        limit: usize,
+    ) -> Result<IntegritySignalPage, GameError> {
+        let search_pattern = search.map(|value| format!("%{}%", value.to_lowercase()));
+        let fetch_limit =
+            i64::try_from(limit.saturating_add(1)).map_err(|_| GameError::Internal)?;
+        type SignalRow = (
+            Uuid,
+            Uuid,
+            Option<Uuid>,
+            String,
+            i16,
+            f64,
+            serde_json::Value,
+            i32,
+            DateTime<Utc>,
+            DateTime<Utc>,
+        );
+        let rows: Vec<SignalRow> = sqlx::query_as(
+            "SELECT id,subject_identity_id,room_id,kind,severity,confidence,evidence,occurrences,first_observed_at,last_observed_at FROM integrity_signals WHERE ($1::text IS NULL OR kind=$1) AND ($2::timestamptz IS NULL OR last_observed_at < $2) AND ($3::text IS NULL OR lower(subject_identity_id::text) LIKE $3 OR lower(evidence::text) LIKE $3) ORDER BY severity DESC,last_observed_at DESC,id DESC LIMIT $4",
+        )
+        .bind(kind.map(IntegritySignalKind::as_str))
+        .bind(before)
+        .bind(search_pattern)
+        .bind(fetch_limit)
+        .fetch_all(&self.pool)
+        .await?;
+        let has_more = rows.len() > limit;
+        let signals = rows
+            .into_iter()
+            .take(limit)
+            .map(|row| {
+                Ok(IntegritySignal {
+                    id: row.0,
+                    subject_identity_id: row.1,
+                    room_id: row.2,
+                    kind: IntegritySignalKind::parse(&row.3).ok_or(GameError::Internal)?,
+                    severity: u8::try_from(row.4).map_err(|_| GameError::Internal)?,
+                    confidence: row.5,
+                    evidence: row.6,
+                    occurrences: u32::try_from(row.7).map_err(|_| GameError::Internal)?,
+                    first_observed_at: row.8,
+                    last_observed_at: row.9,
+                })
+            })
+            .collect::<Result<Vec<_>, GameError>>()?;
+        let next_before = has_more
+            .then(|| signals.last().map(|signal| signal.last_observed_at))
+            .flatten();
+        Ok(IntegritySignalPage {
+            signals,
+            next_before,
+        })
+    }
+
+    async fn suspicious_short_match_count(
+        &self,
+        first_identity_id: Uuid,
+        second_identity_id: Uuid,
+        since: DateTime<Utc>,
+    ) -> Result<u64, GameError> {
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(DISTINCT results.room_id) FROM game_results results JOIN game_result_participants first_player ON first_player.room_id=results.room_id JOIN game_result_participants second_player ON second_player.room_id=results.room_id AND second_player.player_id<>first_player.player_id WHERE ((COALESCE(first_player.account_id,first_player.session_id)=$1) OR first_player.session_id IN (SELECT id FROM user_sessions WHERE account_id=$1)) AND ((COALESCE(second_player.account_id,second_player.session_id)=$2) OR second_player.session_id IN (SELECT id FROM user_sessions WHERE account_id=$2)) AND results.finished_at >= $3 AND COALESCE((results.result->>'totalTurns')::integer,999) <= 5 AND results.result->>'finishReason' IN ('SURRENDER','DISCONNECT_TIMEOUT','PLAYER_LEFT')",
+        )
+        .bind(first_identity_id)
+        .bind(second_identity_id)
+        .bind(since)
+        .fetch_one(&self.pool)
+        .await?;
+        u64::try_from(count).map_err(|_| GameError::Internal)
+    }
+
     async fn matchmaking_time(&self, session_id: Uuid) -> Result<Option<DateTime<Utc>>, GameError> {
         sqlx::query_scalar("SELECT queued_at FROM matchmaking_queue WHERE session_id=$1")
             .bind(session_id)
@@ -611,6 +1207,48 @@ impl GameStore for PostgresRedisStore {
         Ok(MatchmakingQueueStats {
             queued: queued.max(0) as u64,
             oldest_age_seconds: oldest_age_seconds.max(0) as u64,
+        })
+    }
+
+    async fn prune_expired_data(
+        &self,
+        inactive_session_before: DateTime<Utc>,
+        completed_room_before: DateTime<Utc>,
+        abandoned_matchmaking_before: DateTime<Utc>,
+    ) -> Result<RetentionStats, GameError> {
+        let mut transaction = self.pool.begin().await?;
+        let matchmaking_entries_deleted =
+            sqlx::query("DELETE FROM matchmaking_queue WHERE queued_at < $1")
+                .bind(abandoned_matchmaking_before)
+                .execute(&mut *transaction)
+                .await?
+                .rows_affected();
+        let expired_room_ids: Vec<Uuid> = sqlx::query_scalar(
+            "DELETE FROM game_rooms WHERE status IN ('FINISHED','CANCELLED') AND updated_at < $1 RETURNING id",
+        )
+        .bind(completed_room_before)
+        .fetch_all(&mut *transaction)
+        .await?;
+        let sessions_deleted = sqlx::query(
+            "DELETE FROM user_sessions WHERE current_room_id IS NULL AND last_seen_at < $1",
+        )
+        .bind(inactive_session_before)
+        .execute(&mut *transaction)
+        .await?
+        .rows_affected();
+        transaction.commit().await?;
+
+        if let Some(mut cache) = self.cache.clone() {
+            for room_id in &expired_room_ids {
+                if let Err(error) = cache.del::<_, ()>(Self::room_cache_key(*room_id)).await {
+                    tracing::warn!(%error, %room_id, "expired room cache eviction failed");
+                }
+            }
+        }
+        Ok(RetentionStats {
+            sessions_deleted,
+            rooms_deleted: expired_room_ids.len() as u64,
+            matchmaking_entries_deleted,
         })
     }
 

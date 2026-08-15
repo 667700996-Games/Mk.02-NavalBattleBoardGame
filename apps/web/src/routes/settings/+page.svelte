@@ -1,14 +1,90 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
   import { resolve } from '$app/paths';
-  import { Contrast, Gauge, LogOut, ShieldCheck, Volume2 } from '@lucide/svelte';
+  import { onMount } from 'svelte';
+  import {
+    Check,
+    Contrast,
+    Copy,
+    Gauge,
+    KeyRound,
+    LogOut,
+    Monitor,
+    ShieldCheck,
+    Trash2,
+    UserRound,
+    Volume2
+  } from '@lucide/svelte';
   import { api, ApiError } from '$lib/api';
   import { realtime } from '$lib/realtime';
   import { gameSnapshot, preferences, session } from '$lib/stores';
   import { sounds } from '$lib/sound';
+  import type { AccountSession } from '$lib/types';
 
   let signingOut = $state(false);
   let logoutError = $state('');
+  let handle = $state('');
+  let accountError = $state('');
+  let upgrading = $state(false);
+  let recovery = $state<{ accountId: string; recoveryKey: string } | null>(null);
+  let copied = $state(false);
+  let accountSessions = $state<AccountSession[]>([]);
+  let currentSessionId = $state('');
+
+  onMount(async () => {
+    try {
+      const current = await api.currentSession();
+      session.set(current);
+      handle = current.nickname;
+      if (current.accountId) await loadAccountSessions();
+    } catch {
+      await goto(resolve('/'));
+    }
+  });
+
+  async function loadAccountSessions() {
+    const response = await api.accountSessions();
+    currentSessionId = response.currentSessionId;
+    accountSessions = response.sessions;
+  }
+
+  async function upgradeAccount() {
+    upgrading = true;
+    accountError = '';
+    try {
+      const response = await api.upgradeAccount(handle);
+      recovery = { accountId: response.account.id, recoveryKey: response.recoveryKey };
+      session.update((current) =>
+        current
+          ? { ...current, accountId: response.account.id, nickname: response.account.handle }
+          : current
+      );
+      await loadAccountSessions();
+    } catch (caught) {
+      accountError = caught instanceof ApiError ? caught.message : '계정을 생성하지 못했습니다.';
+    } finally {
+      upgrading = false;
+    }
+  }
+
+  async function copyRecovery() {
+    if (!recovery) return;
+    await navigator.clipboard.writeText(
+      `MK.01 ACCOUNT\n${recovery.accountId}\n${recovery.recoveryKey}`
+    );
+    copied = true;
+    setTimeout(() => (copied = false), 1_800);
+  }
+
+  async function revokeSession(sessionId: string) {
+    accountError = '';
+    try {
+      await api.revokeAccountSession(sessionId);
+      await loadAccountSessions();
+    } catch (caught) {
+      accountError = caught instanceof ApiError ? caught.message : '세션을 폐기하지 못했습니다.';
+    }
+  }
 
   async function signOut() {
     signingOut = true;
@@ -110,6 +186,87 @@
         </div>
       </aside>
       {#if $session}
+        <section class="account-panel panel" aria-labelledby="account-title">
+          <header>
+            <span><UserRound size={20} /></span>
+            <div>
+              <small>COMMAND IDENTITY</small>
+              <strong id="account-title"
+                >{$session.accountId ? '지휘 계정' : '게스트 기록 보존'}</strong
+              >
+              <p>
+                {$session.accountId
+                  ? '복구 키로 다른 장치에서 같은 기록과 신원에 접속할 수 있습니다.'
+                  : '현재 게스트 세션을 계정으로 승격하면 기존 전투 기록이 그대로 유지됩니다.'}
+              </p>
+            </div>
+          </header>
+          {#if !$session.accountId}
+            <form
+              class="upgrade-form"
+              onsubmit={(event) => {
+                event.preventDefault();
+                upgradeAccount();
+              }}
+            >
+              <label for="account-handle"
+                ><span>계정 호출부호</span><input
+                  id="account-handle"
+                  bind:value={handle}
+                  minlength="2"
+                  maxlength="16"
+                  required
+                /></label
+              >
+              <button class="button button--primary" disabled={upgrading}
+                ><KeyRound size={15} /> {upgrading ? '승격 중…' : '기록 보존 계정 생성'}</button
+              >
+            </form>
+          {/if}
+          {#if recovery}
+            <aside class="recovery-card" role="status">
+              <strong>복구 키는 지금 한 번만 표시됩니다</strong>
+              <p>
+                안전한 암호 관리자에 계정 ID와 복구 키를 함께 저장하십시오. 서버는 원문을 보관하지
+                않습니다.
+              </p>
+              <dl>
+                <div>
+                  <dt>ACCOUNT ID</dt>
+                  <dd>{recovery.accountId}</dd>
+                </div>
+                <div>
+                  <dt>RECOVERY KEY</dt>
+                  <dd>{recovery.recoveryKey}</dd>
+                </div>
+              </dl>
+              <button class="button" type="button" onclick={copyRecovery}
+                >{#if copied}<Check size={15} /> 복사됨{:else}<Copy size={15} /> 자격 증명 복사{/if}</button
+              >
+            </aside>
+          {/if}
+          {#if $session.accountId && accountSessions.length}
+            <div class="device-list">
+              <h3><Monitor size={15} /> 활성 장치 세션</h3>
+              {#each accountSessions as device (device.id)}
+                <article>
+                  <div>
+                    <strong>{device.id === currentSessionId ? '현재 장치' : '연결된 장치'}</strong
+                    ><span>최근 사용 {new Date(device.lastSeenAt).toLocaleString('ko-KR')}</span>
+                  </div>
+                  {#if device.id !== currentSessionId}<button
+                      type="button"
+                      aria-label="이 장치 세션 폐기"
+                      onclick={() => revokeSession(device.id)}><Trash2 size={15} /></button
+                    >{/if}
+                </article>
+              {/each}
+            </div>
+          {/if}
+          {#if accountError}<p class="account-error" role="alert">{accountError}</p>{/if}
+        </section>
+      {/if}
+      {#if $session}
         <section class="session-panel panel" aria-labelledby="session-control-title">
           <div>
             <small>SESSION CONTROL</small>
@@ -164,6 +321,144 @@
     gap: 24px;
     margin-top: 14px;
     padding: 20px;
+  }
+  .account-panel {
+    display: grid;
+    gap: 18px;
+    margin-top: 14px;
+    padding: 20px;
+  }
+  .account-panel > header {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 13px;
+    align-items: center;
+  }
+  .account-panel > header > span {
+    display: grid;
+    width: 42px;
+    height: 42px;
+    place-items: center;
+    border: 1px solid var(--line);
+    border-radius: 9px;
+    color: var(--cyan-300);
+    background: rgba(40, 223, 232, 0.06);
+  }
+  .account-panel > header div {
+    display: grid;
+    gap: 3px;
+  }
+  .account-panel small {
+    color: var(--ink-500);
+    font: 700 7px var(--font-display);
+    letter-spacing: 0.14em;
+  }
+  .account-panel p {
+    margin: 0;
+    color: var(--ink-400);
+    font-size: 10px;
+    line-height: 1.6;
+  }
+  .upgrade-form {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: end;
+    gap: 10px;
+  }
+  .upgrade-form label {
+    display: grid;
+    gap: 5px;
+    color: var(--ink-400);
+    font-size: 9px;
+  }
+  .upgrade-form input {
+    min-height: 42px;
+    padding: 10px 12px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    color: var(--ink-100);
+    background: rgba(2, 14, 21, 0.8);
+  }
+  .recovery-card {
+    display: grid;
+    gap: 10px;
+    padding: 15px;
+    border: 1px solid rgba(255, 209, 107, 0.3);
+    border-radius: 8px;
+    background: rgba(255, 209, 107, 0.05);
+  }
+  .recovery-card > strong {
+    color: var(--amber-400);
+    font-size: 12px;
+  }
+  .recovery-card dl {
+    display: grid;
+    gap: 7px;
+    margin: 0;
+  }
+  .recovery-card dl div {
+    display: grid;
+    gap: 2px;
+    min-width: 0;
+  }
+  .recovery-card dt {
+    color: var(--ink-500);
+    font: 700 7px var(--font-display);
+  }
+  .recovery-card dd {
+    margin: 0;
+    overflow-wrap: anywhere;
+    color: var(--ink-200);
+    font-family: monospace;
+    font-size: 10px;
+  }
+  .recovery-card .button {
+    width: fit-content;
+  }
+  .device-list {
+    display: grid;
+    gap: 6px;
+  }
+  .device-list h3 {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    margin: 0 0 3px;
+    font-size: 11px;
+  }
+  .device-list article {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 12px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+  }
+  .device-list article > div {
+    display: grid;
+    gap: 2px;
+  }
+  .device-list article strong {
+    font-size: 10px;
+  }
+  .device-list article span {
+    color: var(--ink-500);
+    font-size: 8px;
+  }
+  .device-list button {
+    display: grid;
+    width: 34px;
+    height: 34px;
+    place-items: center;
+    border: 1px solid rgba(255, 83, 100, 0.24);
+    border-radius: 5px;
+    color: var(--red-400);
+    background: rgba(255, 83, 100, 0.05);
+    cursor: pointer;
+  }
+  .account-error {
+    color: var(--critical) !important;
   }
   .session-panel div {
     display: grid;
@@ -375,6 +670,9 @@
     .session-panel {
       align-items: stretch;
       flex-direction: column;
+    }
+    .upgrade-form {
+      grid-template-columns: 1fr;
     }
   }
   @media (max-width: 860px) {

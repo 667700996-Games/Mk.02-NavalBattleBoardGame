@@ -2,18 +2,35 @@
   import { goto } from '$app/navigation';
   import { resolve } from '$app/paths';
   import { onMount } from 'svelte';
-  import { Activity, Crosshair, History, Medal, Play, Target, Timer, Trophy } from '@lucide/svelte';
+  import {
+    Activity,
+    Award,
+    CalendarCheck,
+    Crosshair,
+    History,
+    Medal,
+    Play,
+    Star,
+    Target,
+    Timer,
+    Trophy
+  } from '@lucide/svelte';
   import { api } from '$lib/api';
   import { session } from '$lib/stores';
-  import type { HistoryItem } from '$lib/types';
+  import type { HistoryItem, PlayerProgression } from '$lib/types';
 
   let games = $state<HistoryItem[]>([]);
   let loading = $state(true);
+  let progression = $state<PlayerProgression | null>(null);
+  let claimingMission = $state<string | null>(null);
+  let progressionError = $state('');
   onMount(async () => {
     try {
       const current = await api.currentSession();
       session.set(current);
-      games = (await api.history()).games;
+      const [history, profile] = await Promise.all([api.history(), api.profile()]);
+      games = history.games;
+      progression = profile;
     } catch {
       await goto(resolve('/'));
     } finally {
@@ -29,6 +46,18 @@
     if (game.result.winType === 'TIMEOUT') return 'TIMEOUT';
     return 'NORMAL VICTORY';
   };
+  async function claimMission(missionId: string) {
+    claimingMission = missionId;
+    progressionError = '';
+    try {
+      progression = await api.claimMission(missionId);
+    } catch (caught) {
+      progressionError =
+        caught instanceof Error ? caught.message : '임무 보상을 지급하지 못했습니다.';
+    } finally {
+      claimingMission = null;
+    }
+  }
   let wins = $derived(games.filter(won).length);
   let averageAccuracy = $derived(
     games.length
@@ -66,6 +95,69 @@
     </div>
     <span><Activity size={14} /> ARCHIVE SYNCHRONIZED</span>
   </header>
+  {#if progression}
+    <section class="progression panel" aria-label="지휘관 진행도">
+      <div class="rank-seal"><Star size={26} /><strong>{progression.level}</strong></div>
+      <div class="rank-copy">
+        <small>COMMANDER PROGRESSION</small>
+        <h2>LV.{progression.level} · {progression.rankTitle}</h2>
+        <div
+          class="xp-track"
+          role="progressbar"
+          aria-label="다음 레벨 진행도"
+          aria-valuenow={progression.levelXp}
+          aria-valuemin="0"
+          aria-valuemax="500"
+        >
+          <span style={`width: ${Math.min(100, (progression.levelXp / 500) * 100)}%`}></span>
+        </div>
+        <p>
+          총 {progression.totalXp.toLocaleString('ko-KR')} XP · {progression.xpToNextLevel > 0
+            ? `다음 레벨까지 ${progression.xpToNextLevel} XP`
+            : '최고 계급 달성'}
+        </p>
+      </div>
+      <div class="progression-metric">
+        <Award size={18} /><strong
+          >{progression.achievements.filter((item) => item.unlocked).length}/{progression
+            .achievements.length}</strong
+        ><span>업적 해제</span>
+      </div>
+      <div class="progression-metric">
+        <CalendarCheck size={18} /><strong
+          >{progression.missions.filter((item) => item.completed).length}/{progression.missions
+            .length}</strong
+        ><span>현재 임무</span>
+      </div>
+    </section>
+    <section class="mission-grid" aria-label="현재 임무">
+      {#each progression.missions as mission (mission.id)}
+        <article class:complete={mission.completed} class="panel mission-card">
+          <div><small>{mission.cadence}</small><strong>{mission.title}</strong></div>
+          <span>{Math.min(mission.progress, mission.target)} / {mission.target}</span>
+          <p>{mission.description}</p>
+          <div class="mission-track">
+            <i style={`width: ${Math.min(100, (mission.progress / mission.target) * 100)}%`}></i>
+          </div>
+          {#if mission.claimed}
+            <em class="reward-claimed">지급 완료 · +{mission.rewardXp} XP</em>
+          {:else if mission.claimable}
+            <button
+              class="claim-button"
+              disabled={claimingMission === mission.id}
+              onclick={() => claimMission(mission.id)}
+              >{claimingMission === mission.id
+                ? '지급 중…'
+                : `+${mission.rewardXp} XP 받기`}</button
+            >
+          {:else}
+            <em>완료 보상 · +{mission.rewardXp} XP</em>
+          {/if}
+        </article>
+      {/each}
+    </section>
+    {#if progressionError}<p class="progression-error" role="alert">{progressionError}</p>{/if}
+  {/if}
   {#if !loading && games.length > 0}
     <section class="archive-overview" aria-label="전투 기록 요약">
       <article class="panel">
@@ -159,6 +251,143 @@
     grid-template-columns: repeat(4, 1fr);
     gap: 10px;
     margin-bottom: 24px;
+  }
+  .progression {
+    display: grid;
+    grid-template-columns: auto minmax(260px, 1fr) auto auto;
+    align-items: center;
+    gap: 22px;
+    margin-bottom: 12px;
+    padding: 20px;
+    background: linear-gradient(110deg, rgba(15, 48, 63, 0.96), rgba(7, 24, 34, 0.96));
+  }
+  .rank-seal {
+    display: grid;
+    width: 64px;
+    height: 64px;
+    place-items: center;
+    color: var(--cyan-300);
+    border: 1px solid var(--cyan-600);
+    border-radius: 50%;
+    box-shadow: inset 0 0 24px rgba(40, 223, 232, 0.1);
+  }
+  .rank-seal strong {
+    margin-top: -9px;
+    font-family: var(--font-display);
+    font-size: 13px;
+  }
+  .rank-copy small,
+  .mission-card small {
+    color: var(--cyan-500);
+    font-family: var(--font-display);
+    font-size: 8px;
+    letter-spacing: 0.15em;
+  }
+  .rank-copy h2 {
+    margin: 4px 0 8px;
+    font-family: var(--font-display);
+    font-size: 16px;
+  }
+  .rank-copy p {
+    margin: 7px 0 0;
+    color: var(--ink-400);
+    font-size: 9px;
+  }
+  .xp-track,
+  .mission-track {
+    height: 4px;
+    overflow: hidden;
+    border-radius: 99px;
+    background: rgba(255, 255, 255, 0.08);
+  }
+  .xp-track span,
+  .mission-track i {
+    display: block;
+    height: 100%;
+    background: linear-gradient(90deg, var(--cyan-600), var(--cyan-300));
+    box-shadow: 0 0 8px rgba(40, 223, 232, 0.5);
+  }
+  .progression-metric {
+    display: grid;
+    min-width: 86px;
+    place-items: center;
+    color: var(--cyan-400);
+  }
+  .progression-metric strong {
+    margin-top: 4px;
+    color: var(--ink-100);
+    font-family: var(--font-display);
+  }
+  .progression-metric span {
+    color: var(--ink-500);
+    font-size: 8px;
+  }
+  .mission-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+    margin-bottom: 24px;
+  }
+  .mission-card {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 7px 14px;
+    padding: 15px;
+  }
+  .mission-card.complete {
+    border-color: rgba(64, 219, 145, 0.35);
+  }
+  .mission-card strong {
+    display: block;
+    margin-top: 3px;
+    font-size: 12px;
+  }
+  .mission-card > span {
+    color: var(--cyan-300);
+    font-family: var(--font-display);
+    font-size: 10px;
+  }
+  .mission-card p,
+  .mission-card em {
+    grid-column: 1 / -1;
+    margin: 0;
+    color: var(--ink-400);
+    font-size: 9px;
+    font-style: normal;
+  }
+  .mission-card em {
+    color: var(--green-400);
+  }
+  .mission-card .reward-claimed {
+    color: var(--cyan-300);
+  }
+  .claim-button {
+    grid-column: 1 / -1;
+    width: fit-content;
+    padding: 7px 10px;
+    border: 1px solid var(--cyan-600);
+    border-radius: 5px;
+    color: var(--cyan-200);
+    background: rgba(40, 223, 232, 0.08);
+    font-family: var(--font-display);
+    font-size: 9px;
+    cursor: pointer;
+  }
+  .claim-button:hover:not(:disabled),
+  .claim-button:focus-visible {
+    border-color: var(--cyan-300);
+  }
+  .claim-button:disabled {
+    cursor: wait;
+    opacity: 0.6;
+  }
+  .progression-error {
+    margin: -14px 0 20px;
+    color: var(--red-400);
+    font-size: 10px;
+  }
+  .mission-track {
+    grid-column: 1 / -1;
   }
   .archive-overview article {
     position: relative;
@@ -300,6 +529,18 @@
     }
     .archive-overview {
       grid-template-columns: 1fr 1fr;
+    }
+    .progression {
+      grid-template-columns: auto 1fr;
+      gap: 14px;
+    }
+    .progression-metric {
+      min-width: 0;
+      padding-top: 10px;
+      border-top: 1px solid var(--line);
+    }
+    .mission-grid {
+      grid-template-columns: 1fr;
     }
     .stats-page header > span {
       display: none;

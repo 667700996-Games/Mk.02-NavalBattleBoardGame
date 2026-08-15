@@ -1640,6 +1640,7 @@ mod tests {
         let now = Utc::now();
         UserSession {
             id: Uuid::new_v4(),
+            account_id: None,
             nickname: nickname.to_string(),
             token_hash: Uuid::new_v4().to_string(),
             created_at: now,

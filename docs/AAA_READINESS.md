@@ -31,10 +31,12 @@ The program is complete only when all gates below are satisfied in a production-
 - [x] Ownership is leased or fenced so a paused/stale process cannot commit after takeover.
 - [x] Every mutation uses a persistence revision and rejects stale writes atomically.
 - [x] WebSocket fan-out reaches players connected to different application instances.
-- [ ] Instance termination transfers or recovers active rooms within the reconnect SLO.
-- [ ] A rolling deployment preserves active matches across protocol-compatible releases.
+- [x] Instance termination transfers or recovers active rooms within the reconnect SLO.
+- [x] A rolling deployment preserves active matches across protocol-compatible releases.
 - Evidence: multi-instance integration test, stale-owner test, rolling-restart test, persisted event
-  or revision audit, and a production-like architecture diagram.
+  or revision audit, and a production-like architecture diagram. The rolling-instance PostgreSQL/
+  Redis test reconnects a player, preserves game ID/turn/protocol/privacy, commits the next attack,
+  and asserts recovery inside the configured reconnect SLO.
 
 ### A2. Matchmaking and timers
 
@@ -50,33 +52,46 @@ The program is complete only when all gates below are satisfied in a production-
 - [x] WebSocket outbound queues are bounded and disconnect slow consumers with an observable reason.
 - [x] HTTP, session creation, WebSocket connection, and WebSocket event limits exist per IP/session.
 - [x] Limits are enforced through shared infrastructure when multiple instances are deployed.
-- [ ] Payload, frame, connection, room, matchmaking, and retention quotas are configured.
+- [x] Payload, frame, connection, room, matchmaking, and retention quotas are configured.
 - [x] Retry behavior uses explicit retryability and backoff contracts.
 - Evidence: abusive-client tests, slow-consumer tests, reconnect-storm load test, and rate-limit
-  metrics split by endpoint/reason.
+  metrics split by endpoint/reason. HTTP/WebSocket payloads are capped at 64 KiB, connection send
+  queues are bounded, room and matchmaking admission has tested capacity limits, room chat/history
+  is bounded, and the executable retention worker publishes deletion metrics.
 
 ## Gate B — Security, identity, safety, and data
 
 ### B1. Identity and sessions
 
-- [ ] Guest play remains available, with account upgrade that preserves history and identity.
-- [ ] Accounts support verified sign-in, logout, session listing/revocation, and secure recovery.
-- [ ] Session cookies are HttpOnly, Secure in production, SameSite, scoped, rotated, and expirable.
-- [ ] Authentication and authorization have positive and negative integration coverage.
+- [x] Guest play remains available, with account upgrade that preserves history and identity.
+- [x] Accounts support verified sign-in, logout, session listing/revocation, and secure recovery.
+- [x] Session cookies are HttpOnly, Secure in production, SameSite, scoped, rotated, and expirable.
+- [x] Authentication and authorization have positive and negative integration coverage.
+- Evidence: account migration and hashed 256-bit recovery credentials; atomic guest-upgrade/session-
+  token rotation; cross-session history lookup; API integration tests for valid/invalid login, stale
+  token rejection, session listing/revocation, one-time recovery disclosure, and production cookie
+  attributes.
 
 ### B2. Abuse prevention and moderation
 
-- [ ] Players can mute, block, and report chat, names, and gameplay behavior.
-- [ ] Operators can search evidence, warn, suspend, ban, reverse actions, and audit every action.
-- [ ] Name/chat policy, spam controls, evasion handling, and appeal workflow are defined.
+- [x] Players can mute, block, and report chat, names, and gameplay behavior.
+- [x] Operators can search evidence, warn, suspend, ban, reverse actions, and audit every action.
+- [x] Name/chat policy, spam controls, evasion handling, and appeal workflow are defined.
 - [ ] Anti-cheat telemetry detects impossible order, automation, collusion, and intentional stalling.
+- Evidence: player safety controls filter live and retained chat, block future room/matchmaking
+  pairing in either direction, and capture an authoritative evidence window. The token-protected
+  operator console/API supports searchable queues and append-only actions; suspensions/bans close
+  live connections and gate later login/authentication, while reversal restores access. API tests
+  exercise reporting, unauthorized admin access, search, suspension, enforcement, reversal, warning,
+  and audit history. Conduct, evasion, escalation, retention, and appeal rules are defined in
+  `docs/COMMUNITY_SAFETY.md`.
 
 ### B3. Application and supply-chain security
 
 - [x] CSP, HSTS, frame protection, content sniffing, referrer, and permissions policies are verified.
-- [ ] Secrets come from a managed secret store and never from committed/default production values.
-- [ ] Dependency, license, secret, SAST, container, and infrastructure scans gate releases.
-- [ ] Threat models cover account, room, WebSocket, matchmaking, moderation, and admin surfaces.
+- [x] Secrets come from a managed secret store and never from committed/default production values.
+- [x] Dependency, license, secret, SAST, container, and infrastructure scans gate releases.
+- [x] Threat models cover account, room, WebSocket, matchmaking, moderation, and admin surfaces.
 - [ ] A vulnerability response runbook, ownership, severity model, and patch SLO are exercised.
 
 ### B4. Data lifecycle
@@ -106,11 +121,14 @@ The program is complete only when all gates below are satisfied in a production-
 
 ### C3. Progression and live content
 
-- [ ] Profile progression, achievements, daily/weekly missions, and meaningful non-pay-to-win rewards
+- [x] Profile progression, achievements, daily/weekly missions, and meaningful non-pay-to-win rewards
       exist.
 - [ ] Seasons, events, content configuration, feature flags, and safe live tuning are supported.
 - [ ] Cosmetics cover fleet, board, effects, profile, and presentation without leaking hidden state.
-- [ ] Economy and reward issuance are transactional, idempotent, auditable, and rollback-safe.
+- [x] Economy and reward issuance are transactional, idempotent, auditable, and rollback-safe.
+- Evidence: profile XP/level/rank and achievements are deterministic projections of the
+  authoritative result ledger; daily/weekly mission rewards use a unique account/source/period
+  ledger, exclude reversed rows, and have API and duplicate-claim tests.
 
 ### C4. Social, spectating, and replay
 

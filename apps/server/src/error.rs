@@ -68,6 +68,8 @@ pub enum GameError {
     InvalidRoomName,
     #[error("같은 닉네임을 사용 중인 플레이어가 있습니다.")]
     DuplicateNickname,
+    #[error("이 계정 핸들은 이미 사용 중입니다.")]
+    AccountHandleTaken,
     #[error("인증 세션이 없거나 만료되었습니다.")]
     Unauthorized,
     #[error("허용되지 않은 출처의 연결입니다.")]
@@ -76,6 +78,16 @@ pub enum GameError {
     InvalidRequest,
     #[error("요청이 너무 잦습니다. 잠시 후 다시 시도해 주세요.")]
     RateLimited,
+    #[error("현재 서비스 정원이 가득 찼습니다. 잠시 후 다시 시도해 주세요.")]
+    CapacityReached,
+    #[error("서로 차단된 플레이어와는 매칭하거나 같은 방에 참가할 수 없습니다.")]
+    PlayerBlocked,
+    #[error("신고 사건을 찾을 수 없습니다.")]
+    ReportNotFound,
+    #[error("계정 이용이 일시 정지되었습니다.")]
+    AccountSuspended,
+    #[error("계정 이용이 영구 제한되었습니다.")]
+    AccountBanned,
     #[error("채팅 메시지는 1~300자의 일반 텍스트로 입력해 주세요.")]
     InvalidChatMessage,
     #[error("허용되지 않은 빠른 명령입니다.")]
@@ -120,10 +132,16 @@ impl GameError {
             Self::InvalidNickname => "INVALID_NICKNAME",
             Self::InvalidRoomName => "INVALID_ROOM_NAME",
             Self::DuplicateNickname => "DUPLICATE_NICKNAME",
+            Self::AccountHandleTaken => "ACCOUNT_HANDLE_TAKEN",
             Self::Unauthorized => "UNAUTHORIZED",
             Self::OriginNotAllowed => "ORIGIN_NOT_ALLOWED",
             Self::InvalidRequest => "INVALID_REQUEST",
             Self::RateLimited => "RATE_LIMITED",
+            Self::CapacityReached => "CAPACITY_REACHED",
+            Self::PlayerBlocked => "PLAYER_BLOCKED",
+            Self::ReportNotFound => "REPORT_NOT_FOUND",
+            Self::AccountSuspended => "ACCOUNT_SUSPENDED",
+            Self::AccountBanned => "ACCOUNT_BANNED",
             Self::InvalidChatMessage => "INVALID_CHAT_MESSAGE",
             Self::InvalidQuickCommand => "INVALID_QUICK_COMMAND",
             Self::InvalidEmoji => "INVALID_EMOJI",
@@ -135,12 +153,16 @@ impl GameError {
     pub fn status(&self) -> StatusCode {
         match self {
             Self::Unauthorized => StatusCode::UNAUTHORIZED,
-            Self::OriginNotAllowed => StatusCode::FORBIDDEN,
-            Self::RoomNotFound => StatusCode::NOT_FOUND,
+            Self::OriginNotAllowed
+            | Self::PlayerBlocked
+            | Self::AccountSuspended
+            | Self::AccountBanned => StatusCode::FORBIDDEN,
+            Self::RoomNotFound | Self::ReportNotFound => StatusCode::NOT_FOUND,
             Self::RoomFull
             | Self::RoomAlreadyStarted
             | Self::AlreadyJoined
             | Self::DuplicateNickname
+            | Self::AccountHandleTaken
             | Self::CoordinateAlreadyAttacked
             | Self::VersionConflict
             | Self::StaleRoomVersion
@@ -148,7 +170,7 @@ impl GameError {
             | Self::TurnExpired
             | Self::PlacementLocked => StatusCode::CONFLICT,
             Self::RateLimited => StatusCode::TOO_MANY_REQUESTS,
-            Self::StorageUnavailable => StatusCode::SERVICE_UNAVAILABLE,
+            Self::StorageUnavailable | Self::CapacityReached => StatusCode::SERVICE_UNAVAILABLE,
             Self::Internal => StatusCode::INTERNAL_SERVER_ERROR,
             _ => StatusCode::BAD_REQUEST,
         }

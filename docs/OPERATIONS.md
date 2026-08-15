@@ -23,7 +23,8 @@ silently relaxing an alert is not allowed.
 The server exposes Prometheus text at `/api/metrics`. The endpoint currently includes request and
 rate-limit totals, local WebSocket connections/events, distributed publish success/failure, room
 mutation/version-conflict and authority acquisition/conflict totals, matchmaking
-queue/completion/cancellation totals, current queue depth, and oldest queue-entry age.
+queue/completion/cancellation totals, current queue depth, oldest queue-entry age, and retention
+deletion totals for sessions, completed rooms, and abandoned queue entries.
 
 Minimum paging alerts:
 
@@ -54,6 +55,12 @@ version conflicts, bundle-budget regression attempts, and backup age above 12 ho
 
 Active matches are protocol-version 2 snapshots. A release that cannot read and preserve that
 snapshot must not share a pool with the current release.
+
+CI's `rolling_instance_replacement_recovers_and_advances_an_active_match` test is the automated
+precondition for this drill: it writes an active match through one instance, marks a player
+disconnected, creates a replacement instance from the shared stores, reconnects inside the SLO,
+checks hidden-state filtering and protocol continuity, and commits the next authoritative attack.
+The staging termination drill remains the required infrastructure-level proof before promotion.
 
 ## Dependency-failure drills
 

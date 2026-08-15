@@ -8,7 +8,12 @@ use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
 use crate::{
-    domain::{GameResult, GameRoom, RoomSummary, UserSession},
+    domain::{
+        AccountSession, ActivePenalty, GameResult, GameRoom, IntegritySignal, IntegritySignalKind,
+        IntegritySignalPage, ModerationAction, ModerationCasePage, NewIntegritySignal,
+        NewModerationAction, NewPlayerReport, PlayerAccount, ReportStatus, RoomSummary,
+        SocialRelationship, UserSession,
+    },
     error::GameError,
 };
 
@@ -42,6 +47,20 @@ pub struct MatchmakingQueueStats {
     pub oldest_age_seconds: u64,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct RetentionStats {
+    pub sessions_deleted: u64,
+    pub rooms_deleted: u64,
+    pub matchmaking_entries_deleted: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MissionReward {
+    pub mission_id: String,
+    pub period_key: String,
+    pub xp: u32,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RoomAuthorityLease {
     pub room_id: Uuid,
@@ -63,6 +82,85 @@ pub trait GameStore: Send + Sync {
         room_id: Option<Uuid>,
     ) -> Result<(), GameError>;
     async fn delete_session(&self, session_id: Uuid) -> Result<(), GameError>;
+    async fn create_account(
+        &self,
+        session_id: Uuid,
+        account: &PlayerAccount,
+        recovery_key_hash: &str,
+        next_token_hash: &str,
+    ) -> Result<(), GameError>;
+    async fn account_by_credentials(
+        &self,
+        account_id: Uuid,
+        recovery_key_hash: &str,
+    ) -> Result<Option<PlayerAccount>, GameError>;
+    async fn sessions_for_account(
+        &self,
+        account_id: Uuid,
+    ) -> Result<Vec<AccountSession>, GameError>;
+    async fn delete_account_session(
+        &self,
+        account_id: Uuid,
+        session_id: Uuid,
+    ) -> Result<bool, GameError>;
+    async fn mission_rewards(&self, account_id: Uuid) -> Result<Vec<MissionReward>, GameError>;
+    async fn claim_mission_reward(
+        &self,
+        account_id: Uuid,
+        mission_id: &str,
+        period_key: &str,
+        xp: u32,
+    ) -> Result<bool, GameError>;
+    async fn identity_for_session(&self, session_id: Uuid) -> Result<Option<Uuid>, GameError>;
+    async fn set_social_relationship(
+        &self,
+        actor_identity_id: Uuid,
+        relationship: SocialRelationship,
+    ) -> Result<(), GameError>;
+    async fn social_relationships(
+        &self,
+        actor_identity_id: Uuid,
+    ) -> Result<Vec<SocialRelationship>, GameError>;
+    async fn social_relationship_between(
+        &self,
+        actor_identity_id: Uuid,
+        target_identity_id: Uuid,
+    ) -> Result<Option<SocialRelationship>, GameError>;
+    async fn create_player_report(&self, report: &NewPlayerReport) -> Result<(), GameError>;
+    async fn moderation_cases(
+        &self,
+        search: Option<&str>,
+        status: Option<ReportStatus>,
+        before: Option<DateTime<Utc>>,
+        limit: usize,
+    ) -> Result<ModerationCasePage, GameError>;
+    async fn apply_moderation_action(
+        &self,
+        action: &NewModerationAction,
+    ) -> Result<ModerationAction, GameError>;
+    async fn active_penalty(
+        &self,
+        identity_id: Uuid,
+        session_id: Uuid,
+    ) -> Result<Option<ActivePenalty>, GameError>;
+    async fn session_ids_for_identity(&self, identity_id: Uuid) -> Result<Vec<Uuid>, GameError>;
+    async fn record_integrity_signal(
+        &self,
+        signal: &NewIntegritySignal,
+    ) -> Result<IntegritySignal, GameError>;
+    async fn integrity_signals(
+        &self,
+        search: Option<&str>,
+        kind: Option<IntegritySignalKind>,
+        before: Option<DateTime<Utc>>,
+        limit: usize,
+    ) -> Result<IntegritySignalPage, GameError>;
+    async fn suspicious_short_match_count(
+        &self,
+        first_identity_id: Uuid,
+        second_identity_id: Uuid,
+        since: DateTime<Utc>,
+    ) -> Result<u64, GameError>;
     async fn save_room(&self, room: &mut GameRoom) -> Result<(), GameError>;
     async fn acquire_room_authority(
         &self,
@@ -106,5 +204,11 @@ pub trait GameStore: Send + Sync {
     async fn cancel_matchmaking(&self, session_id: Uuid) -> Result<bool, GameError>;
     async fn matchmaking_time(&self, session_id: Uuid) -> Result<Option<DateTime<Utc>>, GameError>;
     async fn matchmaking_queue_stats(&self) -> Result<MatchmakingQueueStats, GameError>;
+    async fn prune_expired_data(
+        &self,
+        inactive_session_before: DateTime<Utc>,
+        completed_room_before: DateTime<Utc>,
+        abandoned_matchmaking_before: DateTime<Utc>,
+    ) -> Result<RetentionStats, GameError>;
     fn kind(&self) -> &'static str;
 }

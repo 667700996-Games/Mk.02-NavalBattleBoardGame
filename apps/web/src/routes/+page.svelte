@@ -5,6 +5,7 @@
   import {
     ArrowRight,
     Crosshair,
+    KeyRound,
     LockKeyhole,
     Radio,
     RotateCw,
@@ -19,6 +20,9 @@
   let submitting = false;
   let error = '';
   let existingSession = false;
+  let accountLogin = false;
+  let accountId = '';
+  let recoveryKey = '';
 
   onMount(async () => {
     try {
@@ -48,6 +52,20 @@
       submitting = false;
     }
   }
+
+  async function signInAccount() {
+    submitting = true;
+    error = '';
+    try {
+      const authenticated = await api.loginAccount(accountId.trim(), recoveryKey.trim());
+      session.set(authenticated);
+      await goto(resolve('/lobby'));
+    } catch (caught) {
+      error = caught instanceof ApiError ? caught.message : '계정을 확인하지 못했습니다.';
+    } finally {
+      submitting = false;
+    }
+  }
 </script>
 
 <svelte:head><title>Mk.01 — 실시간 온라인 해전</title></svelte:head>
@@ -70,39 +88,91 @@
     </p>
 
     <Surface tone="elevated" padding="md" class="command-entry">
-      <form
-        onsubmit={(event) => {
-          event.preventDefault();
-          enterLobby();
-        }}
-      >
-        <div class="command-entry__head">
-          <div class="command-symbol"><Crosshair size={17} /></div>
-          <div>
-            <small>COMMANDER AUTHORIZATION</small>
-            <strong>{existingSession ? '작전 세션 확인됨' : '지휘관 호출부호 등록'}</strong>
+      {#if accountLogin && !existingSession}
+        <form
+          onsubmit={(event) => {
+            event.preventDefault();
+            signInAccount();
+          }}
+        >
+          <div class="command-entry__head">
+            <div class="command-symbol"><KeyRound size={17} /></div>
+            <div><small>ACCOUNT RECOVERY CHANNEL</small><strong>계정 신원 확인</strong></div>
+            <span>VERIFIED</span>
           </div>
-          <span>{existingSession ? 'RESUME' : 'GUEST ACCESS'}</span>
-        </div>
-        <div class="command-entry__controls">
-          <Field
-            id="nickname"
-            label="닉네임"
-            bind:value={nickname}
-            minlength={2}
-            maxlength={16}
-            autocomplete="nickname"
-            placeholder="호출부호 입력 (2~16자)"
-            disabled={existingSession || submitting}
-            {error}
-            required
-          />
-          <Button variant="primary" size="lg" type="submit" loading={submitting}>
-            {existingSession ? '작전 복귀' : '작전 로비 입장'}
-            <ArrowRight size={18} />
-          </Button>
-        </div>
-      </form>
+          <div class="account-entry-fields">
+            <Field
+              id="account-id"
+              label="계정 ID"
+              bind:value={accountId}
+              autocomplete="username"
+              placeholder="UUID 계정 ID"
+              disabled={submitting}
+              required
+            />
+            <Field
+              id="recovery-key"
+              label="복구 키"
+              bind:value={recoveryKey}
+              autocomplete="current-password"
+              placeholder="43자 복구 키"
+              minlength={43}
+              maxlength={43}
+              disabled={submitting}
+              {error}
+              required
+            />
+          </div>
+          <div class="account-entry-actions">
+            <button type="button" class="entry-switch" onclick={() => (accountLogin = false)}
+              >게스트로 시작</button
+            >
+            <Button variant="primary" size="lg" type="submit" loading={submitting}
+              >계정으로 복귀 <ArrowRight size={18} /></Button
+            >
+          </div>
+        </form>
+      {:else}
+        <form
+          onsubmit={(event) => {
+            event.preventDefault();
+            enterLobby();
+          }}
+        >
+          <div class="command-entry__head">
+            <div class="command-symbol"><Crosshair size={17} /></div>
+            <div>
+              <small>COMMANDER AUTHORIZATION</small>
+              <strong>{existingSession ? '작전 세션 확인됨' : '지휘관 호출부호 등록'}</strong>
+            </div>
+            <span>{existingSession ? 'RESUME' : 'GUEST ACCESS'}</span>
+          </div>
+          <div class="command-entry__controls">
+            <Field
+              id="nickname"
+              label="닉네임"
+              bind:value={nickname}
+              minlength={2}
+              maxlength={16}
+              autocomplete="nickname"
+              placeholder="호출부호 입력 (2~16자)"
+              disabled={existingSession || submitting}
+              {error}
+              required
+            />
+            <Button variant="primary" size="lg" type="submit" loading={submitting}>
+              {existingSession ? '작전 복귀' : '작전 로비 입장'}
+              <ArrowRight size={18} />
+            </Button>
+          </div>
+          {#if !existingSession}<button
+              type="button"
+              class="entry-switch"
+              onclick={() => (accountLogin = true)}
+              ><KeyRound size={13} /> 기존 계정과 복구 키로 접속</button
+            >{/if}
+        </form>
+      {/if}
     </Surface>
 
     <div class="trust-row" aria-label="보안 특성">
@@ -288,6 +358,33 @@
     grid-template-columns: 1fr auto;
     align-items: end;
     gap: 12px;
+  }
+  .account-entry-fields {
+    display: grid;
+    grid-template-columns: 1fr 1.45fr;
+    gap: 10px;
+  }
+  .account-entry-actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .entry-switch {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    width: fit-content;
+    padding: 0;
+    border: 0;
+    color: var(--cyan-300);
+    background: transparent;
+    font: 700 9px var(--font-display);
+    cursor: pointer;
+  }
+  .entry-switch:hover,
+  .entry-switch:focus-visible {
+    color: white;
   }
   .trust-row {
     display: flex;

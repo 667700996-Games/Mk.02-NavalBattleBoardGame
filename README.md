@@ -6,7 +6,8 @@
 
 ## 제공 기능
 
-- 안전한 익명 게스트 세션, 공개·비공개 방, 6자리 방 코드와 초대 링크
+- 안전한 익명 게스트 세션, 기록을 유지하는 계정 전환·복구, 원격 세션 조회·해제
+- 공개·비공개 방, 6자리 방 코드와 초대 링크
 - 실시간 대기실, 빠른 매칭, 참가·양쪽 준비·방장 승인·배치·턴·결과 동기화
 - 클래식, 30초 신속전, 생존 함선 수 기반 일제사격과 사용자 지정 턴 제한
 - 드래그 앤 드롭, 클릭/터치, `R` 회전, 자동 배치, 초기화가 가능한 함대 배치기
@@ -18,6 +19,8 @@
 - 서버 UTC 기준 전체 작전 시간과 턴 마감, 시간 초과 턴 자동 교대와 3회 연속 초과 자동 패배
 - `NORMAL`/`SURRENDER`/`DISCONNECT`/`TIMEOUT` 종료 원인과 시간 초과 통계 기록
 - 재경기, 승패·명중률·턴·플레이 시간 통계, 전투 기록
+- 결과 원장에서 결정적으로 계산하는 XP·레벨·계급·업적과 일간/주간 임무
+- 계정·임무·기간 유일 키로 중복 지급을 막는 거래형 XP 보상 원장
 - 참가자 전용 종료 경기 리플레이, 버전형 공격·시간 초과 타임라인과 턴별 양측 보드 복기
 - 배치·안개 전장·좌표 공격·턴 제한·재접속을 직접 익히는 대화형 신규 사용자 튜토리얼
 - 신병·장교·제독 3단계의 서버 권위형 AI 연습 교전과 결정적 공격 선택 테스트
@@ -127,9 +130,12 @@ POSTGRES_PASSWORD='replace-this-local-password' docker compose up --build
 | ----------------------------------- | ------------------------- | -------------------------------------------------- |
 | `SERVER_HOST`                       | `0.0.0.0`                 | Rust 서버 바인드 주소                              |
 | `SERVER_PORT`                       | `8080`                    | Rust 서버 포트                                     |
+| `DEPLOYMENT_ENV`                    | `development`             | `production`이면 보안 설정을 fail-closed 검증        |
 | `STORAGE_MODE`                      | `memory`                  | `memory` 또는 `postgres`                           |
 | `DATABASE_URL`                      | 예제 참조                 | PostgreSQL 접속 URL                                |
 | `REDIS_URL`                         | `redis://localhost:6379/` | Redis 접속 URL                                     |
+| `DATABASE_URL_FILE` / `REDIS_URL_FILE` | 없음                  | 관리형 비밀을 마운트한 파일 경로(직접 변수보다 우선) |
+| `ADMIN_TOKEN` / `ADMIN_TOKEN_FILE`   | 없음                      | 32자 이상 운영자 API 비밀; 운영에서는 관리형 파일 필수 |
 | `PUBLIC_BASE_URL`                   | `http://localhost:5173`   | 초대 URL에 쓰이는 공개 주소                        |
 | `ALLOWED_ORIGINS`                   | localhost 2개             | 쉼표로 구분한 CORS/WebSocket Origin 허용 목록      |
 | `SECURE_COOKIES`                    | `false`                   | HTTPS 운영에서는 반드시 `true`                     |
@@ -142,13 +148,18 @@ POSTGRES_PASSWORD='replace-this-local-password' docker compose up --build
 | `WEBSOCKET_EVENTS_PER_SECOND`       | `60`                      | 세션별 수신 WebSocket 이벤트 한도                  |
 | `WEBSOCKET_SEND_QUEUE_CAPACITY`     | `256`                     | 연결별 송신 큐 한도; 초과 시 느린 연결 종료        |
 | `MAX_WEBSOCKET_CONNECTIONS`         | `10000`                   | 서버 인스턴스별 동시 WebSocket 연결 한도           |
+| `MAX_ACTIVE_ROOMS`                  | `25000`                   | 전체 활성 방 입장 제어 상한                         |
+| `MAX_MATCHMAKING_QUEUE`             | `10000`                   | 빠른 매칭 대기열 입장 제어 상한                    |
+| `COMPLETED_ROOM_RETENTION_SECONDS`  | `7776000`                 | 종료·취소 방과 채팅·리플레이 보존 기간(90일)       |
+| `MATCHMAKING_ENTRY_TTL_SECONDS`     | `600`                     | 방치된 영속 매칭 대기열 보존 기간                |
+| `RETENTION_SWEEP_INTERVAL_SECONDS`  | `3600`                    | 만료 세션·방·대기열 정리 주기(최소 60초)        |
 | `TRUST_PROXY_HEADERS`               | `false`                   | 신뢰 프록시 뒤에서만 전달 IP 헤더 사용             |
 | `DISTRIBUTED_COORDINATION_REQUIRED` | `false`                   | 운영 Redis 팬아웃·공유 제한을 필수 의존성으로 판정 |
 | `RUST_LOG`                          | info                      | `tracing` 로그 필터                                |
 
 ## REST API
 
-모든 경로의 prefix는 `/api`입니다. 세션 생성 후 발급된 `mk01_session` HttpOnly 쿠키를 사용하며 JSON에 토큰을 반환하지 않습니다.
+모든 경로의 prefix는 `/api`입니다. 세션 생성 후 발급된 `mk01_session` HttpOnly 쿠키를 사용하며 JSON에 토큰을 반환하지 않습니다. 게스트를 계정으로 전환할 때 기존 게임 기록과 플레이어 정체성을 유지하고 현재 세션 토큰을 원자적으로 회전합니다. 서버가 한 번만 보여 주는 256-bit 복구 키로 다른 기기에서 로그인할 수 있습니다.
 
 | Method        | 경로                    | 기능                                     |
 | ------------- | ----------------------- | ---------------------------------------- |
@@ -157,6 +168,16 @@ POSTGRES_PASSWORD='replace-this-local-password' docker compose up --build
 | `GET`         | `/metrics`              | Prometheus 형식 운영 메트릭              |
 | `POST`        | `/sessions`             | 닉네임 검증 후 게스트 세션 생성          |
 | `GET/DELETE`  | `/sessions/current`     | 현재 세션 복구 / 서버 세션 폐기          |
+| `POST`        | `/accounts/upgrade`     | 게스트 기록을 보존해 계정으로 전환       |
+| `GET/POST`    | `/social/relationships` | 음소거·차단 목록/변경                     |
+| `POST`        | `/reports`              | 서버 증거를 첨부한 플레이어 신고         |
+| `GET`         | `/admin/moderation/reports` | 토큰 보호 운영자 신고 검색 큐          |
+| `POST`        | `/admin/moderation/reports/{id}/actions` | 감사 가능한 경고·정지·차단·기각·취소 |
+| `POST`        | `/accounts/login`       | 계정 ID·복구 키 검증 후 새 세션 발급    |
+| `GET`         | `/accounts/sessions`    | 계정에 연결된 세션 목록                  |
+| `DELETE`      | `/accounts/sessions/{sessionId}` | 다른 기기의 세션 원격 해제       |
+| `GET`         | `/profile`              | XP·레벨·업적·현재 임무 진행도           |
+| `POST`        | `/profile/missions/{missionId}/claim` | 완료 임무 XP 멱등 지급     |
 | `POST`        | `/practice`             | 난이도별 서버 권위 AI 연습전 생성         |
 | `GET/POST`    | `/rooms`                | 공개 방 목록 / 방 생성                   |
 | `POST`        | `/rooms/join`           | 방 코드로 참가                           |
@@ -246,7 +267,8 @@ POSTGRES_PASSWORD='replace-this-local-password' docker compose up --build
 
 ## 보안 설계
 
-- 256-bit 무작위 게스트 토큰을 HttpOnly, SameSite=Lax 쿠키로 전달하고 SHA-256 해시만 저장합니다.
+- 256-bit 무작위 세션 토큰을 HttpOnly, SameSite=Lax, 운영 Secure, 유효기간·경로 지정 쿠키로 전달하고 SHA-256 해시만 저장합니다. 계정 전환 시 계정 생성·세션 귀속·토큰 회전을 하나의 PostgreSQL 트랜잭션으로 확정합니다.
+- 계정 복구 키도 256-bit로 서버가 생성해 최초 전환 때 한 번만 표시하고 해시만 저장합니다. 로그인 실패는 동일한 401 응답을 사용하며 사용자는 설정에서 연결 세션을 조회하고 다른 기기를 폐기할 수 있습니다.
 - WebSocket upgrade의 `Origin`을 명시적 허용 목록으로 검증해 cross-site WebSocket hijacking을 차단합니다.
 - JSON은 알 수 없는 필드를 거부하고 본문/프레임을 64 KiB로 제한합니다.
 - 채팅은 HTML 구분자·제어 문자를 거부하고 Svelte 텍스트 바인딩으로만 렌더링합니다. 일반 텍스트는 300자로 제한하며 이모지·빠른 명령도 포함해 플레이어별 2초당 3회, 10초당 8회 제한과 3초 차단을 적용합니다. 같은 빠른 명령의 2초 이내 반복도 거부합니다.
@@ -256,7 +278,8 @@ POSTGRES_PASSWORD='replace-this-local-password' docker compose up --build
 - E2E는 모든 수신 WebSocket 프레임을 감사해 `targetBoard.ships`/`sessionId`가 없음을 확인합니다.
 
 취약점 제보 절차는 [SECURITY.md](SECURITY.md)를 참조하세요. SLO, 경보, 캐나리,
-의존성 장애, 백업 복구 훈련은 [운영 런북](docs/OPERATIONS.md)에서 관리합니다.
+의존성 장애, 백업 복구 훈련은 [운영 런북](docs/OPERATIONS.md)에서, 세션·채팅·
+리플레이·백업 보존은 [데이터 수명주기 정책](docs/DATA_LIFECYCLE.md)에서 관리합니다.
 
 ## 테스트와 품질 검사
 
@@ -273,12 +296,18 @@ npm run budget      # JS/CSS/WOFF2 파일·총량 제한과 기존 WOFF 차단
 
 Rust 테스트는 대기실 상태 머신, 멱등성, 버전 충돌, 배치, AI의 결정적·비반복 공격, 공격/만료 경쟁, 재시작 복구, 채팅 검증과 공개 정보 필터를 검증합니다. CI의 PostgreSQL/Redis 통합 테스트는 동시 CAS 쓰기에서 단 하나만 성공함, 권위 임대 만료 후 인수와 오래 멈춘 소유자의 펜싱, 분산 매칭의 원자적 확정, 두 AppState 사이 Pub/Sub 이벤트 전달을 검증합니다. Playwright는 독립 브라우저 2개의 전체 경기·변조 요청 거절·새로고침 복구와 모바일 오버플로를 검증합니다.
 
+Security workflow는 Rust·JavaScript/TypeScript·GitHub Actions CodeQL, PR 의존성 심사,
+RustSec/cargo-deny, 저장소·비밀·라이선스·Docker/IaC Trivy 스캔을 독립적으로
+실행합니다. Dependabot은 Cargo, npm, GitHub Actions, Docker 업데이트를 주간 점검합니다.
+
 ## 프로덕션 빌드·배포
 
 ```bash
 npm ci
 npm run build
-STORAGE_MODE=postgres DATABASE_URL='postgres://...' REDIS_URL='redis://...' \
+DEPLOYMENT_ENV=production STORAGE_MODE=postgres \
+  DATABASE_URL_FILE='/run/secrets/database-url' REDIS_URL_FILE='/run/secrets/redis-url' \
+  ADMIN_TOKEN_FILE='/run/secrets/admin-token' \
   PUBLIC_BASE_URL='https://game.example.com' \
   ALLOWED_ORIGINS='https://game.example.com' SECURE_COOKIES=true \
   ./target/release/mk01-server
@@ -293,7 +322,7 @@ HOST=0.0.0.0 PORT=3000 ORIGIN='https://game.example.com' node apps/web/build
 - 방 쓰기는 PostgreSQL의 변이 단위 권위 임대·펜싱 토큰·리비전 CAS로 보호됩니다. 완전히 동시에 도착한 서로 다른 인스턴스의 명령 중 뒤쪽 명령은 `VERSION_CONFLICT`로 재시도될 수 있으며, 각 인스턴스는 명령 전에 PostgreSQL 권위 스냅샷으로 로컬 상태를 갱신합니다.
 - WebSocket 연결 수 제한은 인스턴스별입니다. HTTP·세션 생성·WebSocket 이벤트 속도 제한은 Redis에서 공유되지만 전체 동시 연결 상한은 운영 게이트웨이에서도 제한해야 합니다.
 - 턴과 재접속 마감은 영속 CAS로 중복 확정을 막지만 별도의 지연 작업 큐·소유권 계층·큐 지표를 아직 제공하지 않습니다.
-- 게스트 세션은 디바이스 간 계정 동기화를 제공하지 않습니다. 브라우저 쿠키를 삭제하면 기존 게스트 기록에 다시 접근할 수 없습니다.
+- 계정 전환 전 순수 게스트 세션은 의도적으로 기기 로컬입니다. 장기 기록을 보존하려면 설정에서 계정으로 전환하고 일회 표시되는 복구 키를 안전한 곳에 저장해야 합니다.
 - SvelteKit 2.70.2의 안정화 버전은 `cookie@0.6` 의존성에 대한 low-severity 이름/경로 문자 검증 권고를 남깁니다. 이 앱은 사용자 입력으로 SvelteKit 쿠키 이름·경로를 생성하지 않고, 인증 쿠키는 Rust의 고정 이름 `mk01_session`으로만 발급합니다. SvelteKit 3 안정화 후 업그레이드를 권장합니다.
 
 ## 라이선스

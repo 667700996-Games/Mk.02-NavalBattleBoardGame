@@ -1,14 +1,26 @@
 import type {
   AiDifficulty,
+  AccountSession,
   ApiErrorBody,
   GameSnapshot,
   GameReplay,
   HistoryItem,
+  IntegritySignalKind,
+  IntegritySignalPage,
   MatchRules,
+  ModerationAction,
+  ModerationActionKind,
+  ModerationCasePage,
+  PlayerAccount,
+  PlayerProgression,
+  PlayerReportReceipt,
+  ReportCategory,
+  ReportStatus,
   RoomCreatedResponse,
   RoomSummary,
   RoomVisibility,
-  Session
+  Session,
+  SocialRelationship
 } from '$lib/types';
 import {
   isCompatibleGameSnapshot,
@@ -79,6 +91,92 @@ export const api = {
     request<Session>('/sessions', { method: 'POST', body: JSON.stringify({ nickname }) }),
   currentSession: () => request<Session>('/sessions/current'),
   deleteCurrentSession: () => request<void>('/sessions/current', { method: 'DELETE' }),
+  upgradeAccount: (handle: string) =>
+    request<{ account: PlayerAccount; recoveryKey: string }>('/accounts/upgrade', {
+      method: 'POST',
+      body: JSON.stringify({ handle })
+    }),
+  loginAccount: (accountId: string, recoveryKey: string) =>
+    request<Session>('/accounts/login', {
+      method: 'POST',
+      body: JSON.stringify({ accountId, recoveryKey })
+    }),
+  accountSessions: () =>
+    request<{ currentSessionId: string; sessions: AccountSession[] }>('/accounts/sessions'),
+  revokeAccountSession: (sessionId: string) =>
+    request<void>(`/accounts/sessions/${sessionId}`, { method: 'DELETE' }),
+  profile: () => request<PlayerProgression>('/profile'),
+  claimMission: (missionId: string) =>
+    request<PlayerProgression>(`/profile/missions/${encodeURIComponent(missionId)}/claim`, {
+      method: 'POST'
+    }),
+  socialRelationships: () =>
+    request<{ relationships: SocialRelationship[] }>('/social/relationships'),
+  updateSocialRelationship: (
+    roomId: string,
+    targetPlayerId: string,
+    muted: boolean,
+    blocked: boolean
+  ) =>
+    request<SocialRelationship>('/social/relationships', {
+      method: 'POST',
+      body: JSON.stringify({ roomId, targetPlayerId, muted, blocked })
+    }),
+  reportPlayer: (
+    roomId: string,
+    targetPlayerId: string,
+    category: ReportCategory,
+    details: string
+  ) =>
+    request<{ report: PlayerReportReceipt }>('/reports', {
+      method: 'POST',
+      body: JSON.stringify({ roomId, targetPlayerId, category, details })
+    }),
+  moderationCases: (
+    token: string,
+    filters: { status?: ReportStatus; search?: string; before?: string; limit?: number } = {}
+  ) => {
+    const query = new URLSearchParams();
+    if (filters.status) query.set('status', filters.status);
+    if (filters.search) query.set('search', filters.search);
+    if (filters.before) query.set('before', filters.before);
+    if (filters.limit) query.set('limit', String(filters.limit));
+    return request<ModerationCasePage>(
+      `/admin/moderation/reports${query.size ? `?${query}` : ''}`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+  },
+  integritySignals: (
+    token: string,
+    filters: { kind?: IntegritySignalKind; search?: string; before?: string; limit?: number } = {}
+  ) => {
+    const query = new URLSearchParams();
+    if (filters.kind) query.set('kind', filters.kind);
+    if (filters.search) query.set('search', filters.search);
+    if (filters.before) query.set('before', filters.before);
+    if (filters.limit) query.set('limit', String(filters.limit));
+    return request<IntegritySignalPage>(
+      `/admin/integrity/signals${query.size ? `?${query}` : ''}`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+  },
+  moderateReport: (
+    token: string,
+    operatorId: string,
+    reportId: string,
+    action: ModerationActionKind,
+    reason: string,
+    durationHours?: number,
+    reversesActionId?: string
+  ) =>
+    request<{ action: ModerationAction }>(
+      `/admin/moderation/reports/${encodeURIComponent(reportId)}/actions`,
+      {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'X-Operator-Id': operatorId },
+        body: JSON.stringify({ action, reason, durationHours, reversesActionId })
+      }
+    ),
   listRooms: roomList,
   createRoom: async (name: string, visibility: RoomVisibility, rules?: MatchRules) => {
     const response = await request<RoomCreatedResponse>('/rooms', {

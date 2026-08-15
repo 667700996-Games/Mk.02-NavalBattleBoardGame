@@ -18,7 +18,7 @@ use uuid::Uuid;
 use crate::{
     api::authenticate,
     app::{AppState, SnapshotEvent},
-    domain::QuickCommandId,
+    domain::{IntegritySignalKind, QuickCommandId},
     error::GameError,
     protocol::{
         ChatHistoryResponse, ClientEvent, HeartbeatResponse, ProtocolError, RoomCreatedResponse,
@@ -77,6 +77,20 @@ async fn handle_socket(
                                     .metrics
                                     .rate_limit_rejections
                                     .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                state
+                                    .record_integrity_signal(
+                                        &session,
+                                        session.current_room_id,
+                                        IntegritySignalKind::Automation,
+                                        3,
+                                        0.88,
+                                        serde_json::json!({
+                                            "detector": "WEBSOCKET_EVENT_BURST",
+                                            "eventsPerSecondLimit": state.settings.websocket_events_per_second,
+                                            "protocolVersion": crate::PROTOCOL_VERSION,
+                                        }),
+                                    )
+                                    .await;
                             }
                             state
                                 .send_to_session(session.id, error_event(error))
@@ -128,6 +142,7 @@ async fn handle_event(state: &AppState, session: &crate::domain::UserSession, ev
     let is_unready_event = matches!(&event, ClientEvent::PlayerUnready(_));
     let is_game_start_event = matches!(&event, ClientEvent::GameStart(_));
     let is_chat_event = matches!(&event, ClientEvent::ChatSend(_));
+    let (integrity_room_id, event_name) = integrity_event_context(&event);
     let client_request_id = match &event {
         ClientEvent::PlayerReady(input) => Some(input.request_id),
         ClientEvent::PlayerUnready(input) => Some(input.request_id),
@@ -483,7 +498,7 @@ async fn handle_event(state: &AppState, session: &crate::domain::UserSession, ev
                         session.id,
                         ServerEvent::ChatHistory(ChatHistoryResponse {
                             room_id: room.id,
-                            messages: room.chat_history(session.id)?,
+                            messages: state.chat_history_for(&room, session.id).await?,
                         }),
                     )
                     .await;
@@ -515,6 +530,40 @@ async fn handle_event(state: &AppState, session: &crate::domain::UserSession, ev
             request_id = ?client_request_id,
             "websocket request rejected"
         );
+        if matches!(
+            error,
+            GameError::NotYourTurn
+                | GameError::CoordinateAlreadyAttacked
+                | GameError::TurnConflict
+                | GameError::StaleRoomVersion
+                | GameError::PlacementMismatch
+                | GameError::Unauthorized
+        ) {
+            state
+                .record_integrity_signal(
+                    session,
+                    integrity_room_id,
+                    IntegritySignalKind::ImpossibleOrder,
+                    if error == GameError::Unauthorized {
+                        4
+                    } else {
+                        2
+                    },
+                    if error == GameError::Unauthorized {
+                        0.96
+                    } else {
+                        0.72
+                    },
+                    serde_json::json!({
+                        "detector": "AUTHORITATIVE_COMMAND_REJECTION",
+                        "event": event_name,
+                        "errorCode": error.code(),
+                        "requestId": client_request_id,
+                        "protocolVersion": crate::PROTOCOL_VERSION,
+                    }),
+                )
+                .await;
+        }
         let protocol_error = protocol_error(error, client_request_id);
         state
             .send_to_session(
@@ -534,6 +583,26 @@ async fn handle_event(state: &AppState, session: &crate::domain::UserSession, ev
                 },
             )
             .await;
+    }
+}
+
+fn integrity_event_context(event: &ClientEvent) -> (Option<Uuid>, &'static str) {
+    match event {
+        ClientEvent::RoomCreate(_) => (None, "room:create"),
+        ClientEvent::RoomJoin(_) => (None, "room:join"),
+        ClientEvent::RoomLeave(input) => (Some(input.room_id), "room:leave"),
+        ClientEvent::PlayerReady(input) => (Some(input.room_id), "player:ready"),
+        ClientEvent::ShipsPlace(input) => (Some(input.room_id), "ships:place"),
+        ClientEvent::ShipsConfirm(input) => (Some(input.room_id), "ships:confirm"),
+        ClientEvent::PlayerUnready(input) => (Some(input.room_id), "player:unready"),
+        ClientEvent::GameStart(input) => (Some(input.room_id), "game:start"),
+        ClientEvent::AttackFire(input) => (Some(input.room_id), "attack:fire"),
+        ClientEvent::GameSurrender(input) => (Some(input.room_id), "game:surrender"),
+        ClientEvent::ChatSend(input) => (Some(input.room_id), "chat:send"),
+        ClientEvent::ChatTyping(input) => (Some(input.room_id), "chat:typing"),
+        ClientEvent::GameRematch(input) => (Some(input.room_id), "game:rematch"),
+        ClientEvent::GameSync(input) => (Some(input.room_id), "game:sync"),
+        ClientEvent::Heartbeat(_) => (None, "heartbeat"),
     }
 }
 

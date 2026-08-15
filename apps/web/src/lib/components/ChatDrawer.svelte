@@ -1,6 +1,20 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
-  import { ChevronDown, MessageSquare, Radio, Send, Smile, X, Zap } from '@lucide/svelte';
+  import {
+    Ban,
+    ChevronDown,
+    Flag,
+    MessageSquare,
+    Radio,
+    Send,
+    ShieldAlert,
+    Smile,
+    Volume2,
+    VolumeX,
+    X,
+    Zap
+  } from '@lucide/svelte';
+  import { api, ApiError } from '$lib/api';
   import { realtime } from '$lib/realtime';
   import { chatHistoryLoaded, chatMessages, chatTyping } from '$lib/stores';
   import { Modal } from '$lib/ui';
@@ -8,7 +22,8 @@
     CHAT_EMOJIS,
     QUICK_COMMANDS,
     type ChatMessageType,
-    type QuickCommandId
+    type QuickCommandId,
+    type ReportCategory
   } from '$lib/types';
 
   interface Props {
@@ -16,9 +31,18 @@
     selfPlayerId: string;
     online: boolean;
     readOnly?: boolean;
+    targetPlayerId?: string;
+    targetNickname?: string;
   }
 
-  let { roomId, selfPlayerId, online, readOnly = false }: Props = $props();
+  let {
+    roomId,
+    selfPlayerId,
+    online,
+    readOnly = false,
+    targetPlayerId,
+    targetNickname
+  }: Props = $props();
   let open = $state(false);
   let unread = $state(0);
   let draft = $state('');
@@ -33,6 +57,17 @@
   let showActions = $state(false);
   let actionTab = $state<'commands' | 'emoji'>('commands');
   let actionCooling = $state(false);
+  let showSafety = $state(false);
+  let muted = $state(false);
+  let blocked = $state(false);
+  let safetyBusy = $state(false);
+  let safetyNotice = $state('');
+  let reportCategory = $state<ReportCategory>('CHAT');
+  let reportDetails = $state('');
+  let reportSubmitted = $state(false);
+  let visibleMessages = $derived(
+    $chatMessages.filter((message) => !(muted && message.playerId === targetPlayerId))
+  );
   let recentActions = $state<
     Array<{
       type: 'QUICK_COMMAND' | 'EMOJI';
@@ -43,7 +78,7 @@
   >([]);
 
   $effect(() => {
-    const messages = $chatMessages;
+    const messages = visibleMessages;
     const lastMessageId = messages.at(-1)?.messageId ?? null;
     const loaded = $chatHistoryLoaded;
     if (!loaded) {
@@ -82,6 +117,65 @@
   function toggleDrawer() {
     open = !open;
     if (open) queueMicrotask(scrollToBottom);
+  }
+
+  async function openSafety() {
+    if (!targetPlayerId || !targetNickname) return;
+    showSafety = true;
+    safetyNotice = '';
+    reportSubmitted = false;
+    try {
+      const relationships = (await api.socialRelationships()).relationships;
+      const relationship = relationships.find((item) => item.targetNickname === targetNickname);
+      muted = relationship?.muted ?? false;
+      blocked = relationship?.blocked ?? false;
+    } catch (caught) {
+      safetyNotice =
+        caught instanceof ApiError ? caught.message : '안전 설정을 불러오지 못했습니다.';
+    }
+  }
+
+  async function updateSafety(nextMuted: boolean, nextBlocked: boolean) {
+    if (!targetPlayerId || safetyBusy) return;
+    safetyBusy = true;
+    safetyNotice = '';
+    try {
+      const relationship = await api.updateSocialRelationship(
+        roomId,
+        targetPlayerId,
+        nextMuted,
+        nextBlocked
+      );
+      muted = relationship.muted;
+      blocked = relationship.blocked;
+      realtime.sync(roomId);
+    } catch (caught) {
+      safetyNotice =
+        caught instanceof ApiError ? caught.message : '안전 설정을 변경하지 못했습니다.';
+    } finally {
+      safetyBusy = false;
+    }
+  }
+
+  async function submitReport() {
+    if (!targetPlayerId || safetyBusy || reportDetails.trim().length < 4) return;
+    safetyBusy = true;
+    safetyNotice = '';
+    try {
+      const response = await api.reportPlayer(
+        roomId,
+        targetPlayerId,
+        reportCategory,
+        reportDetails.trim()
+      );
+      reportSubmitted = true;
+      reportDetails = '';
+      safetyNotice = `신고 ${response.report.reportId.slice(0, 8)} 접수 완료`;
+    } catch (caught) {
+      safetyNotice = caught instanceof ApiError ? caught.message : '신고를 접수하지 못했습니다.';
+    } finally {
+      safetyBusy = false;
+    }
   }
 
   function sendTyping(isTyping: boolean) {
@@ -210,6 +304,16 @@
         <span class:offline={!online} class="chat-link-status"
           ><i></i>{online ? 'LIVE' : 'OFFLINE'}</span
         >
+        {#if targetPlayerId}
+          <button
+            class="ui-icon-button"
+            type="button"
+            onclick={openSafety}
+            aria-label="플레이어 안전 설정"
+          >
+            <ShieldAlert size={15} />
+          </button>
+        {/if}
         <button class="ui-icon-button" type="button" onclick={toggleDrawer} aria-label="채팅 닫기">
           <X size={15} />
         </button>
@@ -225,12 +329,12 @@
       >
         {#if !$chatHistoryLoaded}
           <div class="chat-loading"><Radio size={18} /><span>보안 채널 동기화 중…</span></div>
-        {:else if $chatMessages.length === 0}
+        {:else if visibleMessages.length === 0}
           <div class="chat-empty">
             <MessageSquare size={20} /><span>아직 전송된 메시지가 없습니다.</span>
           </div>
         {:else}
-          {#each $chatMessages as item (item.messageId)}
+          {#each visibleMessages as item (item.messageId)}
             <article
               class:chat-message--self={item.playerId === selfPlayerId}
               class:chat-message--system={item.type === 'SYSTEM'}
@@ -382,6 +486,93 @@
       </div>
     {/if}
     {#if actionCooling}<p class="signal-cooldown"><Radio size={12} /> SIGNAL COOLDOWN</p>{/if}
+  </div>
+</Modal>
+
+<Modal
+  open={showSafety}
+  eyebrow="PLAYER SAFETY"
+  title={`${targetNickname ?? '상대 플레이어'} 안전 설정`}
+  description="음소거와 차단은 즉시 적용됩니다. 신고에는 현재 방 상태와 최근 대화가 증거로 함께 보존됩니다."
+  onclose={() => (showSafety = false)}
+>
+  <div class="safety-panel">
+    <section class="safety-controls" aria-label="플레이어 안전 제어">
+      <button
+        type="button"
+        class:active={muted}
+        disabled={safetyBusy || blocked}
+        onclick={() => updateSafety(!muted, blocked)}
+      >
+        {#if muted}<Volume2 size={17} /> 음소거 해제{:else}<VolumeX size={17} /> 음소거{/if}
+        <small
+          >{blocked ? '차단 중에는 음소거가 유지됩니다.' : '채팅과 입력 알림을 숨깁니다.'}</small
+        >
+      </button>
+      <button
+        type="button"
+        class:danger={blocked}
+        disabled={safetyBusy}
+        onclick={() => updateSafety(blocked ? muted : true, !blocked)}
+      >
+        <Ban size={17} />
+        {blocked ? '차단 해제' : '플레이어 차단'}
+        <small
+          >{blocked
+            ? '다시 같은 방과 매치에 참가할 수 있습니다.'
+            : '통신과 재매칭을 막습니다.'}</small
+        >
+      </button>
+    </section>
+
+    <form
+      class="safety-report"
+      onsubmit={(event) => {
+        event.preventDefault();
+        submitReport();
+      }}
+    >
+      <div class="safety-heading">
+        <span><Flag size={15} /> 플레이어 신고</span>
+        <small>4–1000자</small>
+      </div>
+      <label>
+        신고 사유
+        <select bind:value={reportCategory} disabled={safetyBusy}>
+          <option value="CHAT">부적절한 채팅</option>
+          <option value="NAME">부적절한 이름</option>
+          <option value="CHEATING">치팅 의심</option>
+          <option value="STALLING">고의 지연</option>
+          <option value="OTHER">기타</option>
+        </select>
+      </label>
+      <label>
+        상세 내용
+        <textarea
+          bind:value={reportDetails}
+          minlength="4"
+          maxlength="1000"
+          rows="4"
+          disabled={safetyBusy}
+          placeholder="발생한 상황을 구체적으로 적어 주세요."></textarea>
+      </label>
+      <button
+        class="safety-submit"
+        type="submit"
+        disabled={safetyBusy || reportDetails.trim().length < 4}
+        ><Flag size={14} /> {safetyBusy ? '처리 중…' : '증거와 함께 신고 접수'}</button
+      >
+    </form>
+
+    {#if safetyNotice}
+      <p
+        class:success={reportSubmitted}
+        class="safety-notice"
+        role={reportSubmitted ? 'status' : 'alert'}
+      >
+        {safetyNotice}
+      </p>
+    {/if}
   </div>
 </Modal>
 
@@ -848,6 +1039,136 @@
     font-size: 8px;
     letter-spacing: 0.12em;
   }
+  .safety-panel {
+    display: grid;
+    gap: 16px;
+    margin-top: 18px;
+  }
+  .safety-controls {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+  .safety-controls button {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    align-items: center;
+    gap: 4px 8px;
+    min-height: 66px;
+    padding: 11px;
+    border: 1px solid var(--line);
+    border-radius: 11px;
+    color: var(--ink-200);
+    background: rgba(7, 26, 36, 0.66);
+    cursor: pointer;
+    text-align: left;
+  }
+  .safety-controls button :global(svg) {
+    color: var(--cyan-300);
+  }
+  .safety-controls button.active {
+    border-color: rgba(255, 180, 60, 0.34);
+    background: rgba(255, 180, 60, 0.07);
+  }
+  .safety-controls button.danger {
+    border-color: rgba(255, 92, 92, 0.4);
+    background: rgba(255, 92, 92, 0.08);
+  }
+  .safety-controls button.danger :global(svg) {
+    color: var(--red-400);
+  }
+  .safety-controls button:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+  }
+  .safety-controls small {
+    grid-column: 1 / -1;
+    color: var(--ink-500);
+    font-size: 8px;
+    line-height: 1.45;
+  }
+  .safety-report {
+    display: grid;
+    gap: 10px;
+    padding-top: 15px;
+    border-top: 1px solid var(--line);
+  }
+  .safety-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    color: var(--ink-200);
+    font-family: var(--font-display);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+  }
+  .safety-heading span {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+  }
+  .safety-heading :global(svg) {
+    color: var(--red-400);
+  }
+  .safety-heading small {
+    color: var(--ink-600);
+    font-size: 8px;
+  }
+  .safety-report label {
+    display: grid;
+    gap: 6px;
+    color: var(--ink-400);
+    font-size: 9px;
+  }
+  .safety-report select,
+  .safety-report textarea {
+    width: 100%;
+    padding: 10px 11px;
+    border: 1px solid var(--line);
+    border-radius: 9px;
+    outline: 0;
+    color: var(--ink-100);
+    background: rgba(3, 13, 20, 0.8);
+    font: inherit;
+    font-size: 10px;
+  }
+  .safety-report textarea {
+    resize: vertical;
+    line-height: 1.5;
+  }
+  .safety-report select:focus,
+  .safety-report textarea:focus {
+    border-color: var(--line-hot);
+    box-shadow: 0 0 0 3px rgba(40, 223, 232, 0.07);
+  }
+  .safety-submit {
+    display: flex;
+    min-height: 39px;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    border: 1px solid rgba(255, 92, 92, 0.34);
+    border-radius: 9px;
+    color: var(--red-400);
+    background: rgba(255, 92, 92, 0.08);
+    cursor: pointer;
+    font-family: var(--font-display);
+    font-size: 9px;
+    letter-spacing: 0.06em;
+  }
+  .safety-submit:disabled {
+    cursor: not-allowed;
+    filter: saturate(0.25);
+    opacity: 0.42;
+  }
+  .safety-notice {
+    margin: 0;
+    color: var(--red-400);
+    font-size: 9px;
+  }
+  .safety-notice.success {
+    color: var(--green-400);
+  }
   @media (max-width: 640px) {
     .chat-shell {
       right: 12px;
@@ -869,6 +1190,9 @@
       width: 44px;
       justify-content: center;
       padding: 0;
+    }
+    .safety-controls {
+      grid-template-columns: 1fr;
     }
   }
 </style>

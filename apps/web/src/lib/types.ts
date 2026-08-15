@@ -44,9 +44,145 @@ export interface ShipPlacement {
 
 export interface Session {
   id: string;
+  accountId: string | null;
   nickname: string;
   currentRoomId: string | null;
   expiresAt: string;
+}
+
+export interface PlayerAccount {
+  id: string;
+  handle: string;
+  createdAt: string;
+}
+
+export interface AccountSession {
+  id: string;
+  nickname: string;
+  createdAt: string;
+  lastSeenAt: string;
+  currentRoomId: string | null;
+}
+
+export interface AchievementProgress {
+  id: string;
+  title: string;
+  description: string;
+  progress: number;
+  target: number;
+  unlocked: boolean;
+}
+
+export interface MissionProgress {
+  id: string;
+  cadence: 'DAILY' | 'WEEKLY';
+  title: string;
+  description: string;
+  progress: number;
+  target: number;
+  rewardXp: number;
+  completed: boolean;
+  claimed: boolean;
+  claimable: boolean;
+}
+
+export interface PlayerProgression {
+  accountId: string | null;
+  handle: string;
+  level: number;
+  rankTitle: string;
+  totalXp: number;
+  levelXp: number;
+  xpToNextLevel: number;
+  gamesPlayed: number;
+  wins: number;
+  losses: number;
+  totalShots: number;
+  totalHits: number;
+  totalShipsSunk: number;
+  achievements: AchievementProgress[];
+  missions: MissionProgress[];
+  calculatedAt: string;
+}
+
+export interface SocialRelationship {
+  targetIdentityId: string;
+  targetNickname: string;
+  muted: boolean;
+  blocked: boolean;
+  updatedAt: string;
+}
+
+export type ReportCategory = 'CHAT' | 'NAME' | 'CHEATING' | 'STALLING' | 'OTHER';
+
+export interface PlayerReportReceipt {
+  reportId: string;
+  status: 'OPEN';
+  createdAt: string;
+}
+
+export type ReportStatus = 'OPEN' | 'REVIEWING' | 'ACTIONED' | 'DISMISSED';
+export type ModerationActionKind = 'WARN' | 'SUSPEND' | 'BAN' | 'DISMISS' | 'REVERSE';
+
+export interface PlayerReport {
+  id: string;
+  reporterIdentityId: string;
+  targetIdentityId: string;
+  roomId: string;
+  targetPlayerId: string;
+  targetNickname: string;
+  category: ReportCategory;
+  details: string;
+  evidence: Record<string, unknown>;
+  status: ReportStatus;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ModerationAction {
+  id: string;
+  reportId: string;
+  targetIdentityId: string;
+  operatorId: string;
+  action: ModerationActionKind;
+  reason: string;
+  expiresAt: string | null;
+  reversesActionId: string | null;
+  createdAt: string;
+}
+
+export interface ModerationCase {
+  report: PlayerReport;
+  actions: ModerationAction[];
+}
+
+export interface ModerationCasePage {
+  cases: ModerationCase[];
+  nextBefore: string | null;
+}
+
+export type IntegritySignalKind =
+  | 'IMPOSSIBLE_ORDER'
+  | 'AUTOMATION'
+  | 'COLLUSION'
+  | 'INTENTIONAL_STALLING';
+
+export interface IntegritySignal {
+  id: string;
+  subjectIdentityId: string;
+  roomId: string | null;
+  kind: IntegritySignalKind;
+  severity: number;
+  confidence: number;
+  evidence: Record<string, unknown>;
+  occurrences: number;
+  firstObservedAt: string;
+  lastObservedAt: string;
+}
+
+export interface IntegritySignalPage {
+  signals: IntegritySignal[];
+  nextBefore: string | null;
 }
 
 export interface MatchRules {
