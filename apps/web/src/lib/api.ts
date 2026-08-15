@@ -75,6 +75,7 @@ export const api = {
   createSession: (nickname: string) =>
     request<Session>('/sessions', { method: 'POST', body: JSON.stringify({ nickname }) }),
   currentSession: () => request<Session>('/sessions/current'),
+  deleteCurrentSession: () => request<void>('/sessions/current', { method: 'DELETE' }),
   listRooms: roomList,
   createRoom: async (name: string, visibility: RoomVisibility) => {
     const response = await request<RoomCreatedResponse>('/rooms', {

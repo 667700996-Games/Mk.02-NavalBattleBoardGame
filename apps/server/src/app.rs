@@ -1090,4 +1090,34 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
     }
+
+    #[tokio::test]
+    async fn websocket_capacity_and_slow_consumers_are_bounded() {
+        let settings = Settings {
+            max_websocket_connections: 1,
+            ..Settings::default()
+        };
+        let state = AppState::with_store(settings, Arc::new(MemoryStore::default()));
+        let permit = state.try_acquire_websocket_slot().unwrap();
+        assert_eq!(
+            state.try_acquire_websocket_slot().unwrap_err(),
+            GameError::RateLimited
+        );
+        drop(permit);
+        assert!(state.try_acquire_websocket_slot().is_ok());
+
+        let hub = ConnectionHub::default();
+        let session_id = Uuid::new_v4();
+        let (sender, _receiver) = mpsc::channel(1);
+        hub.connect(session_id, sender);
+        let heartbeat = || {
+            ServerEvent::Heartbeat(crate::protocol::HeartbeatResponse {
+                server_time: Utc::now(),
+            })
+        };
+        hub.send(session_id, heartbeat());
+        assert_eq!(hub.len(), 1);
+        hub.send(session_id, heartbeat());
+        assert!(hub.is_empty());
+    }
 }

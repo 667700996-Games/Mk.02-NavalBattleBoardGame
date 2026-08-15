@@ -1,7 +1,31 @@
 <script lang="ts">
-  import { Contrast, Gauge, ShieldCheck, Volume2 } from '@lucide/svelte';
-  import { preferences } from '$lib/stores';
+  import { goto } from '$app/navigation';
+  import { resolve } from '$app/paths';
+  import { Contrast, Gauge, LogOut, ShieldCheck, Volume2 } from '@lucide/svelte';
+  import { api, ApiError } from '$lib/api';
+  import { realtime } from '$lib/realtime';
+  import { gameSnapshot, preferences, session } from '$lib/stores';
   import { sounds } from '$lib/sound';
+
+  let signingOut = $state(false);
+  let logoutError = $state('');
+
+  async function signOut() {
+    signingOut = true;
+    logoutError = '';
+    try {
+      await api.deleteCurrentSession();
+      realtime.disconnect();
+      gameSnapshot.set(null);
+      session.set(null);
+      await goto(resolve('/'));
+    } catch (caught) {
+      logoutError =
+        caught instanceof ApiError ? caught.message : '세션을 종료하지 못했습니다. 다시 시도해 주세요.';
+    } finally {
+      signingOut = false;
+    }
+  }
 </script>
 
 <svelte:head><title>환경 설정 · Mk.01</title></svelte:head>
@@ -83,6 +107,19 @@
           </p>
         </div>
       </aside>
+      {#if $session}
+        <section class="session-panel panel" aria-labelledby="session-control-title">
+          <div>
+            <small>SESSION CONTROL</small>
+            <strong id="session-control-title">이 장치의 지휘 세션</strong>
+            <p>로그아웃하면 서버의 인증 세션도 즉시 폐기되며 다시 사용할 수 없습니다.</p>
+            {#if logoutError}<p class="session-error" role="alert">{logoutError}</p>{/if}
+          </div>
+          <button class="button button--danger" type="button" onclick={signOut} disabled={signingOut}>
+            <LogOut size={16} /> {signingOut ? '세션 종료 중…' : '로그아웃 및 세션 폐기'}
+          </button>
+        </section>
+      {/if}
     </div>
   </div>
 </div>
@@ -111,6 +148,31 @@
   }
   .settings-main {
     min-width: 0;
+  }
+  .session-panel {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 24px;
+    margin-top: 14px;
+    padding: 20px;
+  }
+  .session-panel div {
+    display: grid;
+    gap: 5px;
+  }
+  .session-panel small {
+    color: var(--critical);
+    font: 700 8px var(--font-display);
+    letter-spacing: 0.14em;
+  }
+  .session-panel p {
+    margin: 0;
+    color: var(--ink-400);
+    font-size: 10px;
+  }
+  .session-panel .session-error {
+    color: var(--critical);
   }
   .system-profile {
     position: sticky;
@@ -301,6 +363,10 @@
     }
     .setting-row p {
       line-height: 1.6;
+    }
+    .session-panel {
+      align-items: stretch;
+      flex-direction: column;
     }
   }
   @media (max-width: 860px) {

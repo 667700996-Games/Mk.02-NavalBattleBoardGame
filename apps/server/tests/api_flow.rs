@@ -205,4 +205,54 @@ async fn guest_sessions_create_join_and_recover_a_two_player_room() {
     .await;
     assert_eq!(unauthenticated.status(), StatusCode::UNAUTHORIZED);
     assert_eq!(host_session["nickname"], "Alpha");
+
+    let logout_response = send(
+        &app,
+        Request::builder()
+            .method("DELETE")
+            .uri("/api/sessions/current")
+            .header(header::COOKIE, &host_cookie)
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(logout_response.status(), StatusCode::NO_CONTENT);
+    assert!(
+        logout_response
+            .headers()
+            .get(header::SET_COOKIE)
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|value| value.contains("Max-Age=0"))
+    );
+
+    let revoked_response = send(
+        &app,
+        Request::builder()
+            .uri("/api/sessions/current")
+            .header(header::COOKIE, &host_cookie)
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(revoked_response.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn liveness_readiness_and_security_headers_are_exposed() {
+    let app = test_app();
+    for (path, expected_status) in [("/api/health", "ok"), ("/api/ready", "ready")] {
+        let response = send(
+            &app,
+            Request::builder().uri(path).body(Body::empty()).unwrap(),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response.headers()[header::X_CONTENT_TYPE_OPTIONS],
+            "nosniff"
+        );
+        assert_eq!(response.headers()[header::X_FRAME_OPTIONS], "DENY");
+        assert!(response.headers().contains_key("content-security-policy"));
+        assert_eq!(json_body(response).await["status"], expected_status);
+    }
 }
