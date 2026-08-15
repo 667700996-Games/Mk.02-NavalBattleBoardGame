@@ -19,6 +19,7 @@ pub struct Settings {
     pub turn_duration_seconds: u32,
     pub public_base_url: String,
     pub api_requests_per_minute: u32,
+    pub http_requests_per_minute_per_ip: u32,
     pub session_creations_per_minute: u32,
     pub websocket_events_per_second: u32,
     pub websocket_send_queue_capacity: usize,
@@ -72,6 +73,11 @@ impl Settings {
                 .unwrap_or_else(|_| "http://localhost:5173".to_string()),
             api_requests_per_minute: env_u64("API_REQUESTS_PER_MINUTE", 240)
                 .min(u64::from(u32::MAX)) as u32,
+            http_requests_per_minute_per_ip: env_u64(
+                "HTTP_REQUESTS_PER_MINUTE_PER_IP",
+                600,
+            )
+            .min(u64::from(u32::MAX)) as u32,
             session_creations_per_minute: env_u64("SESSION_CREATIONS_PER_MINUTE", 20)
                 .min(u64::from(u32::MAX)) as u32,
             websocket_events_per_second: env_u64("WEBSOCKET_EVENTS_PER_SECOND", 60)

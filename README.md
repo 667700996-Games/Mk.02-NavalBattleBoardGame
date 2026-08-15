@@ -128,6 +128,7 @@ POSTGRES_PASSWORD='replace-this-local-password' docker compose up --build
 | `RECONNECT_GRACE_SECONDS` | `90`                      | 재접속 유예 시간                              |
 | `TURN_DURATION_SECONDS`   | `60`                      | 턴 제한(초), `0`이면 제한 없음                |
 | `API_REQUESTS_PER_MINUTE` | `240`                     | 인증 세션별 HTTP/연결 요청 한도                |
+| `HTTP_REQUESTS_PER_MINUTE_PER_IP` | `600`              | 신뢰된 클라이언트 IP별 전체 HTTP 요청 한도     |
 | `SESSION_CREATIONS_PER_MINUTE` | `20`                | 클라이언트 IP별 게스트 세션 생성 한도          |
 | `WEBSOCKET_EVENTS_PER_SECOND` | `60`                 | 세션별 수신 WebSocket 이벤트 한도              |
 | `WEBSOCKET_SEND_QUEUE_CAPACITY` | `256`               | 연결별 송신 큐 한도; 초과 시 느린 연결 종료    |

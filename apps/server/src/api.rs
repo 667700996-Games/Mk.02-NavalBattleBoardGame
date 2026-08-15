@@ -75,11 +75,7 @@ async fn create_session(
     headers: HeaderMap,
     input: Result<Json<CreateSessionInput>, JsonRejection>,
 ) -> Result<impl IntoResponse, GameError> {
-    let client_key = client_rate_limit_key(
-        &headers,
-        Some(direct_address),
-        state.settings.trust_proxy_headers,
-    );
+    let client_key = state.client_rate_limit_key(&headers, direct_address);
     state.enforce_session_creation_rate_limit(&client_key)?;
     let input = parse_json(input)?;
     let (session, token) = state.create_session(input.nickname).await?;
@@ -305,31 +301,4 @@ pub async fn authenticate(
     let session = state.authenticate(jar, authorization).await?;
     state.enforce_api_rate_limit(session.id)?;
     Ok(session)
-}
-
-fn client_rate_limit_key(
-    headers: &HeaderMap,
-    direct_address: Option<SocketAddr>,
-    trust_proxy_headers: bool,
-) -> String {
-    if trust_proxy_headers {
-        let forwarded_ip = headers
-            .get("x-forwarded-for")
-            .and_then(|value| value.to_str().ok())
-            .and_then(|value| value.split(',').next())
-            .map(str::trim)
-            .and_then(|value| value.parse::<std::net::IpAddr>().ok())
-            .or_else(|| {
-                headers
-                    .get("x-real-ip")
-                    .and_then(|value| value.to_str().ok())
-                    .and_then(|value| value.parse::<std::net::IpAddr>().ok())
-            });
-        if let Some(ip) = forwarded_ip {
-            return ip.to_string();
-        }
-    }
-    direct_address
-        .map(|address| address.ip().to_string())
-        .unwrap_or_else(|| "unknown-client".to_string())
 }

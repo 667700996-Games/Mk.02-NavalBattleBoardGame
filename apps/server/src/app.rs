@@ -1,4 +1,4 @@
-use std::{collections::VecDeque, sync::Arc, time::Duration};
+use std::{collections::VecDeque, net::SocketAddr, sync::Arc, time::Duration};
 
 use axum::{
     Router,
@@ -38,6 +38,7 @@ pub struct AppState {
     matchmaking: Arc<Mutex<VecDeque<QueuedSession>>>,
     turn_timers: Arc<DashMap<Uuid, TurnTimerKey>>,
     api_rate_limiter: FixedWindowRateLimiter,
+    request_ip_rate_limiter: FixedWindowRateLimiter,
     session_creation_rate_limiter: FixedWindowRateLimiter,
     websocket_event_rate_limiter: FixedWindowRateLimiter,
     websocket_slots: Arc<Semaphore>,
@@ -94,6 +95,11 @@ impl AppState {
             settings.api_requests_per_minute,
             100_000,
         );
+        let request_ip_rate_limiter = FixedWindowRateLimiter::new(
+            Duration::from_secs(60),
+            settings.http_requests_per_minute_per_ip,
+            50_000,
+        );
         let session_creation_rate_limiter = FixedWindowRateLimiter::new(
             Duration::from_secs(60),
             settings.session_creations_per_minute,
@@ -113,6 +119,7 @@ impl AppState {
             matchmaking: Arc::new(Mutex::new(VecDeque::new())),
             turn_timers: Arc::new(DashMap::new()),
             api_rate_limiter,
+            request_ip_rate_limiter,
             session_creation_rate_limiter,
             websocket_event_rate_limiter,
             websocket_slots,
@@ -127,6 +134,11 @@ impl AppState {
             Duration::from_secs(60),
             settings.api_requests_per_minute,
             100_000,
+        );
+        let request_ip_rate_limiter = FixedWindowRateLimiter::new(
+            Duration::from_secs(60),
+            settings.http_requests_per_minute_per_ip,
+            50_000,
         );
         let session_creation_rate_limiter = FixedWindowRateLimiter::new(
             Duration::from_secs(60),
@@ -147,6 +159,7 @@ impl AppState {
             matchmaking: Arc::new(Mutex::new(VecDeque::new())),
             turn_timers: Arc::new(DashMap::new()),
             api_rate_limiter,
+            request_ip_rate_limiter,
             session_creation_rate_limiter,
             websocket_event_rate_limiter,
             websocket_slots,
@@ -158,6 +171,43 @@ impl AppState {
             .check(session_id.to_string())
             .then_some(())
             .ok_or(GameError::RateLimited)
+    }
+
+    pub fn enforce_ip_rate_limit(
+        &self,
+        headers: &http::HeaderMap,
+        direct_address: SocketAddr,
+    ) -> Result<(), GameError> {
+        let client_key = self.client_rate_limit_key(headers, direct_address);
+        self.request_ip_rate_limiter
+            .check(client_key)
+            .then_some(())
+            .ok_or(GameError::RateLimited)
+    }
+
+    pub fn client_rate_limit_key(
+        &self,
+        headers: &http::HeaderMap,
+        direct_address: SocketAddr,
+    ) -> String {
+        if self.settings.trust_proxy_headers {
+            let forwarded_ip = headers
+                .get("x-forwarded-for")
+                .and_then(|value| value.to_str().ok())
+                .and_then(|value| value.split(',').next())
+                .map(str::trim)
+                .and_then(|value| value.parse::<std::net::IpAddr>().ok())
+                .or_else(|| {
+                    headers
+                        .get("x-real-ip")
+                        .and_then(|value| value.to_str().ok())
+                        .and_then(|value| value.parse::<std::net::IpAddr>().ok())
+                });
+            if let Some(ip) = forwarded_ip {
+                return ip.to_string();
+            }
+        }
+        direct_address.ip().to_string()
     }
 
     pub fn enforce_session_creation_rate_limit(&self, client_key: &str) -> Result<(), GameError> {
@@ -874,6 +924,7 @@ pub fn build_router(state: AppState) -> Router {
         ])
         .allow_methods([Method::GET, Method::POST, Method::DELETE, Method::OPTIONS]);
 
+    let rate_limit_state = state.clone();
     Router::new()
         .nest("/api", api::router())
         .route("/ws", get(ws::websocket_handler))
@@ -885,9 +936,23 @@ pub fn build_router(state: AppState) -> Router {
         .layer(CompressionLayer::new())
         .layer(CatchPanicLayer::new())
         .layer(TraceLayer::new_for_http())
+        .layer(axum::middleware::from_fn_with_state(
+            rate_limit_state,
+            request_ip_rate_limit,
+        ))
         .layer(axum::middleware::from_fn(security_headers))
         .layer(cors)
         .with_state(state)
+}
+
+async fn request_ip_rate_limit(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    axum::extract::ConnectInfo(address): axum::extract::ConnectInfo<SocketAddr>,
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Result<axum::response::Response, GameError> {
+    state.enforce_ip_rate_limit(request.headers(), address)?;
+    Ok(next.run(request).await)
 }
 
 async fn security_headers(
