@@ -17,6 +17,7 @@
 - 서버 UTC 기준 전체 작전 시간과 턴 마감, 시간 초과 턴 자동 교대와 3회 연속 초과 자동 패배
 - `NORMAL`/`SURRENDER`/`DISCONNECT`/`TIMEOUT` 종료 원인과 시간 초과 통계 기록
 - 재경기, 승패·명중률·턴·플레이 시간 통계, 전투 기록
+- 참가자 전용 종료 경기 리플레이, 버전형 공격·시간 초과 타임라인과 턴별 양측 보드 복기
 - 배치·안개 전장·좌표 공격·턴 제한·재접속을 직접 익히는 대화형 신규 사용자 튜토리얼
 - 신병·장교·제독 3단계의 서버 권위형 AI 연습 교전과 결정적 공격 선택 테스트
 - 데스크톱 2보드 레이아웃과 모바일 탭 전환, 키보드 조작, 고대비/모션 감소, 사운드 설정
@@ -162,6 +163,7 @@ POSTGRES_PASSWORD='replace-this-local-password' docker compose up --build
 | `POST`        | `/rooms/{roomId}/leave` | 전투 전 방 나가기 또는 전투 중 이탈 처리 |
 | `GET`         | `/games/recover`        | 진행 중 게임 복구                        |
 | `GET`         | `/games/history`        | 최근 50개 경기 결과                      |
+| `GET`         | `/games/{roomId}/replay` | 종료 경기의 참가자 전용 버전형 복기      |
 | `POST/DELETE` | `/matchmaking`          | 빠른 매칭 대기/취소                      |
 
 오류는 `{ code, message, requestId }` 형태의 안전한 JSON으로 반환됩니다. 잘못된 JSON·UUID도 내부 파서 정보 대신 `INVALID_REQUEST`로 일관되게 처리합니다.
@@ -261,6 +263,7 @@ POSTGRES_PASSWORD='replace-this-local-password' docker compose up --build
 npm run check       # Rust check + Svelte/TypeScript check
 npm run lint        # rustfmt + clippy -D warnings + Prettier + ESLint
 npm run test        # Rust unit/integration + Vitest
+npm run contract    # Rust/TypeScript 버전·이벤트·생성 매니페스트 일치
 npx playwright install chromium firefox webkit
 npm run test:e2e    # Chromium/Firefox/WebKit 전체 경기 + 모바일 2종
 npm run build       # Rust release + SvelteKit adapter-node

@@ -1,10 +1,12 @@
 <script lang="ts">
+  import { resolve } from '$app/paths';
   import {
     ArrowLeft,
     Check,
     Crosshair,
     Flag,
     Medal,
+    Play,
     RotateCcw,
     Share2,
     Target,
@@ -163,6 +165,8 @@
       ><RotateCcw size={16} /> {rematchRequested ? '상대 응답 대기 중' : '재대결 요청'}</button
     ><button class="button" onclick={shareResult}
       >{#if shared}<Check size={16} /> 공유 정보 복사됨{:else}<Share2 size={16} /> 결과 공유{/if}</button
+    ><a class="button" href={resolve('/replay/[roomId]', { roomId: snapshot.room.id })}
+      ><Play size={16} /> 전투 복기</a
     ><button class="button button--ghost" onclick={onlobby}
       ><ArrowLeft size={16} /> 로비로 복귀</button
     >

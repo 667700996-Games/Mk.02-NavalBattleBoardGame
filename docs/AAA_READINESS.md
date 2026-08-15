@@ -38,9 +38,9 @@ The program is complete only when all gates below are satisfied in a production-
 
 ### A2. Matchmaking and timers
 
-- [ ] Matchmaking is durable, distributed, idempotent, cancellable, and cleans abandoned entries.
+- [x] Matchmaking is durable, distributed, idempotent, cancellable, and cleans abandoned entries.
 - [ ] Ranked matchmaking supports region, latency, rating, party, and widening search constraints.
-- [ ] Turn and reconnect deadlines are durable jobs claimed once with fencing/idempotency.
+- [x] Turn and reconnect deadlines are durable jobs claimed once with fencing/idempotency.
 - [x] No process scans every active room at a fixed sub-second interval.
 - Evidence: two-instance matchmaking tests, worker failover tests, timer duplicate-delivery tests,
   and queue-depth/age metrics.
@@ -116,7 +116,7 @@ The program is complete only when all gates below are satisfied in a production-
 
 - [ ] Friends, parties, direct invites, recent players, presence, privacy, mute, and block exist.
 - [ ] Spectators receive delayed, visibility-filtered authoritative state.
-- [ ] Deterministic replays include ruleset/protocol versions and cannot expose hidden information
+- [x] Deterministic replays include ruleset/protocol versions and cannot expose hidden information
       before a match is complete.
 - [ ] Post-match analysis can step through turns, compare decisions, and share a safe replay link.
 
@@ -160,13 +160,13 @@ The program is complete only when all gates below are satisfied in a production-
 
 - [ ] Large room and UI modules are split by state machine, timer, chat, matchmaking, presentation,
       and orchestration responsibility.
-- [ ] HTTP/WebSocket schemas generate or validate Rust and TypeScript contracts at runtime.
+- [x] HTTP/WebSocket schemas generate or validate Rust and TypeScript contracts at runtime.
 - [ ] Protocol compatibility and migration policy supports mixed client/server release windows.
 - [ ] Architecture decisions and ownership boundaries are documented and reviewed.
 
 ### E2. Automated quality gates
 
-- [ ] CI runs formatting, linting, type checks, unit, integration, contract, E2E, build, audit, and
+- [x] CI runs formatting, linting, type checks, unit, integration, contract, E2E, build, audit, and
       artifact checks on every change.
 - [ ] PostgreSQL and Redis integration tests exercise migrations, recovery, cache failure, and
       concurrent writes.

@@ -2,7 +2,7 @@
   import { goto } from '$app/navigation';
   import { resolve } from '$app/paths';
   import { onMount } from 'svelte';
-  import { Activity, Crosshair, History, Medal, Target, Timer, Trophy } from '@lucide/svelte';
+  import { Activity, Crosshair, History, Medal, Play, Target, Timer, Trophy } from '@lucide/svelte';
   import { api } from '$lib/api';
   import { session } from '$lib/stores';
   import type { HistoryItem } from '$lib/types';
@@ -119,6 +119,11 @@
               >{duration(game.result.durationSeconds)}</strong
             >
           </div>
+          <a
+            class="replay-link"
+            aria-label={`${game.roomName} 전투 복기`}
+            href={resolve('/replay/[roomId]', { roomId: game.roomId })}><Play size={14} /> 복기</a
+          >
         </article>{/each}
     </div>{/if}
 </div>
@@ -195,7 +200,7 @@
   }
   .history-row {
     display: grid;
-    grid-template-columns: auto 1fr repeat(3, 120px);
+    grid-template-columns: auto 1fr repeat(3, 120px) auto;
     align-items: center;
     gap: 18px;
     padding: 18px;
@@ -205,6 +210,23 @@
   .history-row:hover {
     border-color: var(--line-strong);
     transform: translateX(3px);
+  }
+  .replay-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 8px 10px;
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    color: var(--cyan-300);
+    font-family: var(--font-display);
+    font-size: 9px;
+    letter-spacing: 0.08em;
+  }
+  .replay-link:hover,
+  .replay-link:focus-visible {
+    border-color: var(--cyan-300);
+    background: rgba(40, 223, 232, 0.07);
   }
   .result-mark {
     display: grid;
@@ -273,7 +295,7 @@
       padding-top: 40px;
     }
     .history-row {
-      grid-template-columns: auto 1fr repeat(3, 1fr);
+      grid-template-columns: auto 1fr repeat(3, 1fr) auto;
       gap: 11px;
     }
     .archive-overview {
@@ -289,13 +311,17 @@
       grid-row: 1;
     }
     .history-name {
-      grid-column: 2/5;
+      grid-column: 2/6;
     }
     .history-row > div:not(.history-name) :global(svg) {
       display: none;
     }
     .history-row > div:not(.history-name) strong {
       grid-column: 1;
+    }
+    .replay-link {
+      grid-row: 1;
+      grid-column: 6;
     }
   }
 </style>

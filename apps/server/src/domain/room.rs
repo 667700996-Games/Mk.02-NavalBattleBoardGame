@@ -8,9 +8,10 @@ use crate::error::GameError;
 
 use super::{
     ALLOWED_EMOJIS, AttackOutcome, AttackRecord, Board, ChatMessage, ChatMessageType,
-    ChatTypingEvent, ConnectionState, Coordinate, FinishReason, Game, GameResult, GameTimelineEvent,
-    MAX_CHAT_HISTORY, MAX_CHAT_MESSAGE_CHARS, Player, PlayerKind, PlayerReadyState, PlayerRole,
-    QuickCommandId, ShipKind, ShipPlacement, SurrenderRecord, TurnExpiration, UserSession,
+    ChatTypingEvent, ConnectionState, Coordinate, FinishReason, Game, GameResult,
+    GameTimelineEvent, MAX_CHAT_HISTORY, MAX_CHAT_MESSAGE_CHARS, Player, PlayerKind,
+    PlayerReadyState, PlayerRole, QuickCommandId, ShipKind, ShipPlacement, SurrenderRecord,
+    TurnExpiration, UserSession,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1398,13 +1399,24 @@ impl GameRoom {
         } else {
             game.timeline.clone()
         };
+        let first_player_id = if game.first_player_id.is_nil() {
+            timeline
+                .first()
+                .map(|event| match event {
+                    GameTimelineEvent::Attack(record) => record.attacker_id,
+                    GameTimelineEvent::TurnExpired(record) => record.expired_player_id,
+                })
+                .unwrap_or(game.current_player_id)
+        } else {
+            game.first_player_id
+        };
         Ok(GameReplay {
             protocol_version: crate::PROTOCOL_VERSION,
             ruleset_version: RULESET_VERSION,
             room_id: self.id,
             room_name: self.name.clone(),
             game_id: self.game_id.ok_or(GameError::InvalidState)?,
-            first_player_id: game.first_player_id,
+            first_player_id,
             started_at: game.started_at,
             finished_at: result.finished_at,
             players,
@@ -1992,6 +2004,54 @@ mod tests {
             .unwrap();
         assert!(!duplicate);
         assert_eq!(post_game_signal.content, "굿게임");
+    }
+
+    #[test]
+    fn finished_replay_is_versioned_ordered_and_participant_only() {
+        let (mut room, first, second) = playing_room();
+        let active_player_id = room.game.as_ref().unwrap().current_player_id;
+        let active_session_id = if room.player_for_session(first.id).unwrap().id == active_player_id
+        {
+            first.id
+        } else {
+            second.id
+        };
+        let version = room.version;
+        let turn = room.game.as_ref().unwrap().turn_number;
+        room.fire(
+            active_session_id,
+            Uuid::new_v4(),
+            active_player_id,
+            Coordinate { row: 9, col: 9 },
+            version,
+            turn,
+        )
+        .unwrap();
+        let surrendering_player_id = room.game.as_ref().unwrap().current_player_id;
+        let surrendering_session_id =
+            if room.player_for_session(first.id).unwrap().id == surrendering_player_id {
+                first.id
+            } else {
+                second.id
+            };
+        room.surrender(surrendering_session_id, surrendering_player_id)
+            .unwrap();
+
+        let replay = room.replay_for(first.id).unwrap();
+        assert_eq!(replay.protocol_version, crate::PROTOCOL_VERSION);
+        assert_eq!(replay.ruleset_version, RULESET_VERSION);
+        assert_eq!(replay.players.len(), 2);
+        assert!(replay.players.iter().all(|player| player.fleet.len() == 5));
+        assert!(matches!(
+            replay.timeline.first(),
+            Some(GameTimelineEvent::Attack(record)) if record.turn_number == turn
+        ));
+        assert_eq!(
+            room.replay_for(Uuid::new_v4()).unwrap_err(),
+            GameError::NotRoomMember
+        );
+        let serialized = serde_json::to_string(&replay).unwrap();
+        assert!(!serialized.contains("sessionId"));
     }
 
     #[test]

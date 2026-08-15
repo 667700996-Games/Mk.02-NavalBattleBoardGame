@@ -22,7 +22,8 @@ silently relaxing an alert is not allowed.
 
 The server exposes Prometheus text at `/api/metrics`. The endpoint currently includes request and
 rate-limit totals, local WebSocket connections/events, distributed publish success/failure, room
-mutation/version-conflict totals, and matchmaking queue/completion/cancellation totals.
+mutation/version-conflict and authority acquisition/conflict totals, matchmaking
+queue/completion/cancellation totals, current queue depth, and oldest queue-entry age.
 
 Minimum paging alerts:
 
