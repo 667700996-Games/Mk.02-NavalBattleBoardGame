@@ -23,6 +23,7 @@ pub struct GameHistoryItem {
 
 #[async_trait]
 pub trait GameStore: Send + Sync {
+    async fn health_check(&self) -> Result<(), GameError>;
     async fn save_session(&self, session: &UserSession) -> Result<(), GameError>;
     async fn session_by_token_hash(
         &self,
@@ -33,6 +34,7 @@ pub trait GameStore: Send + Sync {
         session_id: Uuid,
         room_id: Option<Uuid>,
     ) -> Result<(), GameError>;
+    async fn delete_session(&self, session_id: Uuid) -> Result<(), GameError>;
     async fn save_room(&self, room: &GameRoom) -> Result<(), GameError>;
     async fn room_by_id(&self, id: Uuid) -> Result<Option<GameRoom>, GameError>;
     async fn room_by_code(&self, code: &str) -> Result<Option<GameRoom>, GameError>;

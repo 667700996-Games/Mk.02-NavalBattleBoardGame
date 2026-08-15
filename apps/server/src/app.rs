@@ -11,7 +11,7 @@ use chrono::Utc;
 use dashmap::DashMap;
 use rand::RngCore;
 use sha2::{Digest, Sha256};
-use tokio::sync::{Mutex, mpsc};
+use tokio::sync::{Mutex, OwnedSemaphorePermit, Semaphore, mpsc};
 use tower_http::{
     catch_panic::CatchPanicLayer, compression::CompressionLayer, cors::CorsLayer,
     timeout::TimeoutLayer, trace::TraceLayer,
@@ -24,6 +24,7 @@ use crate::{
     domain::{ChatMessage, ChatTypingEvent, GameRoom, GameTimerState, RoomVisibility, UserSession},
     error::GameError,
     protocol::{CreateRoomInput, ServerEvent},
+    rate_limit::FixedWindowRateLimiter,
     store::{GameStore, MemoryStore, PostgresRedisStore},
     ws,
 };
@@ -36,6 +37,10 @@ pub struct AppState {
     pub hub: ConnectionHub,
     matchmaking: Arc<Mutex<VecDeque<QueuedSession>>>,
     turn_timers: Arc<DashMap<Uuid, TurnTimerKey>>,
+    api_rate_limiter: FixedWindowRateLimiter,
+    session_creation_rate_limiter: FixedWindowRateLimiter,
+    websocket_event_rate_limiter: FixedWindowRateLimiter,
+    websocket_slots: Arc<Semaphore>,
 }
 
 impl std::fmt::Debug for AppState {
@@ -84,6 +89,22 @@ impl AppState {
                 PostgresRedisStore::connect(&settings.database_url, &settings.redis_url).await?,
             ),
         };
+        let api_rate_limiter = FixedWindowRateLimiter::new(
+            Duration::from_secs(60),
+            settings.api_requests_per_minute,
+            100_000,
+        );
+        let session_creation_rate_limiter = FixedWindowRateLimiter::new(
+            Duration::from_secs(60),
+            settings.session_creations_per_minute,
+            50_000,
+        );
+        let websocket_event_rate_limiter = FixedWindowRateLimiter::new(
+            Duration::from_secs(1),
+            settings.websocket_events_per_second,
+            100_000,
+        );
+        let websocket_slots = Arc::new(Semaphore::new(settings.max_websocket_connections));
         let state = Self {
             settings: Arc::new(settings),
             store,
@@ -91,6 +112,10 @@ impl AppState {
             hub: ConnectionHub::default(),
             matchmaking: Arc::new(Mutex::new(VecDeque::new())),
             turn_timers: Arc::new(DashMap::new()),
+            api_rate_limiter,
+            session_creation_rate_limiter,
+            websocket_event_rate_limiter,
+            websocket_slots,
         };
         state.restore_active_rooms().await?;
         state.start_turn_expiry_watchdog();
@@ -98,6 +123,22 @@ impl AppState {
     }
 
     pub fn with_store(settings: Settings, store: Arc<dyn GameStore>) -> Self {
+        let api_rate_limiter = FixedWindowRateLimiter::new(
+            Duration::from_secs(60),
+            settings.api_requests_per_minute,
+            100_000,
+        );
+        let session_creation_rate_limiter = FixedWindowRateLimiter::new(
+            Duration::from_secs(60),
+            settings.session_creations_per_minute,
+            50_000,
+        );
+        let websocket_event_rate_limiter = FixedWindowRateLimiter::new(
+            Duration::from_secs(1),
+            settings.websocket_events_per_second,
+            100_000,
+        );
+        let websocket_slots = Arc::new(Semaphore::new(settings.max_websocket_connections));
         Self {
             settings: Arc::new(settings),
             store,
@@ -105,7 +146,41 @@ impl AppState {
             hub: ConnectionHub::default(),
             matchmaking: Arc::new(Mutex::new(VecDeque::new())),
             turn_timers: Arc::new(DashMap::new()),
+            api_rate_limiter,
+            session_creation_rate_limiter,
+            websocket_event_rate_limiter,
+            websocket_slots,
         }
+    }
+
+    pub fn enforce_api_rate_limit(&self, session_id: Uuid) -> Result<(), GameError> {
+        self.api_rate_limiter
+            .check(session_id.to_string())
+            .then_some(())
+            .ok_or(GameError::RateLimited)
+    }
+
+    pub fn enforce_session_creation_rate_limit(&self, client_key: &str) -> Result<(), GameError> {
+        self.session_creation_rate_limiter
+            .check(client_key)
+            .then_some(())
+            .ok_or(GameError::RateLimited)
+    }
+
+    pub fn allow_websocket_event(&self, session_id: Uuid) -> bool {
+        self.websocket_event_rate_limiter
+            .check(session_id.to_string())
+    }
+
+    pub fn websocket_send_queue_capacity(&self) -> usize {
+        self.settings.websocket_send_queue_capacity
+    }
+
+    pub fn try_acquire_websocket_slot(&self) -> Result<OwnedSemaphorePermit, GameError> {
+        self.websocket_slots
+            .clone()
+            .try_acquire_owned()
+            .map_err(|_| GameError::RateLimited)
     }
 
     pub async fn create_session(
@@ -282,6 +357,32 @@ impl AppState {
 
     pub async fn save_room(&self, room: &GameRoom) -> Result<(), GameError> {
         self.store.save_room(room).await
+    }
+
+    pub async fn revoke_session(
+        &self,
+        session: &UserSession,
+    ) -> Result<Option<GameRoom>, GameError> {
+        self.cancel_matchmaking(session.id).await;
+        let departed_room = if let Some(room_id) = session.current_room_id {
+            match self.leave_room(session, room_id).await {
+                Ok(room) => Some(room),
+                Err(error) => {
+                    tracing::warn!(
+                        session_id = %session.id,
+                        room_id = %room_id,
+                        error_code = error.code(),
+                        "session revoked after room departure failed"
+                    );
+                    None
+                }
+            }
+        } else {
+            None
+        };
+        self.hub.close(session.id);
+        self.store.delete_session(session.id).await?;
+        Ok(departed_room)
     }
 
     pub fn invite_url(&self, code: &str) -> String {
@@ -692,7 +793,7 @@ pub fn hash_token(token: &str) -> String {
 #[derive(Debug, Clone)]
 struct ConnectionEntry {
     connection_id: Uuid,
-    sender: mpsc::UnboundedSender<ServerEvent>,
+    sender: mpsc::Sender<ServerEvent>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -701,7 +802,7 @@ pub struct ConnectionHub {
 }
 
 impl ConnectionHub {
-    pub fn connect(&self, session_id: Uuid, sender: mpsc::UnboundedSender<ServerEvent>) -> Uuid {
+    pub fn connect(&self, session_id: Uuid, sender: mpsc::Sender<ServerEvent>) -> Uuid {
         let connection_id = Uuid::new_v4();
         self.connections.insert(
             session_id,
@@ -726,9 +827,34 @@ impl ConnectionHub {
     }
 
     pub fn send(&self, session_id: Uuid, event: ServerEvent) {
-        if let Some(connection) = self.connections.get(&session_id) {
-            let _ = connection.sender.send(event);
+        let Some(connection) = self.connections.get(&session_id) else {
+            return;
+        };
+        let connection_id = connection.connection_id;
+        let send_result = connection.sender.try_send(event);
+        drop(connection);
+        if let Err(error) = send_result {
+            let reason = if error.is_full() {
+                "websocket slow consumer disconnected"
+            } else {
+                "websocket closed consumer removed"
+            };
+            if self.disconnect_if_current(session_id, connection_id) {
+                tracing::warn!(%session_id, %connection_id, %reason);
+            }
         }
+    }
+
+    pub fn close(&self, session_id: Uuid) -> bool {
+        self.connections.remove(&session_id).is_some()
+    }
+
+    pub fn len(&self) -> usize {
+        self.connections.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.connections.is_empty()
     }
 }
 

@@ -18,6 +18,10 @@ pub struct MemoryStore {
 
 #[async_trait]
 impl GameStore for MemoryStore {
+    async fn health_check(&self) -> Result<(), GameError> {
+        Ok(())
+    }
+
     async fn save_session(&self, session: &UserSession) -> Result<(), GameError> {
         self.session_hash_by_id
             .insert(session.id, session.token_hash.clone());
@@ -52,6 +56,13 @@ impl GameStore for MemoryStore {
             .ok_or(GameError::Unauthorized)?;
         session.current_room_id = room_id;
         session.last_seen_at = chrono::Utc::now();
+        Ok(())
+    }
+
+    async fn delete_session(&self, session_id: Uuid) -> Result<(), GameError> {
+        if let Some((_, hash)) = self.session_hash_by_id.remove(&session_id) {
+            self.sessions_by_hash.remove(&hash);
+        }
         Ok(())
     }
 

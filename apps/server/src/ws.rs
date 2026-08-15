@@ -36,15 +36,22 @@ pub async fn websocket_handler(
         return Err(GameError::OriginNotAllowed);
     }
     let session = authenticate(&state, &jar, &headers).await?;
+    let connection_permit = state.try_acquire_websocket_slot()?;
     Ok(upgrade
         .max_message_size(64 * 1024)
         .max_frame_size(64 * 1024)
-        .on_upgrade(move |socket| handle_socket(socket, state, session)))
+        .on_upgrade(move |socket| handle_socket(socket, state, session, connection_permit)))
 }
 
-async fn handle_socket(socket: WebSocket, state: AppState, session: crate::domain::UserSession) {
+async fn handle_socket(
+    socket: WebSocket,
+    state: AppState,
+    session: crate::domain::UserSession,
+    _connection_permit: tokio::sync::OwnedSemaphorePermit,
+) {
     let (mut socket_sender, mut socket_receiver) = socket.split();
-    let (event_sender, mut event_receiver) = mpsc::unbounded_channel();
+    let (event_sender, mut event_receiver) =
+        mpsc::channel(state.websocket_send_queue_capacity());
     let connection_id = state.hub.connect(session.id, event_sender);
     state.restore_connection(&session).await;
 
@@ -59,6 +66,10 @@ async fn handle_socket(socket: WebSocket, state: AppState, session: crate::domai
                 let Some(Ok(message)) = incoming else { break };
                 match message {
                     Message::Text(text) => {
+                        if !state.allow_websocket_event(session.id) {
+                            state.hub.send(session.id, error_event(GameError::RateLimited));
+                            continue;
+                        }
                         match serde_json::from_str::<ClientEvent>(&text) {
                             Ok(event) => handle_event(&state, &session, event).await,
                             Err(_) => state.hub.send(session.id, error_event(GameError::InvalidRequest)),

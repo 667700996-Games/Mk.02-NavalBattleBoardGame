@@ -33,7 +33,10 @@ async fn main() {
             std::process::exit(1);
         });
     tracing::info!(address = %settings.bind_addr, "Mk.01 command server online");
-    axum::serve(listener, app)
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
         .with_graceful_shutdown(shutdown_signal())
         .await
         .unwrap();
@@ -43,7 +46,7 @@ async fn healthcheck(port: u16) -> bool {
     let check = async move {
         let mut stream = TcpStream::connect(("127.0.0.1", port)).await.ok()?;
         stream
-            .write_all(b"GET /api/health HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+            .write_all(b"GET /api/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
             .await
             .ok()?;
         let mut response = Vec::with_capacity(512);

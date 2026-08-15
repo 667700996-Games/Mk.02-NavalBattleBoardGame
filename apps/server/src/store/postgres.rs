@@ -75,6 +75,13 @@ impl PostgresRedisStore {
 
 #[async_trait]
 impl GameStore for PostgresRedisStore {
+    async fn health_check(&self) -> Result<(), GameError> {
+        sqlx::query_scalar::<_, i32>("SELECT 1")
+            .fetch_one(&self.pool)
+            .await?;
+        Ok(())
+    }
+
     async fn save_session(&self, session: &UserSession) -> Result<(), GameError> {
         sqlx::query(
             "INSERT INTO user_sessions (id, nickname, token_hash, created_at, last_seen_at, current_room_id) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (id) DO UPDATE SET nickname=$2, token_hash=$3, last_seen_at=$5, current_room_id=$6"
@@ -119,6 +126,14 @@ impl GameStore for PostgresRedisStore {
         if result.rows_affected() == 0 {
             return Err(GameError::Unauthorized);
         }
+        Ok(())
+    }
+
+    async fn delete_session(&self, session_id: Uuid) -> Result<(), GameError> {
+        sqlx::query("DELETE FROM user_sessions WHERE id=$1")
+            .bind(session_id)
+            .execute(&self.pool)
+            .await?;
         Ok(())
     }
 

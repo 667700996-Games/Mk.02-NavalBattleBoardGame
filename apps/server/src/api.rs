@@ -1,13 +1,14 @@
 use axum::{
     Json, Router,
     extract::{
-        Path, State,
+        ConnectInfo, Path, State,
         rejection::{JsonRejection, PathRejection},
     },
     http::{HeaderMap, StatusCode, header::AUTHORIZATION},
     response::IntoResponse,
     routing::{get, post},
 };
+use std::net::SocketAddr;
 use axum_extra::extract::{
     CookieJar,
     cookie::{Cookie, SameSite},
@@ -30,8 +31,12 @@ use crate::{
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/health", get(health))
+        .route("/ready", get(readiness))
         .route("/sessions", post(create_session))
-        .route("/sessions/current", get(current_session))
+        .route(
+            "/sessions/current",
+            get(current_session).delete(delete_current_session),
+        )
         .route("/rooms", get(list_rooms).post(create_room))
         .route("/rooms/join", post(join_room))
         .route("/rooms/{room_id}", get(room_state))
@@ -53,11 +58,29 @@ async fn health(State(state): State<AppState>) -> Json<HealthResponse> {
     })
 }
 
+async fn readiness(State(state): State<AppState>) -> Result<Json<HealthResponse>, GameError> {
+    state.store.health_check().await?;
+    Ok(Json(HealthResponse {
+        status: "ready",
+        storage: state.store.kind(),
+        server_time: Utc::now(),
+        protocol_version: crate::PROTOCOL_VERSION,
+    }))
+}
+
 async fn create_session(
     State(state): State<AppState>,
+    connect_info: Option<ConnectInfo<SocketAddr>>,
     jar: CookieJar,
+    headers: HeaderMap,
     input: Result<Json<CreateSessionInput>, JsonRejection>,
 ) -> Result<impl IntoResponse, GameError> {
+    let client_key = client_rate_limit_key(
+        &headers,
+        connect_info.map(|ConnectInfo(address)| address),
+        state.settings.trust_proxy_headers,
+    );
+    state.enforce_session_creation_rate_limit(&client_key)?;
     let input = parse_json(input)?;
     let (session, token) = state.create_session(input.nickname).await?;
     let max_age = time::Duration::seconds(state.settings.session_ttl.as_secs() as i64);
@@ -82,6 +105,22 @@ async fn create_session(
             }),
         ),
     ))
+}
+
+async fn delete_current_session(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+) -> Result<impl IntoResponse, GameError> {
+    let session = authenticate(&state, &jar, &headers).await?;
+    if let Some(room) = state.revoke_session(&session).await? {
+        state
+            .broadcast_snapshots(&room, SnapshotEvent::PlayerLeft)
+            .await;
+        state.broadcast_latest_chat_message(&room);
+    }
+    let removal_cookie = Cookie::build(("mk01_session", "")).path("/").build();
+    Ok((jar.remove(removal_cookie), StatusCode::NO_CONTENT))
 }
 
 async fn current_session(
@@ -263,5 +302,34 @@ pub async fn authenticate(
     let authorization = headers
         .get(AUTHORIZATION)
         .and_then(|value| value.to_str().ok());
-    state.authenticate(jar, authorization).await
+    let session = state.authenticate(jar, authorization).await?;
+    state.enforce_api_rate_limit(session.id)?;
+    Ok(session)
+}
+
+fn client_rate_limit_key(
+    headers: &HeaderMap,
+    direct_address: Option<SocketAddr>,
+    trust_proxy_headers: bool,
+) -> String {
+    if trust_proxy_headers {
+        let forwarded_ip = headers
+            .get("x-forwarded-for")
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.split(',').next())
+            .map(str::trim)
+            .and_then(|value| value.parse::<std::net::IpAddr>().ok())
+            .or_else(|| {
+                headers
+                    .get("x-real-ip")
+                    .and_then(|value| value.to_str().ok())
+                    .and_then(|value| value.parse::<std::net::IpAddr>().ok())
+            });
+        if let Some(ip) = forwarded_ip {
+            return ip.to_string();
+        }
+    }
+    direct_address
+        .map(|address| address.ip().to_string())
+        .unwrap_or_else(|| "unknown-client".to_string())
 }
