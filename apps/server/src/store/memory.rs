@@ -10,7 +10,9 @@ use crate::{
     error::GameError,
 };
 
-use super::{GameHistoryItem, GameStore, MatchmakingClaim, MatchmakingEnqueueResult};
+use super::{
+    GameHistoryItem, GameStore, MatchmakingClaim, MatchmakingEnqueueResult, MatchmakingQueueStats,
+};
 
 #[derive(Debug, Clone)]
 struct MatchmakingEntry {
@@ -170,7 +172,9 @@ impl GameStore for MemoryStore {
 
         let now = Utc::now();
         let stale_before = now - Duration::seconds(30);
+        let abandoned_before = now - Duration::minutes(10);
         let mut queue = self.matchmaking.lock().await;
+        queue.retain(|_, entry| entry.claim_id.is_some() || entry.queued_at >= abandoned_before);
         for entry in queue.values_mut() {
             if entry
                 .claimed_at
@@ -323,6 +327,24 @@ impl GameStore for MemoryStore {
             .await
             .get(&session_id)
             .map(|entry| entry.queued_at))
+    }
+
+    async fn matchmaking_queue_stats(&self) -> Result<MatchmakingQueueStats, GameError> {
+        let queue = self.matchmaking.lock().await;
+        let oldest_age_seconds = queue
+            .values()
+            .map(|entry| {
+                Utc::now()
+                    .signed_duration_since(entry.queued_at)
+                    .num_seconds()
+                    .max(0) as u64
+            })
+            .max()
+            .unwrap_or_default();
+        Ok(MatchmakingQueueStats {
+            queued: queue.len() as u64,
+            oldest_age_seconds,
+        })
     }
 
     fn kind(&self) -> &'static str {

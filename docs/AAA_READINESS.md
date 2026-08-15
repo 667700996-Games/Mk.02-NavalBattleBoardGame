@@ -27,8 +27,8 @@ The program is complete only when all gates below are satisfied in a production-
 
 ### A1. Distributed room authority
 
-- [ ] A room has exactly one active authoritative owner at a time.
-- [ ] Ownership is leased or fenced so a paused/stale process cannot commit after takeover.
+- [x] A room has exactly one active authoritative owner at a time.
+- [x] Ownership is leased or fenced so a paused/stale process cannot commit after takeover.
 - [x] Every mutation uses a persistence revision and rejects stale writes atomically.
 - [x] WebSocket fan-out reaches players connected to different application instances.
 - [ ] Instance termination transfers or recovers active rooms within the reconnect SLO.
@@ -92,7 +92,7 @@ The program is complete only when all gates below are satisfied in a production-
 ### C1. First-time experience and practice
 
 - [x] Interactive tutorial teaches placement, targeting, turn timer, fog of war, and rematch.
-- [ ] Practice AI offers documented difficulty levels and deterministic test fixtures.
+- [x] Practice AI offers documented difficulty levels and deterministic test fixtures.
 - [ ] Contextual help and input prompts work on mouse, keyboard, touch, and controller if supported.
 - [ ] New-player funnel metrics identify failure and abandonment points.
 

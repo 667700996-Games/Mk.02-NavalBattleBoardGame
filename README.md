@@ -18,6 +18,7 @@
 - `NORMAL`/`SURRENDER`/`DISCONNECT`/`TIMEOUT` 종료 원인과 시간 초과 통계 기록
 - 재경기, 승패·명중률·턴·플레이 시간 통계, 전투 기록
 - 배치·안개 전장·좌표 공격·턴 제한·재접속을 직접 익히는 대화형 신규 사용자 튜토리얼
+- 신병·장교·제독 3단계의 서버 권위형 AI 연습 교전과 결정적 공격 선택 테스트
 - 데스크톱 2보드 레이아웃과 모바일 탭 전환, 키보드 조작, 고대비/모션 감소, 사운드 설정
 - PostgreSQL 영속화·리비전 펜싱·분산 매칭, Redis 인스턴스 간 이벤트 팬아웃·공유 속도 제한
 
@@ -55,7 +56,7 @@ flowchart LR
   S2 <-->|Pub/Sub / shared limits| R
 ```
 
-브라우저는 자신의 배치/보드와 자신이 실행한 공격 결과만 받습니다. `GameRoom` 내부 스냅샷은 최근 채팅 100개를 포함해 PostgreSQL JSONB에 저장되며, `persistenceRevision`을 비교하는 원자적 CAS로 오래된 서버 쓰기를 거절합니다. Redis는 세션별 실시간 이벤트를 다른 서버 인스턴스로 전달하고 HTTP/WebSocket 속도 제한을 공유합니다. 운영에서 `DISTRIBUTED_COORDINATION_REQUIRED=true`면 Redis 시작/구독 실패 시 서버 시작 또는 readiness가 실패합니다.
+브라우저는 자신의 배치/보드와 자신이 실행한 공격 결과만 받습니다. `GameRoom` 내부 스냅샷은 최근 채팅 100개를 포함해 PostgreSQL JSONB에 저장됩니다. 각 운영 변이는 5초짜리 방 권위 임대와 단조 증가 펜싱 토큰을 먼저 획득하고, 같은 트랜잭션에서 `persistenceRevision` CAS까지 통과해야 확정됩니다. 커밋 시 임대를 즉시 반환하므로 다른 인스턴스가 다음 명령을 처리할 수 있으며, 멈춘 프로세스는 임대 만료와 인수 후 저장할 수 없습니다. Redis는 세션별 실시간 이벤트를 다른 서버 인스턴스로 전달하고 HTTP/WebSocket 속도 제한을 공유합니다. 운영에서 `DISTRIBUTED_COORDINATION_REQUIRED=true`면 Redis 시작/구독 실패 시 서버 시작 또는 readiness가 실패합니다.
 
 빠른 매칭은 PostgreSQL의 영속 큐와 30초 클레임 임대를 사용합니다. 두 세션 확정, 비공개 방 생성, 큐 제거는 한 트랜잭션으로 처리되어 두 인스턴스가 같은 사용자를 중복 매칭할 수 없습니다. 턴·재접속 마감은 스냅샷에 영속하고 각 방의 절대 UTC 마감만 스케줄하며, 복수 인스턴스가 동시에 시도해도 CAS 펜싱을 통과한 한 번만 확정됩니다.
 
@@ -154,6 +155,7 @@ POSTGRES_PASSWORD='replace-this-local-password' docker compose up --build
 | `GET`         | `/metrics`              | Prometheus 형식 운영 메트릭              |
 | `POST`        | `/sessions`             | 닉네임 검증 후 게스트 세션 생성          |
 | `GET/DELETE`  | `/sessions/current`     | 현재 세션 복구 / 서버 세션 폐기          |
+| `POST`        | `/practice`             | 난이도별 서버 권위 AI 연습전 생성         |
 | `GET/POST`    | `/rooms`                | 공개 방 목록 / 방 생성                   |
 | `POST`        | `/rooms/join`           | 방 코드로 참가                           |
 | `GET`         | `/rooms/{roomId}`       | 본인 기준 비공개 필터 스냅샷             |
@@ -265,7 +267,7 @@ npm run build       # Rust release + SvelteKit adapter-node
 npm run budget      # JS/CSS/WOFF2 파일·총량 제한과 기존 WOFF 차단
 ```
 
-Rust 테스트는 대기실 상태 머신, 멱등성, 버전 충돌, 배치, 공격/만료 경쟁, 재시작 복구, 채팅 검증과 공개 정보 필터를 검증합니다. CI의 PostgreSQL/Redis 통합 테스트는 동시 CAS 쓰기에서 단 하나만 성공함, 분산 매칭의 원자적 확정, 두 AppState 사이 Pub/Sub 이벤트 전달을 검증합니다. Playwright는 독립 브라우저 2개의 전체 경기·변조 요청 거절·새로고침 복구와 모바일 오버플로를 검증합니다.
+Rust 테스트는 대기실 상태 머신, 멱등성, 버전 충돌, 배치, AI의 결정적·비반복 공격, 공격/만료 경쟁, 재시작 복구, 채팅 검증과 공개 정보 필터를 검증합니다. CI의 PostgreSQL/Redis 통합 테스트는 동시 CAS 쓰기에서 단 하나만 성공함, 권위 임대 만료 후 인수와 오래 멈춘 소유자의 펜싱, 분산 매칭의 원자적 확정, 두 AppState 사이 Pub/Sub 이벤트 전달을 검증합니다. Playwright는 독립 브라우저 2개의 전체 경기·변조 요청 거절·새로고침 복구와 모바일 오버플로를 검증합니다.
 
 ## 프로덕션 빌드·배포
 
@@ -284,7 +286,7 @@ HOST=0.0.0.0 PORT=3000 ORIGIN='https://game.example.com' node apps/web/build
 
 ## 알려진 제한
 
-- 방 쓰기는 PostgreSQL 리비전으로 안전하게 펜싱되지만, 장기 소유권 임대와 명령 전달 프로토콜은 아직 없습니다. 따라서 다른 인스턴스의 오래된 로컬 스냅샷에서 첫 명령은 `VERSION_CONFLICT`로 거절된 뒤 최신 상태를 불러올 수 있습니다.
+- 방 쓰기는 PostgreSQL의 변이 단위 권위 임대·펜싱 토큰·리비전 CAS로 보호됩니다. 완전히 동시에 도착한 서로 다른 인스턴스의 명령 중 뒤쪽 명령은 `VERSION_CONFLICT`로 재시도될 수 있으며, 각 인스턴스는 명령 전에 PostgreSQL 권위 스냅샷으로 로컬 상태를 갱신합니다.
 - WebSocket 연결 수 제한은 인스턴스별입니다. HTTP·세션 생성·WebSocket 이벤트 속도 제한은 Redis에서 공유되지만 전체 동시 연결 상한은 운영 게이트웨이에서도 제한해야 합니다.
 - 턴과 재접속 마감은 영속 CAS로 중복 확정을 막지만 별도의 지연 작업 큐·소유권 계층·큐 지표를 아직 제공하지 않습니다.
 - 게스트 세션은 디바이스 간 계정 동기화를 제공하지 않습니다. 브라우저 쿠키를 삭제하면 기존 게스트 기록에 다시 접근할 수 없습니다.

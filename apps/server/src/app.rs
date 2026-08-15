@@ -53,7 +53,7 @@ use crate::{
     error::GameError,
     protocol::{CreateRoomInput, ServerEvent},
     rate_limit::FixedWindowRateLimiter,
-    store::{GameStore, MemoryStore, PostgresRedisStore},
+    store::{GameStore, MatchmakingQueueStats, MemoryStore, PostgresRedisStore},
     ws,
 };
 
@@ -115,7 +115,7 @@ impl Default for ServerMetrics {
 }
 
 impl ServerMetrics {
-    pub fn render_prometheus(&self) -> String {
+    pub fn render_prometheus(&self, matchmaking: MatchmakingQueueStats) -> String {
         let counter = |name: &str, help: &str, value: &AtomicU64| {
             format!(
                 "# HELP {name} {help}\n# TYPE {name} counter\n{name} {}\n",
@@ -195,6 +195,16 @@ impl ServerMetrics {
                 "mk01_matchmaking_cancelled_total",
                 "Successfully cancelled matchmaking entries.",
                 &self.matchmaking_cancelled,
+            ),
+            gauge(
+                "mk01_matchmaking_queue_depth",
+                "Current durable matchmaking queue entries.",
+                matchmaking.queued,
+            ),
+            gauge(
+                "mk01_matchmaking_oldest_age_seconds",
+                "Age of the oldest durable matchmaking queue entry in seconds.",
+                matchmaking.oldest_age_seconds,
             ),
         ]
         .concat()
@@ -707,8 +717,12 @@ impl AppState {
             .map(|entry| entry.value().clone())
             .collect();
         for room in cached_rooms {
-            if room.lock().await.code == normalized {
-                return Ok(room);
+            let room_id = {
+                let cached = room.lock().await;
+                (cached.code == normalized).then_some(cached.id)
+            };
+            if let Some(room_id) = room_id {
+                return self.room(room_id).await;
             }
         }
         let mut room = self

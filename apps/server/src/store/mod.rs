@@ -36,6 +36,12 @@ pub struct MatchmakingEnqueueResult {
     pub claim: Option<MatchmakingClaim>,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct MatchmakingQueueStats {
+    pub queued: u64,
+    pub oldest_age_seconds: u64,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RoomAuthorityLease {
     pub room_id: Uuid,
@@ -99,5 +105,6 @@ pub trait GameStore: Send + Sync {
     async fn release_matchmaking_claim(&self, claim_id: Uuid) -> Result<(), GameError>;
     async fn cancel_matchmaking(&self, session_id: Uuid) -> Result<bool, GameError>;
     async fn matchmaking_time(&self, session_id: Uuid) -> Result<Option<DateTime<Utc>>, GameError>;
+    async fn matchmaking_queue_stats(&self) -> Result<MatchmakingQueueStats, GameError>;
     fn kind(&self) -> &'static str;
 }

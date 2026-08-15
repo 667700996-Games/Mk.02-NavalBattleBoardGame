@@ -52,12 +52,17 @@ pub fn router() -> Router<AppState> {
 }
 
 async fn metrics(State(state): State<AppState>) -> impl IntoResponse {
+    let matchmaking = state
+        .store
+        .matchmaking_queue_stats()
+        .await
+        .unwrap_or_default();
     (
         [(
             axum::http::header::CONTENT_TYPE,
             "text/plain; version=0.0.4",
         )],
-        state.metrics.render_prometheus(),
+        state.metrics.render_prometheus(matchmaking),
     )
 }
 

@@ -12,7 +12,8 @@ use crate::{
 };
 
 use super::{
-    GameHistoryItem, GameStore, MatchmakingClaim, MatchmakingEnqueueResult, RoomAuthorityLease,
+    GameHistoryItem, GameStore, MatchmakingClaim, MatchmakingEnqueueResult, MatchmakingQueueStats,
+    RoomAuthorityLease,
 };
 
 #[derive(Clone)]
@@ -419,6 +420,11 @@ impl GameStore for PostgresRedisStore {
         .execute(&mut *transaction)
         .await?;
         sqlx::query(
+            "DELETE FROM matchmaking_queue WHERE claim_id IS NULL AND queued_at < now() - interval '10 minutes'",
+        )
+        .execute(&mut *transaction)
+        .await?;
+        sqlx::query(
             "INSERT INTO matchmaking_queue (session_id, queued_at) VALUES ($1, now()) ON CONFLICT (session_id) DO NOTHING",
         )
         .bind(session.id)
@@ -594,6 +600,18 @@ impl GameStore for PostgresRedisStore {
             .fetch_optional(&self.pool)
             .await
             .map_err(Into::into)
+    }
+
+    async fn matchmaking_queue_stats(&self) -> Result<MatchmakingQueueStats, GameError> {
+        let (queued, oldest_age_seconds): (i64, i64) = sqlx::query_as(
+            "SELECT count(*)::bigint, COALESCE(EXTRACT(EPOCH FROM now()-min(queued_at)), 0)::bigint FROM matchmaking_queue",
+        )
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(MatchmakingQueueStats {
+            queued: queued.max(0) as u64,
+            oldest_age_seconds: oldest_age_seconds.max(0) as u64,
+        })
     }
 
     fn kind(&self) -> &'static str {

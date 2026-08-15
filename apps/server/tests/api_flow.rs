@@ -340,6 +340,8 @@ async fn liveness_readiness_and_security_headers_are_exposed() {
     .unwrap();
     assert!(metrics.contains("# TYPE mk01_http_requests_total counter"));
     assert!(metrics.contains("# TYPE mk01_websocket_connections gauge"));
+    assert!(metrics.contains("# TYPE mk01_matchmaking_queue_depth gauge"));
+    assert!(metrics.contains("# TYPE mk01_matchmaking_oldest_age_seconds gauge"));
 }
 
 #[tokio::test]
