@@ -113,6 +113,9 @@
       >
       <span><Radio size={15} /><strong>실시간 재접속</strong><small>RESILIENT</small></span>
     </div>
+    <a class="tutorial-link" href={resolve('/tutorial')}
+      >처음이신가요? 5분 작전 튜토리얼 <ArrowRight size={15} /></a
+    >
   </div>
 
   <div class="command-visual" aria-hidden="true">

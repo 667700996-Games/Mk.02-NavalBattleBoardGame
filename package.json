@@ -9,6 +9,7 @@
     "dev": "concurrently -k -n SERVER,WEB -c blue,cyan \"cargo run -p mk01-server\" \"npm run dev:web\"",
     "dev:web": "npm --workspace @mk01/web run dev",
     "build": "cargo build --workspace --release && npm --workspace @mk01/web run build",
+    "budget": "node tools/check-bundle-budgets.mjs",
     "check": "cargo check --workspace && npm --workspace @mk01/web run check",
     "lint": "cargo fmt --all -- --check && cargo clippy --workspace --all-targets -- -D warnings && npm --workspace @mk01/web run lint",
     "format": "cargo fmt --all && npm --workspace @mk01/web run format",

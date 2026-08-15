@@ -45,12 +45,14 @@ export interface Preferences {
   sound: boolean;
   reducedMotion: boolean;
   highContrast: boolean;
+  tutorialCompleted: boolean;
 }
 
 const defaults: Preferences = {
   sound: true,
   reducedMotion: false,
-  highContrast: false
+  highContrast: false,
+  tutorialCompleted: false
 };
 
 function loadPreferences(): Preferences {

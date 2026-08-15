@@ -164,7 +164,6 @@ impl AppState {
             state.start_distributed_event_subscriber(client, subscriber);
         }
         state.restore_active_rooms().await?;
-        state.start_turn_expiry_watchdog();
         Ok(state)
     }
 
@@ -912,38 +911,6 @@ impl AppState {
                     .is_some_and(|current| *current == key)
             {
                 state.cancel_turn_expiry(timer.room_id);
-            }
-        });
-    }
-
-    fn start_turn_expiry_watchdog(&self) {
-        let state = self.clone();
-        tokio::spawn(async move {
-            loop {
-                tokio::time::sleep(Duration::from_millis(250)).await;
-                let rooms: Vec<_> = state
-                    .rooms
-                    .iter()
-                    .map(|entry| entry.value().clone())
-                    .collect();
-                for room_ref in rooms {
-                    let mut room = room_ref.lock().await;
-                    let Some(timer) = room.timer_state(Utc::now()) else {
-                        continue;
-                    };
-                    let Some(deadline) = timer.turn_deadline_at else {
-                        continue;
-                    };
-                    if Utc::now() < deadline {
-                        continue;
-                    }
-                    let key = TurnTimerKey {
-                        turn_number: timer.turn_number,
-                        active_player_id: timer.active_player_id,
-                        deadline,
-                    };
-                    state.resolve_turn_expiry(&mut room, &key).await;
-                }
             }
         });
     }
