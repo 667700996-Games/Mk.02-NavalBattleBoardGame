@@ -1,6 +1,8 @@
 mod memory;
 mod postgres;
 
+use std::time::Duration;
+
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
@@ -34,6 +36,13 @@ pub struct MatchmakingEnqueueResult {
     pub claim: Option<MatchmakingClaim>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RoomAuthorityLease {
+    pub room_id: Uuid,
+    pub owner_instance_id: Uuid,
+    pub fencing_token: u64,
+}
+
 #[async_trait]
 pub trait GameStore: Send + Sync {
     async fn health_check(&self) -> Result<(), GameError>;
@@ -49,6 +58,27 @@ pub trait GameStore: Send + Sync {
     ) -> Result<(), GameError>;
     async fn delete_session(&self, session_id: Uuid) -> Result<(), GameError>;
     async fn save_room(&self, room: &mut GameRoom) -> Result<(), GameError>;
+    async fn acquire_room_authority(
+        &self,
+        _room_id: Uuid,
+        _owner_instance_id: Uuid,
+        _lease_duration: Duration,
+    ) -> Result<Option<RoomAuthorityLease>, GameError> {
+        Ok(None)
+    }
+    async fn save_room_fenced(
+        &self,
+        room: &mut GameRoom,
+        _lease: RoomAuthorityLease,
+    ) -> Result<(), GameError> {
+        self.save_room(room).await
+    }
+    async fn release_room_authority(
+        &self,
+        _lease: RoomAuthorityLease,
+    ) -> Result<(), GameError> {
+        Ok(())
+    }
     async fn room_by_id(&self, id: Uuid) -> Result<Option<GameRoom>, GameError>;
     async fn room_by_id_authoritative(&self, id: Uuid) -> Result<Option<GameRoom>, GameError> {
         self.room_by_id(id).await
