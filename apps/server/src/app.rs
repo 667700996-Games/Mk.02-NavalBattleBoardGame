@@ -749,11 +749,12 @@ impl AppState {
             return Err(GameError::AlreadyJoined);
         }
         let code = self.unique_room_code().await?;
-        let mut room = GameRoom::new(
+        let mut room = GameRoom::new_with_rules(
             code,
             input.name.trim().to_string(),
             input.visibility,
             session,
+            input.rules.unwrap_or_default(),
         )?;
         self.save_room(&mut room).await?;
         self.store
@@ -784,6 +785,7 @@ impl AppState {
                 CreateRoomInput {
                     name: "AI 전술 훈련".to_string(),
                     visibility: RoomVisibility::Private,
+                    rules: None,
                 },
             )
             .await?;

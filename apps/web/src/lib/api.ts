@@ -4,6 +4,7 @@ import type {
   GameSnapshot,
   GameReplay,
   HistoryItem,
+  MatchRules,
   RoomCreatedResponse,
   RoomSummary,
   RoomVisibility,
@@ -79,10 +80,10 @@ export const api = {
   currentSession: () => request<Session>('/sessions/current'),
   deleteCurrentSession: () => request<void>('/sessions/current', { method: 'DELETE' }),
   listRooms: roomList,
-  createRoom: async (name: string, visibility: RoomVisibility) => {
+  createRoom: async (name: string, visibility: RoomVisibility, rules?: MatchRules) => {
     const response = await request<RoomCreatedResponse>('/rooms', {
       method: 'POST',
-      body: JSON.stringify({ name, visibility })
+      body: JSON.stringify({ name, visibility, rules })
     });
     return { ...response, snapshot: compatibleSnapshot(response.snapshot) };
   },

@@ -8,6 +8,7 @@ export type RoomStatus =
   | 'CANCELLED';
 
 export type RoomVisibility = 'PUBLIC' | 'PRIVATE';
+export type GameMode = 'CLASSIC' | 'RAPID' | 'SALVO';
 export type ConnectionState = 'ONLINE' | 'RECONNECTING' | 'OFFLINE';
 export type PlayerReadyState = 'NOT_READY' | 'READY';
 export type PlayerRole = 'HOST' | 'GUEST';
@@ -44,9 +45,13 @@ export interface ShipPlacement {
 export interface Session {
   id: string;
   nickname: string;
-  kind: PlayerKind;
   currentRoomId: string | null;
   expiresAt: string;
+}
+
+export interface MatchRules {
+  mode: GameMode;
+  turnDurationSeconds: number | null;
 }
 
 export interface RoomSummary {
@@ -54,6 +59,7 @@ export interface RoomSummary {
   code: string;
   name: string;
   status: RoomStatus;
+  rules: MatchRules;
   hostPlayerId: string;
   gameId: string | null;
   version: number;
@@ -65,6 +71,7 @@ export interface RoomSummary {
 export interface PlayerPublic {
   id: string;
   nickname: string;
+  kind: PlayerKind;
   role: PlayerRole;
   isHost: boolean;
   placementConfirmed: boolean;
@@ -206,6 +213,7 @@ export interface GameSnapshot {
   selfPlayerId: string;
   players: PlayerPublic[];
   practiceDifficulty: AiDifficulty | null;
+  rules: MatchRules;
   ownBoard: OwnBoardSnapshot | null;
   targetBoard: TargetBoardSnapshot | null;
   revealedBoard: OwnBoardSnapshot | null;
@@ -221,6 +229,7 @@ export interface GameSnapshot {
   turnStartedAt: string | null;
   turnDeadlineAt: string | null;
   turnDurationSeconds: number | null;
+  shotsRemainingInTurn: number | null;
   serverTimestamp: string;
 }
 
@@ -234,6 +243,7 @@ export interface AttackRecord {
   turnNumber: number;
   nextPlayerId: string | null;
   winnerId: string | null;
+  shotsRemainingInTurn: number;
   resolvedVersion: number;
   createdAt: string;
 }

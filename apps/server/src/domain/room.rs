@@ -9,7 +9,7 @@ use crate::error::GameError;
 use super::{
     ALLOWED_EMOJIS, AttackOutcome, AttackRecord, Board, ChatMessage, ChatMessageType,
     ChatTypingEvent, ConnectionState, Coordinate, FinishReason, Game, GameResult,
-    GameTimelineEvent, MAX_CHAT_HISTORY, MAX_CHAT_MESSAGE_CHARS, Player, PlayerKind,
+    GameTimelineEvent, MatchRules, MAX_CHAT_HISTORY, MAX_CHAT_MESSAGE_CHARS, Player, PlayerKind,
     PlayerReadyState, PlayerRole, QuickCommandId, ShipKind, ShipPlacement, SurrenderRecord,
     TurnExpiration, UserSession,
 };
@@ -128,6 +128,8 @@ pub struct GameRoom {
     pub code: String,
     pub name: String,
     pub visibility: RoomVisibility,
+    #[serde(default)]
+    pub rules: MatchRules,
     pub status: RoomStatus,
     #[serde(default)]
     pub host_player_id: Uuid,
@@ -168,7 +170,18 @@ impl GameRoom {
         visibility: RoomVisibility,
         host_session: &UserSession,
     ) -> Result<Self, GameError> {
+        Self::new_with_rules(code, name, visibility, host_session, MatchRules::default())
+    }
+
+    pub fn new_with_rules(
+        code: String,
+        name: String,
+        visibility: RoomVisibility,
+        host_session: &UserSession,
+        rules: MatchRules,
+    ) -> Result<Self, GameError> {
         validate_room_name(&name)?;
+        let rules = rules.validate()?;
         let now = Utc::now();
         let host = Player::new(host_session, true);
         let host_player_id = host.id;
@@ -177,6 +190,7 @@ impl GameRoom {
             code,
             name,
             visibility,
+            rules,
             status: RoomStatus::WaitingForOpponent,
             host_player_id,
             players: vec![host],
@@ -571,7 +585,7 @@ impl GameRoom {
                     .ok_or(GameError::IncompleteFleet)?;
                 boards.insert(player.id, Board::from_placements(placements)?);
             }
-            self.game = Some(Game::new_with_turn_duration(boards, turn_duration_seconds)?);
+            self.game = Some(Game::new_with_rules(boards, self.rules, turn_duration_seconds)?);
             self.status = RoomStatus::Playing;
             self.pending_placements.clear();
             self.bump();
@@ -1238,6 +1252,7 @@ impl GameRoom {
             code: self.code.clone(),
             name: self.name.clone(),
             status: self.status,
+            rules: self.rules,
             host_player_id: self.host_player_id,
             game_id: self.game_id,
             version: self.version,
@@ -1341,6 +1356,7 @@ impl GameRoom {
             self_player_id: me.id,
             players,
             practice_difficulty: self.practice_difficulty,
+            rules: self.rules,
             own_board,
             target_board,
             revealed_board,
@@ -1359,6 +1375,10 @@ impl GameRoom {
             turn_started_at: self.game.as_ref().and_then(|game| game.turn_started_at),
             turn_deadline_at: self.game.as_ref().and_then(|game| game.turn_deadline_at),
             turn_duration_seconds: self.game.as_ref().map(|game| game.turn_duration_seconds),
+            shots_remaining_in_turn: self
+                .game
+                .as_ref()
+                .map(|game| game.shots_remaining_in_turn),
             server_timestamp: Utc::now(),
         })
     }
@@ -1457,6 +1477,7 @@ pub struct RoomSummary {
     pub code: String,
     pub name: String,
     pub status: RoomStatus,
+    pub rules: MatchRules,
     pub host_player_id: Uuid,
     pub game_id: Option<Uuid>,
     pub version: u64,
@@ -1520,6 +1541,7 @@ pub struct GameSnapshot {
     pub self_player_id: Uuid,
     pub players: Vec<PlayerPublic>,
     pub practice_difficulty: Option<AiDifficulty>,
+    pub rules: MatchRules,
     pub own_board: Option<OwnBoardSnapshot>,
     pub target_board: Option<TargetBoardSnapshot>,
     pub revealed_board: Option<OwnBoardSnapshot>,
@@ -1535,6 +1557,7 @@ pub struct GameSnapshot {
     pub turn_started_at: Option<DateTime<Utc>>,
     pub turn_deadline_at: Option<DateTime<Utc>>,
     pub turn_duration_seconds: Option<u32>,
+    pub shots_remaining_in_turn: Option<u8>,
     pub server_timestamp: DateTime<Utc>,
 }
 

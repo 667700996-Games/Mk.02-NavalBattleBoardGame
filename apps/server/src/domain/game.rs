@@ -9,6 +9,42 @@ use crate::error::GameError;
 
 use super::{AttackOutcome, Board, Coordinate, ShipKind};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum GameMode {
+    #[default]
+    Classic,
+    Rapid,
+    Salvo,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct MatchRules {
+    #[serde(default)]
+    pub mode: GameMode,
+    #[serde(default)]
+    pub turn_duration_seconds: Option<u32>,
+}
+
+impl MatchRules {
+    pub fn validate(self) -> Result<Self, GameError> {
+        if self.turn_duration_seconds.is_some_and(|seconds| seconds > 300) {
+            return Err(GameError::InvalidRequest);
+        }
+        Ok(self)
+    }
+
+    pub fn resolved_turn_duration(self, fallback: u32) -> u32 {
+        match self.mode {
+            GameMode::Rapid => 30,
+            GameMode::Classic | GameMode::Salvo => {
+                self.turn_duration_seconds.unwrap_or(fallback).min(300)
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AttackRecord {
@@ -21,6 +57,8 @@ pub struct AttackRecord {
     pub turn_number: u32,
     pub next_player_id: Option<Uuid>,
     pub winner_id: Option<Uuid>,
+    #[serde(default = "default_one_shot")]
+    pub shots_remaining_in_turn: u8,
     pub resolved_version: u64,
     pub created_at: DateTime<Utc>,
 }
@@ -110,6 +148,10 @@ pub struct Game {
     pub timeline: Vec<GameTimelineEvent>,
     #[serde(default)]
     pub first_player_id: Uuid,
+    #[serde(default)]
+    pub mode: GameMode,
+    #[serde(default = "default_one_shot")]
+    pub shots_remaining_in_turn: u8,
     pub current_player_id: Uuid,
     pub turn_number: u32,
     pub started_at: DateTime<Utc>,
@@ -135,18 +177,39 @@ impl Game {
         boards: HashMap<Uuid, Board>,
         turn_duration_seconds: u32,
     ) -> Result<Self, GameError> {
+        Self::new_with_rules(
+            boards,
+            MatchRules {
+                mode: GameMode::Classic,
+                turn_duration_seconds: Some(turn_duration_seconds),
+            },
+            turn_duration_seconds,
+        )
+    }
+
+    pub fn new_with_rules(
+        boards: HashMap<Uuid, Board>,
+        rules: MatchRules,
+        fallback_turn_duration_seconds: u32,
+    ) -> Result<Self, GameError> {
         if boards.len() != 2 {
             return Err(GameError::InvalidState);
         }
+        let rules = rules.validate()?;
         let player_ids: Vec<_> = boards.keys().copied().collect();
         let mut rng = rand::rng();
         let current_player_id = *player_ids.choose(&mut rng).ok_or(GameError::InvalidState)?;
+        let shots_remaining_in_turn = shots_for_mode(&boards, current_player_id, rules.mode);
+        let turn_duration_seconds =
+            rules.resolved_turn_duration(fallback_turn_duration_seconds);
         let now = Utc::now();
         Ok(Self {
             boards,
             attacks: Vec::new(),
             timeline: Vec::new(),
             first_player_id: current_player_id,
+            mode: rules.mode,
+            shots_remaining_in_turn,
             current_player_id,
             turn_number: 1,
             started_at: now,
@@ -182,6 +245,8 @@ impl Game {
             attacks: Vec::new(),
             timeline: Vec::new(),
             first_player_id: current_player_id,
+            mode: GameMode::Classic,
+            shots_remaining_in_turn: 1,
             current_player_id,
             turn_number: 1,
             started_at: now,
@@ -257,10 +322,22 @@ impl Game {
             .attack(coordinate)?;
 
         let winner_id = result.all_sunk.then_some(attacker_id);
+        let continues_salvo = winner_id.is_none()
+            && self.mode == GameMode::Salvo
+            && self.shots_remaining_in_turn > 1;
         let next_player_id = if winner_id.is_some() {
             None
+        } else if continues_salvo {
+            Some(attacker_id)
         } else {
             Some(target_id)
+        };
+        let shots_remaining_in_turn = if winner_id.is_some() {
+            0
+        } else if continues_salvo {
+            self.shots_remaining_in_turn.saturating_sub(1)
+        } else {
+            shots_for_mode(&self.boards, target_id, self.mode)
         };
         let record = AttackRecord {
             request_id,
@@ -272,6 +349,7 @@ impl Game {
             turn_number: self.turn_number,
             next_player_id,
             winner_id,
+            shots_remaining_in_turn,
             resolved_version,
             created_at: now,
         };
@@ -282,6 +360,9 @@ impl Game {
 
         if winner_id.is_some() {
             self.finish_at(attacker_id, target_id, FinishReason::FleetDestroyed, now);
+            self.shots_remaining_in_turn = 0;
+        } else if continues_salvo {
+            self.shots_remaining_in_turn = self.shots_remaining_in_turn.saturating_sub(1);
         } else {
             self.current_player_id = target_id;
             self.turn_number += 1;
@@ -386,6 +467,8 @@ impl Game {
     }
 
     fn start_turn_at(&mut self, now: DateTime<Utc>) {
+        self.shots_remaining_in_turn =
+            shots_for_mode(&self.boards, self.current_player_id, self.mode);
         self.turn_started_at = Some(now);
         self.turn_deadline_at = deadline_from(now, self.turn_duration_seconds);
     }
@@ -444,6 +527,21 @@ impl Game {
             win_type: reason.into(),
         });
     }
+}
+
+fn default_one_shot() -> u8 {
+    1
+}
+
+fn shots_for_mode(boards: &HashMap<Uuid, Board>, player_id: Uuid, mode: GameMode) -> u8 {
+    if mode != GameMode::Salvo {
+        return 1;
+    }
+    boards
+        .get(&player_id)
+        .map(|board| board.ships().iter().filter(|ship| !ship.is_sunk()).count() as u8)
+        .unwrap_or(1)
+        .max(1)
 }
 
 fn deadline_from(now: DateTime<Utc>, duration_seconds: u32) -> Option<DateTime<Utc>> {
@@ -519,5 +617,39 @@ mod tests {
             .unwrap();
         assert_eq!(game.current_player_id, second);
         assert_eq!(game.turn_number, 2);
+    }
+
+    #[test]
+    fn salvo_keeps_authority_for_each_surviving_ship_then_changes_turn() {
+        let first = Uuid::new_v4();
+        let second = Uuid::new_v4();
+        let mut game = Game::new_with_first_player(
+            HashMap::from([(first, board_at(0)), (second, board_at(5))]),
+            first,
+        )
+        .unwrap();
+        game.mode = GameMode::Salvo;
+        game.shots_remaining_in_turn = 5;
+
+        for shot in 0_u8..5 {
+            let record = game
+                .fire(
+                    Uuid::new_v4(),
+                    first,
+                    Coordinate { row: shot, col: 9 },
+                    1,
+                    u64::from(shot) + 1,
+                )
+                .unwrap();
+            if shot < 4 {
+                assert_eq!(game.current_player_id, first);
+                assert_eq!(game.turn_number, 1);
+                assert_eq!(record.next_player_id, Some(first));
+                assert_eq!(record.shots_remaining_in_turn, 4 - shot);
+            }
+        }
+        assert_eq!(game.current_player_id, second);
+        assert_eq!(game.turn_number, 2);
+        assert_eq!(game.shots_remaining_in_turn, 5);
     }
 }

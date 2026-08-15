@@ -4,8 +4,8 @@ use uuid::Uuid;
 
 use crate::domain::{
     AiDifficulty, AttackRecord, ChatMessage, ChatMessageType, ChatTypingEvent, Coordinate,
-    GameSnapshot, GameStartRecord, GameTimerState, PlayerReadyRecord, RoomSummary, RoomVisibility,
-    ShipPlacement, SurrenderRecord, TurnExpiredRecord,
+    GameSnapshot, GameStartRecord, GameTimerState, MatchRules, PlayerReadyRecord, RoomSummary,
+    RoomVisibility, ShipPlacement, SurrenderRecord, TurnExpiredRecord,
 };
 
 #[derive(Debug, Clone, Deserialize)]
@@ -28,6 +28,8 @@ pub struct SessionResponse {
 pub struct CreateRoomInput {
     pub name: String,
     pub visibility: RoomVisibility,
+    #[serde(default)]
+    pub rules: Option<MatchRules>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
