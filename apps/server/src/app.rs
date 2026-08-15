@@ -609,37 +609,45 @@ impl AppState {
                     SnapshotEvent::PlayerReconnected => ServerEvent::PlayerReconnected(snapshot),
                     SnapshotEvent::GameSnapshot => ServerEvent::GameSnapshot(snapshot),
                 };
-                self.hub.send(player.session_id, event);
+                self.send_to_session(player.session_id, event).await;
             }
         }
     }
 
-    pub fn broadcast_chat_message(&self, room: &GameRoom, message: &ChatMessage) {
+    pub async fn broadcast_chat_message(&self, room: &GameRoom, message: &ChatMessage) {
         for player in &room.players {
-            self.hub
-                .send(player.session_id, ServerEvent::ChatMessage(message.clone()));
+            self.send_to_session(
+                player.session_id,
+                ServerEvent::ChatMessage(message.clone()),
+            )
+            .await;
         }
     }
 
-    pub fn broadcast_latest_chat_message(&self, room: &GameRoom) {
+    pub async fn broadcast_latest_chat_message(&self, room: &GameRoom) {
         if let Some(message) = room.chat_messages.last() {
-            self.broadcast_chat_message(room, message);
+            self.broadcast_chat_message(room, message).await;
         }
     }
 
-    pub fn broadcast_chat_typing(&self, room: &GameRoom, event: &ChatTypingEvent) {
+    pub async fn broadcast_chat_typing(&self, room: &GameRoom, event: &ChatTypingEvent) {
         for player in &room.players {
             if player.id != event.player_id {
-                self.hub
-                    .send(player.session_id, ServerEvent::ChatTyping(event.clone()));
+                self.send_to_session(player.session_id, ServerEvent::ChatTyping(event.clone()))
+                    .await;
             }
         }
     }
 
-    pub fn broadcast_timer_state(&self, room: &GameRoom, event: fn(GameTimerState) -> ServerEvent) {
+    pub async fn broadcast_timer_state(
+        &self,
+        room: &GameRoom,
+        event: fn(GameTimerState) -> ServerEvent,
+    ) {
         if let Some(timer) = room.timer_state(Utc::now()) {
             for player in &room.players {
-                self.hub.send(player.session_id, event(timer.clone()));
+                self.send_to_session(player.session_id, event(timer.clone()))
+                    .await;
             }
         }
     }
@@ -654,7 +662,7 @@ impl AppState {
         let mut room = room.lock().await;
         if matches!(room.reconnect(session.id), Ok(true)) {
             let _ = self.save_room(&mut room).await;
-            self.broadcast_latest_chat_message(&room);
+            self.broadcast_latest_chat_message(&room).await;
             self.broadcast_snapshots(&room, SnapshotEvent::PlayerReconnected)
                 .await;
         }
@@ -685,7 +693,7 @@ impl AppState {
                 Err(_) => continue,
             };
             let _ = self.save_room(&mut room).await;
-            self.broadcast_latest_chat_message(&room);
+            self.broadcast_latest_chat_message(&room).await;
             self.broadcast_snapshots(&room, SnapshotEvent::PlayerDisconnected)
                 .await;
             drop(room);
@@ -748,7 +756,7 @@ impl AppState {
                 if let Some(session_id) = expired_session_id {
                     let _ = state.store.update_session_room(session_id, None).await;
                 }
-                state.broadcast_latest_chat_message(&room);
+                state.broadcast_latest_chat_message(&room).await;
                 state
                     .broadcast_snapshots(
                         &room,
@@ -870,10 +878,10 @@ impl AppState {
             return false;
         }
         for player in &room.players {
-            self.hub
-                .send(player.session_id, ServerEvent::TurnExpired(record.clone()));
+            self.send_to_session(player.session_id, ServerEvent::TurnExpired(record.clone()))
+                .await;
         }
-        self.broadcast_latest_chat_message(room);
+        self.broadcast_latest_chat_message(room).await;
         self.broadcast_snapshots(
             room,
             if finished {
@@ -886,7 +894,8 @@ impl AppState {
         if finished {
             self.cancel_turn_expiry(room.id);
         } else {
-            self.broadcast_timer_state(room, ServerEvent::TurnStarted);
+            self.broadcast_timer_state(room, ServerEvent::TurnStarted)
+                .await;
             self.schedule_turn_expiry(next_timer);
         }
         true
@@ -928,7 +937,7 @@ impl AppState {
             }
             self.broadcast_snapshots(&room, SnapshotEvent::PlayerJoined)
                 .await;
-            self.broadcast_latest_chat_message(&room);
+            self.broadcast_latest_chat_message(&room).await;
             Ok(Some(room))
         } else {
             queue.push_back(QueuedSession {

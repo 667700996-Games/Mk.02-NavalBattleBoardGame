@@ -2,6 +2,7 @@ mod memory;
 mod postgres;
 
 use async_trait::async_trait;
+use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
 use crate::{
@@ -19,6 +20,18 @@ pub struct GameHistoryItem {
     pub room_name: String,
     pub self_player_id: Uuid,
     pub result: GameResult,
+}
+
+#[derive(Debug, Clone)]
+pub struct MatchmakingClaim {
+    pub id: Uuid,
+    pub opponent: UserSession,
+}
+
+#[derive(Debug, Clone)]
+pub struct MatchmakingEnqueueResult {
+    pub queued_at: DateTime<Utc>,
+    pub claim: Option<MatchmakingClaim>,
 }
 
 #[async_trait]
@@ -47,5 +60,20 @@ pub trait GameStore: Send + Sync {
         &self,
         session_id: Uuid,
     ) -> Result<Vec<GameHistoryItem>, GameError>;
+    async fn enqueue_matchmaking(
+        &self,
+        session: &UserSession,
+    ) -> Result<MatchmakingEnqueueResult, GameError>;
+    async fn complete_matchmaking(
+        &self,
+        claim_id: Uuid,
+        room: &mut GameRoom,
+    ) -> Result<(), GameError>;
+    async fn release_matchmaking_claim(&self, claim_id: Uuid) -> Result<(), GameError>;
+    async fn cancel_matchmaking(&self, session_id: Uuid) -> Result<bool, GameError>;
+    async fn matchmaking_time(
+        &self,
+        session_id: Uuid,
+    ) -> Result<Option<DateTime<Utc>>, GameError>;
     fn kind(&self) -> &'static str;
 }

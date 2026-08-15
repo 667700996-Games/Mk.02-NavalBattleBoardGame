@@ -65,12 +65,21 @@ async fn handle_socket(
                 match message {
                     Message::Text(text) => {
                         if !state.allow_websocket_event(session.id) {
-                            state.hub.send(session.id, error_event(GameError::RateLimited));
+                            state
+                                .send_to_session(session.id, error_event(GameError::RateLimited))
+                                .await;
                             continue;
                         }
                         match serde_json::from_str::<ClientEvent>(&text) {
                             Ok(event) => handle_event(&state, &session, event).await,
-                            Err(_) => state.hub.send(session.id, error_event(GameError::InvalidRequest)),
+                            Err(_) => {
+                                state
+                                    .send_to_session(
+                                        session.id,
+                                        error_event(GameError::InvalidRequest),
+                                    )
+                                    .await;
+                            }
                         }
                     }
                     Message::Ping(payload) => {
@@ -114,8 +123,8 @@ async fn handle_event(state: &AppState, session: &crate::domain::UserSession, ev
                     snapshot: room.snapshot_for(session.id)?,
                 };
                 state
-                    .hub
-                    .send(session.id, ServerEvent::RoomCreated(response));
+                    .send_to_session(session.id, ServerEvent::RoomCreated(response))
+                    .await;
                 Ok(())
             }
             .await
@@ -126,7 +135,7 @@ async fn handle_event(state: &AppState, session: &crate::domain::UserSession, ev
                 state
                     .broadcast_snapshots(&room, SnapshotEvent::PlayerJoined)
                     .await;
-                state.broadcast_latest_chat_message(&room);
+                state.broadcast_latest_chat_message(&room).await;
                 Ok(())
             }
             .await
@@ -137,7 +146,7 @@ async fn handle_event(state: &AppState, session: &crate::domain::UserSession, ev
                 state
                     .broadcast_snapshots(&room, SnapshotEvent::PlayerLeft)
                     .await;
-                state.broadcast_latest_chat_message(&room);
+                state.broadcast_latest_chat_message(&room).await;
                 Ok(())
             }
             .await
@@ -154,11 +163,11 @@ async fn handle_event(state: &AppState, session: &crate::domain::UserSession, ev
                     state.save_room(&mut room).await?;
                 }
                 state
-                    .hub
-                    .send(session.id, ServerEvent::PlayerReadyAccepted(record));
+                    .send_to_session(session.id, ServerEvent::PlayerReadyAccepted(record))
+                    .await;
                 if room.version != previous_version {
                     for message in &room.chat_messages[chat_start..] {
-                        state.broadcast_chat_message(&room, message);
+                        state.broadcast_chat_message(&room, message).await;
                     }
                     state
                         .broadcast_snapshots(&room, SnapshotEvent::RoomUpdated)
@@ -209,8 +218,10 @@ async fn handle_event(state: &AppState, session: &crate::domain::UserSession, ev
                     )
                     .await;
                 if started {
-                    state.broadcast_latest_chat_message(&room);
-                    state.broadcast_timer_state(&room, ServerEvent::TurnStarted);
+                    state.broadcast_latest_chat_message(&room).await;
+                    state
+                        .broadcast_timer_state(&room, ServerEvent::TurnStarted)
+                        .await;
                     state.schedule_turn_expiry(timer);
                 }
                 Ok(())
@@ -229,11 +240,11 @@ async fn handle_event(state: &AppState, session: &crate::domain::UserSession, ev
                     state.save_room(&mut room).await?;
                 }
                 state
-                    .hub
-                    .send(session.id, ServerEvent::PlayerUnreadyAccepted(record));
+                    .send_to_session(session.id, ServerEvent::PlayerUnreadyAccepted(record))
+                    .await;
                 if room.version != previous_version {
                     for message in &room.chat_messages[chat_start..] {
-                        state.broadcast_chat_message(&room, message);
+                        state.broadcast_chat_message(&room, message).await;
                     }
                     state
                         .broadcast_snapshots(&room, SnapshotEvent::RoomUpdated)
@@ -258,7 +269,7 @@ async fn handle_event(state: &AppState, session: &crate::domain::UserSession, ev
                     Err(error) => {
                         if let Ok(message) = room.record_start_rejection(session.id, error.code()) {
                             state.save_room(&mut room).await?;
-                            state.broadcast_chat_message(&room, &message);
+                            state.broadcast_chat_message(&room, &message).await;
                         }
                         return Err(error);
                     }
@@ -267,11 +278,11 @@ async fn handle_event(state: &AppState, session: &crate::domain::UserSession, ev
                     state.save_room(&mut room).await?;
                 }
                 state
-                    .hub
-                    .send(session.id, ServerEvent::GameStartAccepted(record));
+                    .send_to_session(session.id, ServerEvent::GameStartAccepted(record))
+                    .await;
                 if !duplicate {
                     for message in &room.chat_messages[chat_start..] {
-                        state.broadcast_chat_message(&room, message);
+                        state.broadcast_chat_message(&room, message).await;
                     }
                     state
                         .broadcast_snapshots(&room, SnapshotEvent::GamePlacementStarted)
@@ -304,27 +315,33 @@ async fn handle_event(state: &AppState, session: &crate::domain::UserSession, ev
                 }
                 if duplicate {
                     state
-                        .hub
-                        .send(session.id, ServerEvent::AttackResult(record));
+                        .send_to_session(session.id, ServerEvent::AttackResult(record))
+                        .await;
                     if let Ok(snapshot) = room.snapshot_for(session.id) {
                         state
-                            .hub
-                            .send(session.id, ServerEvent::GameSnapshot(snapshot));
+                            .send_to_session(session.id, ServerEvent::GameSnapshot(snapshot))
+                            .await;
                     }
                 } else {
                     let timer = room.timer_state(Utc::now());
                     for player in &room.players {
                         state
-                            .hub
-                            .send(player.session_id, ServerEvent::AttackResult(record.clone()));
+                            .send_to_session(
+                                player.session_id,
+                                ServerEvent::AttackResult(record.clone()),
+                            )
+                            .await;
                         if record.sunk_ship.is_some() {
                             state
-                                .hub
-                                .send(player.session_id, ServerEvent::ShipSunk(record.clone()));
+                                .send_to_session(
+                                    player.session_id,
+                                    ServerEvent::ShipSunk(record.clone()),
+                                )
+                                .await;
                         }
                     }
                     if record.winner_id.is_some() {
-                        state.broadcast_latest_chat_message(&room);
+                        state.broadcast_latest_chat_message(&room).await;
                     }
                     state
                         .broadcast_snapshots(
@@ -339,7 +356,9 @@ async fn handle_event(state: &AppState, session: &crate::domain::UserSession, ev
                     if record.winner_id.is_some() {
                         state.cancel_turn_expiry(room.id);
                     } else {
-                        state.broadcast_timer_state(&room, ServerEvent::TurnStarted);
+                        state
+                            .broadcast_timer_state(&room, ServerEvent::TurnStarted)
+                            .await;
                         state.schedule_turn_expiry(timer);
                     }
                 }
@@ -355,12 +374,14 @@ async fn handle_event(state: &AppState, session: &crate::domain::UserSession, ev
                 state.save_room(&mut room).await?;
                 state.cancel_turn_expiry(room.id);
                 for player in &room.players {
-                    state.hub.send(
-                        player.session_id,
-                        ServerEvent::GameSurrendered(record.clone()),
-                    );
+                    state
+                        .send_to_session(
+                            player.session_id,
+                            ServerEvent::GameSurrendered(record.clone()),
+                        )
+                        .await;
                 }
-                state.broadcast_latest_chat_message(&room);
+                state.broadcast_latest_chat_message(&room).await;
                 state
                     .broadcast_snapshots(&room, SnapshotEvent::GameFinished)
                     .await;
@@ -387,11 +408,11 @@ async fn handle_event(state: &AppState, session: &crate::domain::UserSession, ev
                 )?;
                 if duplicate {
                     state
-                        .hub
-                        .send(session.id, ServerEvent::ChatMessage(message));
+                        .send_to_session(session.id, ServerEvent::ChatMessage(message))
+                        .await;
                 } else {
                     state.save_room(&mut room).await?;
-                    state.broadcast_chat_message(&room, &message);
+                    state.broadcast_chat_message(&room, &message).await;
                 }
                 Ok(())
             }
@@ -402,7 +423,7 @@ async fn handle_event(state: &AppState, session: &crate::domain::UserSession, ev
                 let room_ref = state.room(input.room_id).await?;
                 let room = room_ref.lock().await;
                 let event = room.typing_event(session.id, input.is_typing)?;
-                state.broadcast_chat_typing(&room, &event);
+                state.broadcast_chat_typing(&room, &event).await;
                 Ok(())
             }
             .await
@@ -427,33 +448,39 @@ async fn handle_event(state: &AppState, session: &crate::domain::UserSession, ev
             async {
                 let room_ref = state.room(input.room_id).await?;
                 let room = room_ref.lock().await;
-                state.hub.send(
-                    session.id,
-                    ServerEvent::GameSnapshot(room.snapshot_for(session.id)?),
-                );
-                state.hub.send(
-                    session.id,
-                    ServerEvent::ChatHistory(ChatHistoryResponse {
-                        room_id: room.id,
-                        messages: room.chat_history(session.id)?,
-                    }),
-                );
+                state
+                    .send_to_session(
+                        session.id,
+                        ServerEvent::GameSnapshot(room.snapshot_for(session.id)?),
+                    )
+                    .await;
+                state
+                    .send_to_session(
+                        session.id,
+                        ServerEvent::ChatHistory(ChatHistoryResponse {
+                            room_id: room.id,
+                            messages: room.chat_history(session.id)?,
+                        }),
+                    )
+                    .await;
                 if let Some(timer) = room.timer_state(Utc::now()) {
                     state
-                        .hub
-                        .send(session.id, ServerEvent::GameTimerSync(timer));
+                        .send_to_session(session.id, ServerEvent::GameTimerSync(timer))
+                        .await;
                 }
                 Ok(())
             }
             .await
         }
         ClientEvent::Heartbeat(_) => {
-            state.hub.send(
-                session.id,
-                ServerEvent::Heartbeat(HeartbeatResponse {
-                    server_time: Utc::now(),
-                }),
-            );
+            state
+                .send_to_session(
+                    session.id,
+                    ServerEvent::Heartbeat(HeartbeatResponse {
+                        server_time: Utc::now(),
+                    }),
+                )
+                .await;
             Ok(())
         }
     };
@@ -465,22 +492,24 @@ async fn handle_event(state: &AppState, session: &crate::domain::UserSession, ev
             "websocket request rejected"
         );
         let protocol_error = protocol_error(error, client_request_id);
-        state.hub.send(
-            session.id,
-            if is_ready_event {
-                ServerEvent::PlayerReadyRejected(protocol_error)
-            } else if is_unready_event {
-                ServerEvent::PlayerUnreadyRejected(protocol_error)
-            } else if is_game_start_event {
-                ServerEvent::GameStartRejected(protocol_error)
-            } else if is_chat_event {
-                ServerEvent::ChatRejected(protocol_error)
-            } else if is_placement_event {
-                ServerEvent::PlacementRejected(protocol_error)
-            } else {
-                ServerEvent::Error(protocol_error)
-            },
-        );
+        state
+            .send_to_session(
+                session.id,
+                if is_ready_event {
+                    ServerEvent::PlayerReadyRejected(protocol_error)
+                } else if is_unready_event {
+                    ServerEvent::PlayerUnreadyRejected(protocol_error)
+                } else if is_game_start_event {
+                    ServerEvent::GameStartRejected(protocol_error)
+                } else if is_chat_event {
+                    ServerEvent::ChatRejected(protocol_error)
+                } else if is_placement_event {
+                    ServerEvent::PlacementRejected(protocol_error)
+                } else {
+                    ServerEvent::Error(protocol_error)
+                },
+            )
+            .await;
     }
 }
 

@@ -59,7 +59,7 @@ async fn health(State(state): State<AppState>) -> Json<HealthResponse> {
 }
 
 async fn readiness(State(state): State<AppState>) -> Result<Json<HealthResponse>, GameError> {
-    state.store.health_check().await?;
+    state.health_check().await?;
     Ok(Json(HealthResponse {
         status: "ready",
         storage: state.store.kind(),
@@ -113,7 +113,7 @@ async fn delete_current_session(
         state
             .broadcast_snapshots(&room, SnapshotEvent::PlayerLeft)
             .await;
-        state.broadcast_latest_chat_message(&room);
+        state.broadcast_latest_chat_message(&room).await;
     }
     let removal_cookie = Cookie::build(("mk01_session", "")).path("/").build();
     Ok((jar.remove(removal_cookie), StatusCode::NO_CONTENT))
@@ -172,7 +172,7 @@ async fn join_room(
     state
         .broadcast_snapshots(&room, SnapshotEvent::PlayerJoined)
         .await;
-    state.broadcast_latest_chat_message(&room);
+    state.broadcast_latest_chat_message(&room).await;
     Ok(Json(snapshot))
 }
 
@@ -201,7 +201,7 @@ async fn leave_room(
     state
         .broadcast_snapshots(&room, SnapshotEvent::PlayerLeft)
         .await;
-    state.broadcast_latest_chat_message(&room);
+    state.broadcast_latest_chat_message(&room).await;
     Ok(StatusCode::NO_CONTENT)
 }
 

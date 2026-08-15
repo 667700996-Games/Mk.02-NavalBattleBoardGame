@@ -1,5 +1,8 @@
 use async_trait::async_trait;
+use chrono::{DateTime, Duration, Utc};
 use dashmap::DashMap;
+use std::collections::HashMap;
+use tokio::sync::Mutex;
 use uuid::Uuid;
 
 use crate::{
@@ -7,13 +10,22 @@ use crate::{
     error::GameError,
 };
 
-use super::{GameHistoryItem, GameStore};
+use super::{GameHistoryItem, GameStore, MatchmakingClaim, MatchmakingEnqueueResult};
+
+#[derive(Debug, Clone)]
+struct MatchmakingEntry {
+    session: UserSession,
+    queued_at: DateTime<Utc>,
+    claim_id: Option<Uuid>,
+    claimed_at: Option<DateTime<Utc>>,
+}
 
 #[derive(Debug, Default)]
 pub struct MemoryStore {
     sessions_by_hash: DashMap<String, UserSession>,
     session_hash_by_id: DashMap<Uuid, String>,
     rooms: DashMap<Uuid, GameRoom>,
+    matchmaking: Mutex<HashMap<Uuid, MatchmakingEntry>>,
 }
 
 #[async_trait]
@@ -141,6 +153,179 @@ impl GameStore for MemoryStore {
         }
         history.sort_by_key(|item| std::cmp::Reverse(item.result.finished_at));
         Ok(history)
+    }
+
+    async fn enqueue_matchmaking(
+        &self,
+        session: &UserSession,
+    ) -> Result<MatchmakingEnqueueResult, GameError> {
+        let stored_session = self
+            .sessions_by_hash
+            .get(&session.token_hash)
+            .ok_or(GameError::Unauthorized)?;
+        if stored_session.current_room_id.is_some() {
+            return Err(GameError::AlreadyJoined);
+        }
+        drop(stored_session);
+
+        let now = Utc::now();
+        let stale_before = now - Duration::seconds(30);
+        let mut queue = self.matchmaking.lock().await;
+        for entry in queue.values_mut() {
+            if entry
+                .claimed_at
+                .is_some_and(|claimed_at| claimed_at < stale_before)
+            {
+                entry.claim_id = None;
+                entry.claimed_at = None;
+            }
+        }
+
+        let queued_at = if let Some(entry) = queue.get(&session.id) {
+            if entry.claim_id.is_some() {
+                return Ok(MatchmakingEnqueueResult {
+                    queued_at: entry.queued_at,
+                    claim: None,
+                });
+            }
+            entry.queued_at
+        } else {
+            queue.insert(
+                session.id,
+                MatchmakingEntry {
+                    session: session.clone(),
+                    queued_at: now,
+                    claim_id: None,
+                    claimed_at: None,
+                },
+            );
+            now
+        };
+
+        let opponent_id = queue
+            .iter()
+            .filter(|(session_id, entry)| **session_id != session.id && entry.claim_id.is_none())
+            .min_by_key(|(_, entry)| entry.queued_at)
+            .map(|(session_id, _)| *session_id);
+        let Some(opponent_id) = opponent_id else {
+            return Ok(MatchmakingEnqueueResult {
+                queued_at,
+                claim: None,
+            });
+        };
+
+        let claim_id = Uuid::new_v4();
+        let opponent = queue
+            .get_mut(&opponent_id)
+            .expect("selected matchmaking opponent must exist");
+        opponent.claim_id = Some(claim_id);
+        opponent.claimed_at = Some(now);
+        let opponent = opponent.session.clone();
+        let own_entry = queue
+            .get_mut(&session.id)
+            .expect("queued matchmaking session must exist");
+        own_entry.claim_id = Some(claim_id);
+        own_entry.claimed_at = Some(now);
+
+        Ok(MatchmakingEnqueueResult {
+            queued_at,
+            claim: Some(MatchmakingClaim {
+                id: claim_id,
+                opponent,
+            }),
+        })
+    }
+
+    async fn complete_matchmaking(
+        &self,
+        claim_id: Uuid,
+        room: &mut GameRoom,
+    ) -> Result<(), GameError> {
+        let mut queue = self.matchmaking.lock().await;
+        let mut claimed_session_ids: Vec<_> = queue
+            .iter()
+            .filter(|(_, entry)| entry.claim_id == Some(claim_id))
+            .map(|(session_id, _)| *session_id)
+            .collect();
+        let mut room_session_ids: Vec<_> = room
+            .players
+            .iter()
+            .map(|player| player.session_id)
+            .collect();
+        claimed_session_ids.sort_unstable();
+        room_session_ids.sort_unstable();
+        if claimed_session_ids.len() != 2 || claimed_session_ids != room_session_ids {
+            return Err(GameError::VersionConflict);
+        }
+
+        let session_hashes: Vec<_> = claimed_session_ids
+            .iter()
+            .map(|session_id| {
+                self.session_hash_by_id
+                    .get(session_id)
+                    .map(|hash| hash.clone())
+                    .ok_or(GameError::Unauthorized)
+            })
+            .collect::<Result<_, _>>()?;
+        if session_hashes.iter().any(|hash| {
+            self.sessions_by_hash
+                .get(hash)
+                .is_none_or(|session| session.current_room_id.is_some())
+        }) {
+            return Err(GameError::AlreadyJoined);
+        }
+        if self.rooms.contains_key(&room.id) || room.persistence_revision != 0 {
+            return Err(GameError::VersionConflict);
+        }
+
+        room.persistence_revision = 1;
+        self.rooms.insert(room.id, room.clone());
+        for hash in session_hashes {
+            let mut session = self
+                .sessions_by_hash
+                .get_mut(&hash)
+                .ok_or(GameError::Unauthorized)?;
+            session.current_room_id = Some(room.id);
+            session.last_seen_at = Utc::now();
+        }
+        for session_id in claimed_session_ids {
+            queue.remove(&session_id);
+        }
+        Ok(())
+    }
+
+    async fn release_matchmaking_claim(&self, claim_id: Uuid) -> Result<(), GameError> {
+        let mut queue = self.matchmaking.lock().await;
+        for entry in queue.values_mut() {
+            if entry.claim_id == Some(claim_id) {
+                entry.claim_id = None;
+                entry.claimed_at = None;
+            }
+        }
+        Ok(())
+    }
+
+    async fn cancel_matchmaking(&self, session_id: Uuid) -> Result<bool, GameError> {
+        let mut queue = self.matchmaking.lock().await;
+        if queue
+            .get(&session_id)
+            .is_some_and(|entry| entry.claim_id.is_some())
+        {
+            return Ok(false);
+        }
+        Ok(queue.remove(&session_id).is_some())
+    }
+
+    async fn matchmaking_time(
+        &self,
+        session_id: Uuid,
+    ) -> Result<Option<DateTime<Utc>>, GameError> {
+        Ok(self
+            .matchmaking
+            .lock()
+            .await
+            .get(&session_id)
+            .map(|entry| entry.queued_at))
     }
 
     fn kind(&self) -> &'static str {
