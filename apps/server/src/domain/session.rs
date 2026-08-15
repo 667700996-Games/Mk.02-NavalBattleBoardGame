@@ -36,12 +36,22 @@ pub enum PlayerRole {
     Guest,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum PlayerKind {
+    #[default]
+    Human,
+    Ai,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Player {
     pub id: Uuid,
     pub session_id: Uuid,
     pub nickname: String,
+    #[serde(default)]
+    pub kind: PlayerKind,
     #[serde(default)]
     pub role: PlayerRole,
     #[serde(default)]
@@ -63,6 +73,7 @@ impl Player {
             id: Uuid::new_v4(),
             session_id: session.id,
             nickname: session.nickname.clone(),
+            kind: PlayerKind::Human,
             role: if is_host {
                 PlayerRole::Host
             } else {

@@ -22,8 +22,8 @@ use crate::{
     domain::GameSnapshot,
     error::GameError,
     protocol::{
-        CreateRoomInput, CreateSessionInput, HealthResponse, JoinRoomInput, MatchmakingResponse,
-        RoomCreatedResponse, RoomListResponse, SessionResponse,
+        CreatePracticeInput, CreateRoomInput, CreateSessionInput, HealthResponse, JoinRoomInput,
+        MatchmakingResponse, RoomCreatedResponse, RoomListResponse, SessionResponse,
     },
     store::GameHistoryItem,
 };
@@ -44,6 +44,7 @@ pub fn router() -> Router<AppState> {
         .route("/rooms/{room_id}/leave", post(leave_room))
         .route("/games/recover", get(recover_game))
         .route("/games/history", get(game_history))
+        .route("/practice", post(create_practice))
         .route(
             "/matchmaking",
             post(enqueue_matchmaking).delete(cancel_matchmaking),
@@ -176,6 +177,22 @@ async fn create_room(
         snapshot,
     };
     Ok((StatusCode::CREATED, Json(response)))
+}
+
+async fn create_practice(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+    input: Result<Json<CreatePracticeInput>, JsonRejection>,
+) -> Result<Json<GameSnapshot>, GameError> {
+    let input = parse_json(input)?;
+    let session = authenticate(&state, &jar, &headers).await?;
+    Ok(Json(
+        state
+            .create_practice_room(&session, input.difficulty)
+            .await?
+            .snapshot_for(session.id)?,
+    ))
 }
 
 async fn join_room(

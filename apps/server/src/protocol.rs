@@ -5,7 +5,7 @@ use uuid::Uuid;
 use crate::domain::{
     AttackRecord, ChatMessage, ChatMessageType, ChatTypingEvent, Coordinate, GameSnapshot,
     GameStartRecord, GameTimerState, PlayerReadyRecord, RoomSummary, RoomVisibility, ShipPlacement,
-    SurrenderRecord, TurnExpiredRecord,
+    AiDifficulty, SurrenderRecord, TurnExpiredRecord,
 };
 
 #[derive(Debug, Clone, Deserialize)]
@@ -34,6 +34,12 @@ pub struct CreateRoomInput {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct JoinRoomInput {
     pub code: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CreatePracticeInput {
+    pub difficulty: AiDifficulty,
 }
 
 #[derive(Debug, Clone, Serialize)]

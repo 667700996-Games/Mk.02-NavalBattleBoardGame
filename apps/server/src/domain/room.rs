@@ -109,6 +109,15 @@ pub enum RoomVisibility {
     Private,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum AiDifficulty {
+    Recruit,
+    #[default]
+    Officer,
+    Admiral,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GameRoom {
@@ -125,6 +134,8 @@ pub struct GameRoom {
     pub game_id: Option<Uuid>,
     pub game: Option<Game>,
     pub version: u64,
+    #[serde(default)]
+    pub practice_difficulty: Option<AiDifficulty>,
     #[serde(default)]
     pub persistence_revision: u64,
     pub created_at: DateTime<Utc>,
@@ -170,6 +181,7 @@ impl GameRoom {
             game_id: None,
             game: None,
             version: 1,
+            practice_difficulty: None,
             persistence_revision: 0,
             created_at: now,
             updated_at: now,
@@ -232,6 +244,48 @@ impl GameRoom {
             .iter()
             .find(|player| player.session_id == session_id)
             .ok_or(GameError::NotRoomMember)
+    }
+
+    pub fn configure_practice(
+        &mut self,
+        human_session_id: Uuid,
+        ai_session_id: Uuid,
+        difficulty: AiDifficulty,
+        ai_placements: Vec<ShipPlacement>,
+    ) -> Result<(), GameError> {
+        let human = self.player_for_session(human_session_id)?.clone();
+        let ai = self.player_for_session(ai_session_id)?.clone();
+        let ai_player = self
+            .players
+            .iter_mut()
+            .find(|player| player.id == ai.id)
+            .ok_or(GameError::InvalidState)?;
+        ai_player.kind = PlayerKind::Ai;
+        self.practice_difficulty = Some(difficulty);
+        self.set_lobby_ready(
+            human_session_id,
+            Uuid::new_v4(),
+            human.id,
+            true,
+        )?;
+        self.set_lobby_ready(ai_session_id, Uuid::new_v4(), ai.id, true)?;
+        self.start_placement(
+            human_session_id,
+            Uuid::new_v4(),
+            human.id,
+            self.version,
+        )?;
+        self.place_ships(ai_session_id, ai_placements.clone())?;
+        self.confirm_placement(ai_session_id, &ai_placements, 60)?;
+        self.push_system_message(format!(
+            "AI training opponent connected at {} difficulty.",
+            match difficulty {
+                AiDifficulty::Recruit => "RECRUIT",
+                AiDifficulty::Officer => "OFFICER",
+                AiDifficulty::Admiral => "ADMIRAL",
+            }
+        ));
+        Ok(())
     }
 
     pub fn place_ships(
@@ -1360,6 +1414,7 @@ pub struct RoomSummary {
 pub struct PlayerPublic {
     pub id: Uuid,
     pub nickname: String,
+    pub kind: PlayerKind,
     pub role: PlayerRole,
     pub is_host: bool,
     pub placement_confirmed: bool,
@@ -1376,6 +1431,7 @@ impl PlayerPublic {
         Self {
             id: player.id,
             nickname: player.nickname.clone(),
+            kind: player.kind,
             role: player.role,
             is_host: player.is_host,
             placement_confirmed: player.placement_confirmed,
