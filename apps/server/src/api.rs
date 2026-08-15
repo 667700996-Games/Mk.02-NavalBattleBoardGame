@@ -44,6 +44,7 @@ pub fn router() -> Router<AppState> {
         .route("/rooms/{room_id}/leave", post(leave_room))
         .route("/games/recover", get(recover_game))
         .route("/games/history", get(game_history))
+        .route("/games/{room_id}/replay", get(game_replay))
         .route("/practice", post(create_practice))
         .route(
             "/matchmaking",
@@ -198,6 +199,21 @@ async fn create_practice(
             .await?
             .snapshot_for(session.id)?,
     ))
+}
+
+async fn game_replay(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+    Path(room_id): Path<Uuid>,
+) -> Result<Json<crate::domain::GameReplay>, GameError> {
+    let session = authenticate(&state, &jar, &headers).await?;
+    let room = state
+        .store
+        .room_by_id_authoritative(room_id)
+        .await?
+        .ok_or(GameError::RoomNotFound)?;
+    Ok(Json(room.replay_for(session.id)?))
 }
 
 async fn join_room(

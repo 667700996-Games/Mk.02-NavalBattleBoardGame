@@ -82,7 +82,8 @@ impl From<FinishReason> for WinType {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TurnExpiration {
     pub expired_turn_number: u32,
     pub expired_player_id: Uuid,
@@ -94,10 +95,21 @@ pub struct TurnExpiration {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", content = "payload", rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum GameTimelineEvent {
+    Attack(AttackRecord),
+    TurnExpired(TurnExpiration),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Game {
     pub boards: HashMap<Uuid, Board>,
     pub attacks: Vec<AttackRecord>,
+    #[serde(default)]
+    pub timeline: Vec<GameTimelineEvent>,
+    #[serde(default)]
+    pub first_player_id: Uuid,
     pub current_player_id: Uuid,
     pub turn_number: u32,
     pub started_at: DateTime<Utc>,
@@ -133,6 +145,8 @@ impl Game {
         Ok(Self {
             boards,
             attacks: Vec::new(),
+            timeline: Vec::new(),
+            first_player_id: current_player_id,
             current_player_id,
             turn_number: 1,
             started_at: now,
@@ -166,6 +180,8 @@ impl Game {
         Ok(Self {
             boards,
             attacks: Vec::new(),
+            timeline: Vec::new(),
+            first_player_id: current_player_id,
             current_player_id,
             turn_number: 1,
             started_at: now,
@@ -260,6 +276,8 @@ impl Game {
             created_at: now,
         };
         self.attacks.push(record.clone());
+        self.timeline
+            .push(GameTimelineEvent::Attack(record.clone()));
         self.consecutive_timeout_counts.insert(attacker_id, 0);
 
         if winner_id.is_some() {
@@ -339,7 +357,7 @@ impl Game {
             self.start_turn_at(now);
             None
         };
-        Ok(Some(TurnExpiration {
+        let expiration = TurnExpiration {
             expired_turn_number: expected_turn,
             expired_player_id: expected_player_id,
             next_player_id: winner_id.is_none().then_some(next_player_id),
@@ -347,7 +365,10 @@ impl Game {
             total_timeout_count,
             winner_id,
             expired_at: now,
-        }))
+        };
+        self.timeline
+            .push(GameTimelineEvent::TurnExpired(expiration.clone()));
+        Ok(Some(expiration))
     }
 
     pub fn forfeit(&mut self, winner_id: Uuid, reason: FinishReason) -> Result<(), GameError> {

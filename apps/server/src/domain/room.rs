@@ -118,6 +118,8 @@ pub enum AiDifficulty {
     Admiral,
 }
 
+pub const RULESET_VERSION: u16 = 1;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GameRoom {
@@ -1359,6 +1361,57 @@ impl GameRoom {
             server_timestamp: Utc::now(),
         })
     }
+
+    pub fn replay_for(&self, session_id: Uuid) -> Result<GameReplay, GameError> {
+        self.player_for_session(session_id)?;
+        if self.status != RoomStatus::Finished {
+            return Err(GameError::InvalidState);
+        }
+        let game = self.game.as_ref().ok_or(GameError::InvalidState)?;
+        let result = game.result.clone().ok_or(GameError::InvalidState)?;
+        let players = self
+            .players
+            .iter()
+            .map(|player| {
+                let board = game.boards.get(&player.id).ok_or(GameError::InvalidState)?;
+                Ok(ReplayPlayer {
+                    id: player.id,
+                    nickname: player.nickname.clone(),
+                    kind: player.kind,
+                    fleet: board
+                        .ships()
+                        .iter()
+                        .map(|ship| ReplayShip {
+                            kind: ship.kind,
+                            cells: ship.cells.clone(),
+                        })
+                        .collect(),
+                })
+            })
+            .collect::<Result<Vec<_>, GameError>>()?;
+        let timeline = if game.timeline.is_empty() {
+            game.attacks
+                .iter()
+                .cloned()
+                .map(GameTimelineEvent::Attack)
+                .collect()
+        } else {
+            game.timeline.clone()
+        };
+        Ok(GameReplay {
+            protocol_version: crate::PROTOCOL_VERSION,
+            ruleset_version: RULESET_VERSION,
+            room_id: self.id,
+            room_name: self.name.clone(),
+            game_id: self.game_id.ok_or(GameError::InvalidState)?,
+            first_player_id: game.first_player_id,
+            started_at: game.started_at,
+            finished_at: result.finished_at,
+            players,
+            timeline,
+            result,
+        })
+    }
 }
 
 fn validate_room_name(name: &str) -> Result<(), GameError> {
@@ -1508,6 +1561,38 @@ pub struct TargetAttackSnapshot {
     pub coordinate: Coordinate,
     pub outcome: AttackOutcome,
     pub sunk_ship: Option<ShipKind>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReplayShip {
+    pub kind: ShipKind,
+    pub cells: Vec<Coordinate>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReplayPlayer {
+    pub id: Uuid,
+    pub nickname: String,
+    pub kind: PlayerKind,
+    pub fleet: Vec<ReplayShip>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GameReplay {
+    pub protocol_version: u16,
+    pub ruleset_version: u16,
+    pub room_id: Uuid,
+    pub room_name: String,
+    pub game_id: Uuid,
+    pub first_player_id: Uuid,
+    pub started_at: DateTime<Utc>,
+    pub finished_at: DateTime<Utc>,
+    pub players: Vec<ReplayPlayer>,
+    pub timeline: Vec<GameTimelineEvent>,
+    pub result: GameResult,
 }
 
 #[cfg(test)]
