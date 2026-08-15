@@ -20,7 +20,7 @@
   import { realtime } from '$lib/realtime';
   import { gameSnapshot, session, socketStatus } from '$lib/stores';
   import { Avatar, Badge, Button, Field, Modal, Skeleton, Surface } from '$lib/ui';
-  import type { AiDifficulty, RoomSummary, RoomVisibility } from '$lib/types';
+  import type { AiDifficulty, GameMode, RoomSummary, RoomVisibility } from '$lib/types';
 
   let rooms: RoomSummary[] = [];
   let loading = true;
@@ -29,6 +29,8 @@
   let showJoin = false;
   let roomName = '북태평양 교전';
   let visibility: RoomVisibility = 'PUBLIC';
+  let gameMode: GameMode = 'CLASSIC';
+  let turnDurationSeconds = 60;
   let roomCode = '';
   let submitting = false;
   let matching = false;
@@ -98,7 +100,10 @@
     submitting = true;
     error = '';
     try {
-      const response = await api.createRoom(roomName, visibility);
+      const response = await api.createRoom(roomName, visibility, {
+        mode: gameMode,
+        turnDurationSeconds: gameMode === 'RAPID' ? 30 : turnDurationSeconds
+      });
       gameSnapshot.set(response.snapshot);
       await goto(resolve('/room/[code]', { code: response.snapshot.room.code }));
     } catch (caught) {
@@ -338,7 +343,7 @@
               <div class="room-card__meta">
                 <span><Radio size={13} /> PUBLIC CHANNEL</span><span
                   ><KeyRound size={13} /> {room.code}</span
-                >
+                ><span>{room.rules.mode}</span>
               </div>
               <Button
                 variant="secondary"
@@ -394,6 +399,37 @@
           ></label
         >
       </div>
+    </fieldset>
+    <fieldset>
+      <legend>교전 규칙</legend>
+      <div class="mode-grid">
+        <label class="choice"
+          ><input type="radio" bind:group={gameMode} value="CLASSIC" /><span
+            ><strong>클래식</strong><small>CLASSIC</small><em>턴마다 한 발 사격</em></span
+          ></label
+        >
+        <label class="choice"
+          ><input type="radio" bind:group={gameMode} value="RAPID" /><span
+            ><strong>신속전</strong><small>RAPID</small><em>고정 30초 턴</em></span
+          ></label
+        >
+        <label class="choice"
+          ><input type="radio" bind:group={gameMode} value="SALVO" /><span
+            ><strong>일제사격</strong><small>SALVO</small><em>생존 함선당 한 발</em></span
+          ></label
+        >
+      </div>
+      <label class="duration-choice" for="turn-duration">
+        <span><strong>턴 제한 시간</strong><small>TURN LIMIT</small></span>
+        <select id="turn-duration" bind:value={turnDurationSeconds} disabled={gameMode === 'RAPID'}>
+          <option value={0}>제한 없음</option>
+          <option value={30}>30초</option>
+          <option value={45}>45초</option>
+          <option value={60}>60초</option>
+          <option value={90}>90초</option>
+          <option value={120}>120초</option>
+        </select>
+      </label>
     </fieldset>
     <Button variant="primary" size="lg" type="submit" loading={submitting} full
       >작전실 편성 <ArrowRight size={17} /></Button
@@ -869,6 +905,50 @@
     grid-template-columns: 1fr 1fr;
     gap: 10px;
   }
+  .mode-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+  }
+  .mode-grid .choice span {
+    grid-template-columns: 1fr;
+    min-height: 86px;
+  }
+  .duration-choice {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin-top: 10px;
+    padding: 11px 12px;
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    background: rgba(4, 20, 28, 0.72);
+  }
+  .duration-choice > span {
+    display: grid;
+    gap: 2px;
+  }
+  .duration-choice strong {
+    font-size: 11px;
+  }
+  .duration-choice small {
+    color: var(--ink-500);
+    font-family: var(--font-display);
+    font-size: 7px;
+    letter-spacing: 0.12em;
+  }
+  .duration-choice select {
+    min-width: 120px;
+    padding: 8px 10px;
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    color: var(--ink-100);
+    background: var(--navy-900);
+  }
+  .duration-choice select:disabled {
+    opacity: 0.55;
+  }
   .choice {
     position: relative;
   }
@@ -977,6 +1057,9 @@
       font-size: 0;
     }
     .visibility-grid {
+      grid-template-columns: 1fr;
+    }
+    .mode-grid {
       grid-template-columns: 1fr;
     }
   }

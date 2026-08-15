@@ -249,7 +249,9 @@
         {disabled
           ? '통신 복구 대기'
           : myTurn
-            ? '공격 좌표를 지정하십시오'
+            ? snapshot.rules.mode === 'SALVO'
+              ? `일제사격 좌표를 지정하십시오 · ${snapshot.shotsRemainingInTurn ?? 1}발 남음`
+              : '공격 좌표를 지정하십시오'
             : `${opponent?.nickname ?? '상대'} 지휘관의 응답 대기`}
       </h1>
     </div>
@@ -297,6 +299,11 @@
   <div class="combat-strip" aria-label="전투 상태 요약">
     <span><i></i> BATTLESPACE / SECTOR 10×10</span>
     <span>ROUND {String(snapshot.turnNumber ?? 0).padStart(2, '0')}</span>
+    <span
+      >{snapshot.rules.mode}{snapshot.rules.mode === 'SALVO'
+        ? ` / ${snapshot.shotsRemainingInTurn ?? 1} SHOTS`
+        : ''}</span
+    >
     <span>LINK V{String(snapshot.version).padStart(3, '0')}</span>
   </div>
 

@@ -29,7 +29,10 @@ pub struct MatchRules {
 
 impl MatchRules {
     pub fn validate(self) -> Result<Self, GameError> {
-        if self.turn_duration_seconds.is_some_and(|seconds| seconds > 300) {
+        if self
+            .turn_duration_seconds
+            .is_some_and(|seconds| seconds > 300)
+        {
             return Err(GameError::InvalidRequest);
         }
         Ok(self)
@@ -200,8 +203,7 @@ impl Game {
         let mut rng = rand::rng();
         let current_player_id = *player_ids.choose(&mut rng).ok_or(GameError::InvalidState)?;
         let shots_remaining_in_turn = shots_for_mode(&boards, current_player_id, rules.mode);
-        let turn_duration_seconds =
-            rules.resolved_turn_duration(fallback_turn_duration_seconds);
+        let turn_duration_seconds = rules.resolved_turn_duration(fallback_turn_duration_seconds);
         let now = Utc::now();
         Ok(Self {
             boards,
@@ -322,9 +324,8 @@ impl Game {
             .attack(coordinate)?;
 
         let winner_id = result.all_sunk.then_some(attacker_id);
-        let continues_salvo = winner_id.is_none()
-            && self.mode == GameMode::Salvo
-            && self.shots_remaining_in_turn > 1;
+        let continues_salvo =
+            winner_id.is_none() && self.mode == GameMode::Salvo && self.shots_remaining_in_turn > 1;
         let next_player_id = if winner_id.is_some() {
             None
         } else if continues_salvo {

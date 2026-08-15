@@ -9,7 +9,7 @@ use crate::error::GameError;
 use super::{
     ALLOWED_EMOJIS, AttackOutcome, AttackRecord, Board, ChatMessage, ChatMessageType,
     ChatTypingEvent, ConnectionState, Coordinate, FinishReason, Game, GameResult,
-    GameTimelineEvent, MatchRules, MAX_CHAT_HISTORY, MAX_CHAT_MESSAGE_CHARS, Player, PlayerKind,
+    GameTimelineEvent, MAX_CHAT_HISTORY, MAX_CHAT_MESSAGE_CHARS, MatchRules, Player, PlayerKind,
     PlayerReadyState, PlayerRole, QuickCommandId, ShipKind, ShipPlacement, SurrenderRecord,
     TurnExpiration, UserSession,
 };
@@ -585,7 +585,11 @@ impl GameRoom {
                     .ok_or(GameError::IncompleteFleet)?;
                 boards.insert(player.id, Board::from_placements(placements)?);
             }
-            self.game = Some(Game::new_with_rules(boards, self.rules, turn_duration_seconds)?);
+            self.game = Some(Game::new_with_rules(
+                boards,
+                self.rules,
+                turn_duration_seconds,
+            )?);
             self.status = RoomStatus::Playing;
             self.pending_placements.clear();
             self.bump();
@@ -1375,10 +1379,7 @@ impl GameRoom {
             turn_started_at: self.game.as_ref().and_then(|game| game.turn_started_at),
             turn_deadline_at: self.game.as_ref().and_then(|game| game.turn_deadline_at),
             turn_duration_seconds: self.game.as_ref().map(|game| game.turn_duration_seconds),
-            shots_remaining_in_turn: self
-                .game
-                .as_ref()
-                .map(|game| game.shots_remaining_in_turn),
+            shots_remaining_in_turn: self.game.as_ref().map(|game| game.shots_remaining_in_turn),
             server_timestamp: Utc::now(),
         })
     }
