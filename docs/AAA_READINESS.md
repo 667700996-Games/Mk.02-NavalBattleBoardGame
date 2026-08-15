@@ -98,7 +98,7 @@ The program is complete only when all gates below are satisfied in a production-
 
 ### C2. Modes and competition
 
-- [ ] Casual classic mode is joined by rapid, salvo, and configurable private rules.
+- [x] Casual classic mode is joined by rapid, salvo, and configurable private rules.
 - [ ] Ranked play has rating, placement matches, seasons, tiers, decay/inactivity policy, and rewards.
 - [ ] Match fairness considers rating, latency, region, rematches, and queue time.
 - [ ] Leaderboards are abuse-resistant, paginated, privacy-aware, and seasonally archived.

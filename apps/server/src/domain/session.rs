@@ -5,8 +5,27 @@ use uuid::Uuid;
 #[derive(Debug, Clone)]
 pub struct UserSession {
     pub id: Uuid,
+    pub account_id: Option<Uuid>,
     pub nickname: String,
     pub token_hash: String,
+    pub created_at: DateTime<Utc>,
+    pub last_seen_at: DateTime<Utc>,
+    pub current_room_id: Option<Uuid>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlayerAccount {
+    pub id: Uuid,
+    pub handle: String,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountSession {
+    pub id: Uuid,
+    pub nickname: String,
     pub created_at: DateTime<Utc>,
     pub last_seen_at: DateTime<Utc>,
     pub current_room_id: Option<Uuid>,
