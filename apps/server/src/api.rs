@@ -32,6 +32,7 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/health", get(health))
         .route("/ready", get(readiness))
+        .route("/metrics", get(metrics))
         .route("/sessions", post(create_session))
         .route(
             "/sessions/current",
@@ -47,6 +48,13 @@ pub fn router() -> Router<AppState> {
             "/matchmaking",
             post(enqueue_matchmaking).delete(cancel_matchmaking),
         )
+}
+
+async fn metrics(State(state): State<AppState>) -> impl IntoResponse {
+    (
+        [(axum::http::header::CONTENT_TYPE, "text/plain; version=0.0.4")],
+        state.metrics.render_prometheus(),
+    )
 }
 
 async fn health(State(state): State<AppState>) -> Json<HealthResponse> {

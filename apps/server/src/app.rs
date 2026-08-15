@@ -2,7 +2,7 @@ use std::{
     net::SocketAddr,
     sync::{
         Arc,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
     time::Duration,
 };
@@ -57,6 +57,7 @@ pub struct AppState {
     pub store: Arc<dyn GameStore>,
     pub rooms: Arc<DashMap<Uuid, Arc<Mutex<GameRoom>>>>,
     pub hub: ConnectionHub,
+    pub metrics: Arc<ServerMetrics>,
     turn_timers: Arc<DashMap<Uuid, TurnTimerKey>>,
     api_rate_limiter: FixedWindowRateLimiter,
     request_ip_rate_limiter: FixedWindowRateLimiter,
@@ -66,6 +67,118 @@ pub struct AppState {
     instance_id: Uuid,
     distributed_event_publisher: Option<ConnectionManager>,
     coordination_healthy: Arc<AtomicBool>,
+}
+
+#[derive(Debug)]
+pub struct ServerMetrics {
+    started_at: std::time::Instant,
+    pub http_requests: AtomicU64,
+    pub rate_limit_rejections: AtomicU64,
+    pub websocket_connections: AtomicU64,
+    pub websocket_events: AtomicU64,
+    pub distributed_events_published: AtomicU64,
+    pub distributed_event_failures: AtomicU64,
+    pub room_mutations: AtomicU64,
+    pub room_version_conflicts: AtomicU64,
+    pub matchmaking_queued: AtomicU64,
+    pub matchmaking_completed: AtomicU64,
+    pub matchmaking_cancelled: AtomicU64,
+}
+
+impl Default for ServerMetrics {
+    fn default() -> Self {
+        Self {
+            started_at: std::time::Instant::now(),
+            http_requests: AtomicU64::new(0),
+            rate_limit_rejections: AtomicU64::new(0),
+            websocket_connections: AtomicU64::new(0),
+            websocket_events: AtomicU64::new(0),
+            distributed_events_published: AtomicU64::new(0),
+            distributed_event_failures: AtomicU64::new(0),
+            room_mutations: AtomicU64::new(0),
+            room_version_conflicts: AtomicU64::new(0),
+            matchmaking_queued: AtomicU64::new(0),
+            matchmaking_completed: AtomicU64::new(0),
+            matchmaking_cancelled: AtomicU64::new(0),
+        }
+    }
+}
+
+impl ServerMetrics {
+    pub fn render_prometheus(&self) -> String {
+        let counter = |name: &str, help: &str, value: &AtomicU64| {
+            format!(
+                "# HELP {name} {help}\n# TYPE {name} counter\n{name} {}\n",
+                value.load(Ordering::Relaxed)
+            )
+        };
+        let gauge = |name: &str, help: &str, value: u64| {
+            format!("# HELP {name} {help}\n# TYPE {name} gauge\n{name} {value}\n")
+        };
+        [
+            gauge(
+                "mk01_process_uptime_seconds",
+                "Process uptime in seconds.",
+                self.started_at.elapsed().as_secs(),
+            ),
+            counter(
+                "mk01_http_requests_total",
+                "HTTP and WebSocket upgrade requests received.",
+                &self.http_requests,
+            ),
+            counter(
+                "mk01_rate_limit_rejections_total",
+                "Requests rejected by an application or shared rate limit.",
+                &self.rate_limit_rejections,
+            ),
+            gauge(
+                "mk01_websocket_connections",
+                "Current WebSocket connections on this instance.",
+                self.websocket_connections.load(Ordering::Relaxed),
+            ),
+            counter(
+                "mk01_websocket_events_total",
+                "Accepted inbound WebSocket events.",
+                &self.websocket_events,
+            ),
+            counter(
+                "mk01_distributed_events_published_total",
+                "Events published to the cross-instance channel.",
+                &self.distributed_events_published,
+            ),
+            counter(
+                "mk01_distributed_event_failures_total",
+                "Cross-instance event publish failures.",
+                &self.distributed_event_failures,
+            ),
+            counter(
+                "mk01_room_mutations_total",
+                "Successfully persisted room mutations.",
+                &self.room_mutations,
+            ),
+            counter(
+                "mk01_room_version_conflicts_total",
+                "Rejected stale room persistence revisions.",
+                &self.room_version_conflicts,
+            ),
+            counter(
+                "mk01_matchmaking_queued_total",
+                "Matchmaking enqueue responses without an immediate match.",
+                &self.matchmaking_queued,
+            ),
+            counter(
+                "mk01_matchmaking_completed_total",
+                "Durably completed matchmaking pairs.",
+                &self.matchmaking_completed,
+            ),
+            counter(
+                "mk01_matchmaking_cancelled_total",
+                "Successfully cancelled matchmaking entries.",
+                &self.matchmaking_cancelled,
+            ),
+        ]
+        .concat()
+    }
 }
 
 impl std::fmt::Debug for AppState {
@@ -150,6 +263,7 @@ impl AppState {
             store,
             rooms: Arc::new(DashMap::new()),
             hub: ConnectionHub::default(),
+            metrics: Arc::new(ServerMetrics::default()),
             turn_timers: Arc::new(DashMap::new()),
             api_rate_limiter,
             request_ip_rate_limiter,
@@ -198,6 +312,7 @@ impl AppState {
             store,
             rooms: Arc::new(DashMap::new()),
             hub: ConnectionHub::default(),
+            metrics: Arc::new(ServerMetrics::default()),
             turn_timers: Arc::new(DashMap::new()),
             api_rate_limiter,
             request_ip_rate_limiter,
@@ -243,8 +358,16 @@ impl AppState {
             .publish::<_, _, usize>(DISTRIBUTED_EVENT_CHANNEL, payload)
             .await
         {
-            Ok(_) => self.coordination_healthy.store(true, Ordering::Relaxed),
+            Ok(_) => {
+                self.metrics
+                    .distributed_events_published
+                    .fetch_add(1, Ordering::Relaxed);
+                self.coordination_healthy.store(true, Ordering::Relaxed);
+            }
             Err(error) => {
+                self.metrics
+                    .distributed_event_failures
+                    .fetch_add(1, Ordering::Relaxed);
                 self.coordination_healthy.store(false, Ordering::Relaxed);
                 tracing::error!(%error, %session_id, "distributed event publish failed");
             }
@@ -367,7 +490,12 @@ impl AppState {
                 self.coordination_healthy.store(true, Ordering::Relaxed);
                 Ok(())
             }
-            Ok(_) => Err(GameError::RateLimited),
+            Ok(_) => {
+                self.metrics
+                    .rate_limit_rejections
+                    .fetch_add(1, Ordering::Relaxed);
+                Err(GameError::RateLimited)
+            }
             Err(error) if self.settings.distributed_coordination_required => {
                 self.coordination_healthy.store(false, Ordering::Relaxed);
                 tracing::error!(%error, %scope, "required shared rate limiter unavailable");
@@ -619,8 +747,18 @@ impl AppState {
 
     pub async fn save_room(&self, room: &mut GameRoom) -> Result<(), GameError> {
         match self.store.save_room(room).await {
-            Ok(()) => Ok(()),
+            Ok(()) => {
+                self.metrics
+                    .room_mutations
+                    .fetch_add(1, Ordering::Relaxed);
+                Ok(())
+            }
             Err(error) => {
+                if error == GameError::VersionConflict {
+                    self.metrics
+                        .room_version_conflicts
+                        .fetch_add(1, Ordering::Relaxed);
+                }
                 if let Ok(Some(latest)) = self.store.room_by_id_authoritative(room.id).await {
                     *room = latest;
                 } else {
@@ -969,6 +1107,9 @@ impl AppState {
         }
         let queued = self.store.enqueue_matchmaking(&session).await?;
         let Some(claim) = queued.claim else {
+            self.metrics
+                .matchmaking_queued
+                .fetch_add(1, Ordering::Relaxed);
             return Ok(None);
         };
         let claim_id = claim.id;
@@ -982,6 +1123,9 @@ impl AppState {
             )?;
             room.join(&session)?;
             self.store.complete_matchmaking(claim_id, &mut room).await?;
+            self.metrics
+                .matchmaking_completed
+                .fetch_add(1, Ordering::Relaxed);
             self.rooms
                 .insert(room.id, Arc::new(Mutex::new(room.clone())));
             self.broadcast_snapshots(&room, SnapshotEvent::PlayerJoined)
@@ -1003,7 +1147,13 @@ impl AppState {
     }
 
     pub async fn cancel_matchmaking(&self, session_id: Uuid) -> Result<bool, GameError> {
-        self.store.cancel_matchmaking(session_id).await
+        let cancelled = self.store.cancel_matchmaking(session_id).await?;
+        if cancelled {
+            self.metrics
+                .matchmaking_cancelled
+                .fetch_add(1, Ordering::Relaxed);
+        }
+        Ok(cancelled)
     }
 
     pub async fn matchmaking_time(
@@ -1200,9 +1350,19 @@ async fn request_ip_rate_limit(
     request: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> Result<axum::response::Response, GameError> {
-    state
+    state.metrics.http_requests.fetch_add(1, Ordering::Relaxed);
+    if let Err(error) = state
         .enforce_ip_rate_limit(request.headers(), address)
-        .await?;
+        .await
+    {
+        if error == GameError::RateLimited {
+            state
+                .metrics
+                .rate_limit_rejections
+                .fetch_add(1, Ordering::Relaxed);
+        }
+        return Err(error);
+    }
     Ok(next.run(request).await)
 }
 

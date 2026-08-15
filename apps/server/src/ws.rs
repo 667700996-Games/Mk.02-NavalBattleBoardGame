@@ -49,6 +49,10 @@ async fn handle_socket(
     session: crate::domain::UserSession,
     _connection_permit: tokio::sync::OwnedSemaphorePermit,
 ) {
+    state
+        .metrics
+        .websocket_connections
+        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let (mut socket_sender, mut socket_receiver) = socket.split();
     let (event_sender, mut event_receiver) = mpsc::channel(state.websocket_send_queue_capacity());
     let connection_id = state.hub.connect(session.id, event_sender);
@@ -95,12 +99,21 @@ async fn handle_socket(
         }
     }
 
+    state
+        .metrics
+        .websocket_connections
+        .fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+
     if state.hub.disconnect_if_current(session.id, connection_id) {
         state.disconnect_session(session.id).await;
     }
 }
 
 async fn handle_event(state: &AppState, session: &crate::domain::UserSession, event: ClientEvent) {
+    state
+        .metrics
+        .websocket_events
+        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let is_placement_event = matches!(
         &event,
         ClientEvent::ShipsPlace(_) | ClientEvent::ShipsConfirm(_)

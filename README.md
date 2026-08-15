@@ -17,8 +17,9 @@
 - 서버 UTC 기준 전체 작전 시간과 턴 마감, 시간 초과 턴 자동 교대와 3회 연속 초과 자동 패배
 - `NORMAL`/`SURRENDER`/`DISCONNECT`/`TIMEOUT` 종료 원인과 시간 초과 통계 기록
 - 재경기, 승패·명중률·턴·플레이 시간 통계, 전투 기록
+- 배치·안개 전장·좌표 공격·턴 제한·재접속을 직접 익히는 대화형 신규 사용자 튜토리얼
 - 데스크톱 2보드 레이아웃과 모바일 탭 전환, 키보드 조작, 고대비/모션 감소, 사운드 설정
-- PostgreSQL 영속화, Redis 읽기 캐시, 구조화 JSON 로그, Docker Compose 운영 구성
+- PostgreSQL 영속화·리비전 펜싱·분산 매칭, Redis 인스턴스 간 이벤트 팬아웃·공유 속도 제한
 
 ## 게임 규칙
 
@@ -35,8 +36,8 @@
 | 프런트엔드    | SvelteKit 2, Svelte 5, TypeScript 6, CSS 디자인 토큰      |
 | API/게임 서버 | Rust 1.87, Axum 0.8, Tokio                                |
 | 실시간        | WebSocket, 타입화 JSON 이벤트                             |
-| 저장소        | PostgreSQL 17, SQLx migration, Redis 7.4                  |
-| 테스트        | Rust unit/integration, Vitest, Playwright Chromium/WebKit |
+| 저장소        | PostgreSQL 16+, SQLx migration, Redis 7.4                 |
+| 테스트        | Rust unit/integration, Vitest, Playwright 3-engine/mobile |
 | 운영          | adapter-node, Docker Compose, Caddy                       |
 
 ## 시스템 아키텍처
@@ -46,12 +47,17 @@ flowchart LR
   A[플레이어 A 브라우저] <-->|HTTPS / WSS| G[Caddy 게이트웨이]
   B[플레이어 B 브라우저] <-->|HTTPS / WSS| G
   G --> W[SvelteKit adapter-node]
-  G --> S[Rust Axum 서버]
-  S -->|room snapshot / result| P[(PostgreSQL)]
-  S -.->|best-effort room cache| R[(Redis)]
+  G --> S1[Rust Axum A]
+  G --> S2[Rust Axum B]
+  S1 -->|CAS room / durable queue| P[(PostgreSQL)]
+  S2 -->|CAS room / durable queue| P
+  S1 <-->|Pub/Sub / shared limits| R[(Redis)]
+  S2 <-->|Pub/Sub / shared limits| R
 ```
 
-브라우저는 자신의 배치/보드와 자신이 실행한 공격 결과만 받습니다. `GameRoom` 내부 스냅샷은 최근 채팅 100개를 포함해 PostgreSQL JSONB에 원자적으로 저장되고 Redis는 1시간 읽기 캐시로만 사용됩니다. Redis가 중단되어도 PostgreSQL로 게임을 계속할 수 있습니다. 채팅 추가는 공격용 게임 버전을 변경하지 않아 동시에 도착한 사격 요청과 충돌하지 않습니다.
+브라우저는 자신의 배치/보드와 자신이 실행한 공격 결과만 받습니다. `GameRoom` 내부 스냅샷은 최근 채팅 100개를 포함해 PostgreSQL JSONB에 저장되며, `persistenceRevision`을 비교하는 원자적 CAS로 오래된 서버 쓰기를 거절합니다. Redis는 세션별 실시간 이벤트를 다른 서버 인스턴스로 전달하고 HTTP/WebSocket 속도 제한을 공유합니다. 운영에서 `DISTRIBUTED_COORDINATION_REQUIRED=true`면 Redis 시작/구독 실패 시 서버 시작 또는 readiness가 실패합니다.
+
+빠른 매칭은 PostgreSQL의 영속 큐와 30초 클레임 임대를 사용합니다. 두 세션 확정, 비공개 방 생성, 큐 제거는 한 트랜잭션으로 처리되어 두 인스턴스가 같은 사용자를 중복 매칭할 수 없습니다. 턴·재접속 마감은 스냅샷에 영속하고 각 방의 절대 UTC 마감만 스케줄하며, 복수 인스턴스가 동시에 시도해도 CAS 펜싱을 통과한 한 번만 확정됩니다.
 
 상태 머신은 다음 전이만 허용합니다.
 
@@ -114,27 +120,28 @@ POSTGRES_PASSWORD='replace-this-local-password' docker compose up --build
 
 ## 환경 변수
 
-| 변수                              | 기본값                    | 설명                                          |
-| --------------------------------- | ------------------------- | --------------------------------------------- |
-| `SERVER_HOST`                     | `0.0.0.0`                 | Rust 서버 바인드 주소                         |
-| `SERVER_PORT`                     | `8080`                    | Rust 서버 포트                                |
-| `STORAGE_MODE`                    | `memory`                  | `memory` 또는 `postgres`                      |
-| `DATABASE_URL`                    | 예제 참조                 | PostgreSQL 접속 URL                           |
-| `REDIS_URL`                       | `redis://localhost:6379/` | Redis 접속 URL                                |
-| `PUBLIC_BASE_URL`                 | `http://localhost:5173`   | 초대 URL에 쓰이는 공개 주소                   |
-| `ALLOWED_ORIGINS`                 | localhost 2개             | 쉼표로 구분한 CORS/WebSocket Origin 허용 목록 |
-| `SECURE_COOKIES`                  | `false`                   | HTTPS 운영에서는 반드시 `true`                |
-| `SESSION_TTL_SECONDS`             | `2592000`                 | 게스트 세션 유효 기간                         |
-| `RECONNECT_GRACE_SECONDS`         | `90`                      | 재접속 유예 시간                              |
-| `TURN_DURATION_SECONDS`           | `60`                      | 턴 제한(초), `0`이면 제한 없음                |
-| `API_REQUESTS_PER_MINUTE`         | `240`                     | 인증 세션별 HTTP/연결 요청 한도               |
-| `HTTP_REQUESTS_PER_MINUTE_PER_IP` | `600`                     | 신뢰된 클라이언트 IP별 전체 HTTP 요청 한도    |
-| `SESSION_CREATIONS_PER_MINUTE`    | `20`                      | 클라이언트 IP별 게스트 세션 생성 한도         |
-| `WEBSOCKET_EVENTS_PER_SECOND`     | `60`                      | 세션별 수신 WebSocket 이벤트 한도             |
-| `WEBSOCKET_SEND_QUEUE_CAPACITY`   | `256`                     | 연결별 송신 큐 한도; 초과 시 느린 연결 종료   |
-| `MAX_WEBSOCKET_CONNECTIONS`       | `10000`                   | 서버 인스턴스별 동시 WebSocket 연결 한도      |
-| `TRUST_PROXY_HEADERS`             | `false`                   | 신뢰 프록시 뒤에서만 전달 IP 헤더 사용        |
-| `RUST_LOG`                        | info                      | `tracing` 로그 필터                           |
+| 변수                                | 기본값                    | 설명                                               |
+| ----------------------------------- | ------------------------- | -------------------------------------------------- |
+| `SERVER_HOST`                       | `0.0.0.0`                 | Rust 서버 바인드 주소                              |
+| `SERVER_PORT`                       | `8080`                    | Rust 서버 포트                                     |
+| `STORAGE_MODE`                      | `memory`                  | `memory` 또는 `postgres`                           |
+| `DATABASE_URL`                      | 예제 참조                 | PostgreSQL 접속 URL                                |
+| `REDIS_URL`                         | `redis://localhost:6379/` | Redis 접속 URL                                     |
+| `PUBLIC_BASE_URL`                   | `http://localhost:5173`   | 초대 URL에 쓰이는 공개 주소                        |
+| `ALLOWED_ORIGINS`                   | localhost 2개             | 쉼표로 구분한 CORS/WebSocket Origin 허용 목록      |
+| `SECURE_COOKIES`                    | `false`                   | HTTPS 운영에서는 반드시 `true`                     |
+| `SESSION_TTL_SECONDS`               | `2592000`                 | 게스트 세션 유효 기간                              |
+| `RECONNECT_GRACE_SECONDS`           | `90`                      | 재접속 유예 시간                                   |
+| `TURN_DURATION_SECONDS`             | `60`                      | 턴 제한(초), `0`이면 제한 없음                     |
+| `API_REQUESTS_PER_MINUTE`           | `240`                     | 인증 세션별 HTTP/연결 요청 한도                    |
+| `HTTP_REQUESTS_PER_MINUTE_PER_IP`   | `600`                     | 신뢰된 클라이언트 IP별 전체 HTTP 요청 한도         |
+| `SESSION_CREATIONS_PER_MINUTE`      | `20`                      | 클라이언트 IP별 게스트 세션 생성 한도              |
+| `WEBSOCKET_EVENTS_PER_SECOND`       | `60`                      | 세션별 수신 WebSocket 이벤트 한도                  |
+| `WEBSOCKET_SEND_QUEUE_CAPACITY`     | `256`                     | 연결별 송신 큐 한도; 초과 시 느린 연결 종료        |
+| `MAX_WEBSOCKET_CONNECTIONS`         | `10000`                   | 서버 인스턴스별 동시 WebSocket 연결 한도           |
+| `TRUST_PROXY_HEADERS`               | `false`                   | 신뢰 프록시 뒤에서만 전달 IP 헤더 사용             |
+| `DISTRIBUTED_COORDINATION_REQUIRED` | `false`                   | 운영 Redis 팬아웃·공유 제한을 필수 의존성으로 판정 |
+| `RUST_LOG`                          | info                      | `tracing` 로그 필터                                |
 
 ## REST API
 
@@ -250,12 +257,13 @@ POSTGRES_PASSWORD='replace-this-local-password' docker compose up --build
 npm run check       # Rust check + Svelte/TypeScript check
 npm run lint        # rustfmt + clippy -D warnings + Prettier + ESLint
 npm run test        # Rust unit/integration + Vitest
-npx playwright install chromium webkit
-npm run test:e2e    # 독립 브라우저 2개의 전체 경기 + 모바일
+npx playwright install chromium firefox webkit
+npm run test:e2e    # Chromium/Firefox/WebKit 전체 경기 + 모바일 2종
 npm run build       # Rust release + SvelteKit adapter-node
+npm run budget      # JS/CSS/WOFF2 파일·총량 제한과 기존 WOFF 차단
 ```
 
-Rust 테스트는 대기실 7단계 상태 머신, 준비 멱등성, 방장 권한, 오래된 버전, 연결 끊김, 시작/준비 취소 경쟁, 참가자 이탈 초기화, 배치, 명중/격침, 공격/만료 경쟁, 3회 만료 패배, 재시작 복구, 채팅 검증, JSON 영속화와 공개 정보 필터를 검증합니다. Playwright는 두 브라우저가 참가 후 대기실에 머무르는지, 양쪽 준비 후에도 자동 시작되지 않는지, 참가자의 변조된 `game:start`가 `NOT_HOST`로 거부되는지, 새로고침 후 준비가 복구되는지와 이후 전체 게임 회귀를 검증합니다.
+Rust 테스트는 대기실 상태 머신, 멱등성, 버전 충돌, 배치, 공격/만료 경쟁, 재시작 복구, 채팅 검증과 공개 정보 필터를 검증합니다. CI의 PostgreSQL/Redis 통합 테스트는 동시 CAS 쓰기에서 단 하나만 성공함, 분산 매칭의 원자적 확정, 두 AppState 사이 Pub/Sub 이벤트 전달을 검증합니다. Playwright는 독립 브라우저 2개의 전체 경기·변조 요청 거절·새로고침 복구와 모바일 오버플로를 검증합니다.
 
 ## 프로덕션 빌드·배포
 
@@ -274,8 +282,9 @@ HOST=0.0.0.0 PORT=3000 ORIGIN='https://game.example.com' node apps/web/build
 
 ## 알려진 제한
 
-- 빠른 매칭 큐와 WebSocket 연결 허브는 현재 서버 프로세스 내부에 있습니다. 현 배포는 Rust 서버 1개 replica를 기준으로 하며, 수평 확장 시 Redis Pub/Sub 또는 별도 실시간 게이트웨이가 필요합니다.
-- 턴 만료 스케줄러도 현재 단일 Rust 서버의 방 잠금과 영속 마감 키를 기준으로 합니다. 다중 replica 배포 전에는 Redis 분산 락/작업 큐로 동일한 `(roomId, turnNumber, activePlayerId, deadline)` 소유권을 조정해야 합니다.
+- 방 쓰기는 PostgreSQL 리비전으로 안전하게 펜싱되지만, 장기 소유권 임대와 명령 전달 프로토콜은 아직 없습니다. 따라서 다른 인스턴스의 오래된 로컬 스냅샷에서 첫 명령은 `VERSION_CONFLICT`로 거절된 뒤 최신 상태를 불러올 수 있습니다.
+- WebSocket 연결 수 제한은 인스턴스별입니다. HTTP·세션 생성·WebSocket 이벤트 속도 제한은 Redis에서 공유되지만 전체 동시 연결 상한은 운영 게이트웨이에서도 제한해야 합니다.
+- 턴과 재접속 마감은 영속 CAS로 중복 확정을 막지만 별도의 지연 작업 큐·소유권 계층·큐 지표를 아직 제공하지 않습니다.
 - 게스트 세션은 디바이스 간 계정 동기화를 제공하지 않습니다. 브라우저 쿠키를 삭제하면 기존 게스트 기록에 다시 접근할 수 없습니다.
 - SvelteKit 2.70.2의 안정화 버전은 `cookie@0.6` 의존성에 대한 low-severity 이름/경로 문자 검증 권고를 남깁니다. 이 앱은 사용자 입력으로 SvelteKit 쿠키 이름·경로를 생성하지 않고, 인증 쿠키는 Rust의 고정 이름 `mk01_session`으로만 발급합니다. SvelteKit 3 안정화 후 업그레이드를 권장합니다.
 
