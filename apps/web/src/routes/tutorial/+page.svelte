@@ -108,7 +108,7 @@
   </header>
 
   <div class="progress" aria-label={`튜토리얼 ${step + 1}/${lessons.length}단계`}>
-    {#each lessons as lesson, index}
+    {#each lessons as lesson, index (lesson.eyebrow)}
       <button
         type="button"
         class:active={index === step}
@@ -127,7 +127,7 @@
       <article>
         <small>{lessons[step].eyebrow}</small>
         <h2 id="lesson-title">{lessons[step].title}</h2>
-        <p>{lessons[step].body}</p>
+        <p class="lesson-body">{lessons[step].body}</p>
         <div class="rule-card">
           <ShieldCheck size={18} />
           <div>
@@ -149,7 +149,7 @@
       {#if step === 0}
         <div class="placement-demo" aria-label="함선 배치 예시">
           <div class="mini-grid deployment-grid">
-            {#each Array.from({ length: 25 }) as _, index}
+            {#each Array.from({ length: 25 }) as _, index (index)}
               <span class:ship={[6, 7, 8, 16, 21].includes(index)}></span>
             {/each}
           </div>
@@ -162,7 +162,7 @@
       {:else if step === 1}
         <div class="fog-demo">
           <div class="mini-grid fog-grid" aria-label="미확인 적 해역">
-            {#each Array.from({ length: 25 }) as _, index}
+            {#each Array.from({ length: 25 }) as _, index (index)}
               <span class:miss={index === 6} class:hit={index === 12}></span>
             {/each}
           </div>
@@ -174,8 +174,8 @@
       {:else if step === 2}
         <div class="fire-demo">
           <div class="target-grid" aria-label="공격 좌표 선택">
-            {#each rows as row}
-              {#each Array.from({ length: 5 }) as _, column}
+            {#each rows as row (row)}
+              {#each Array.from({ length: 5 }) as _, column (column)}
                 {@const label = `${row}${column + 1}`}
                 <button
                   type="button"
@@ -318,7 +318,7 @@
     line-height: 1.16;
     word-break: keep-all;
   }
-  :global(.lesson-copy) > article > p {
+  .lesson-body {
     color: var(--ink-200);
     line-height: 1.9;
     word-break: keep-all;
