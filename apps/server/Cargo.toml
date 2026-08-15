@@ -9,7 +9,7 @@ rust-version.workspace = true
 async-trait = "0.1"
 axum = { version = "0.8.9", features = ["ws", "macros"] }
 axum-extra = { version = "0.12", features = ["cookie"] }
-base64 = "0.22"
+base64 = "0.23"
 chrono = { version = "0.4", features = ["serde"] }
 dashmap = "6.1"
 dotenvy = "0.15"
