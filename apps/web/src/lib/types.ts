@@ -260,6 +260,46 @@ export interface HistoryItem {
   result: GameResult;
 }
 
+export interface ReplayShip {
+  kind: ShipKind;
+  cells: Coordinate[];
+}
+
+export interface ReplayPlayer {
+  id: string;
+  nickname: string;
+  kind: PlayerKind;
+  fleet: ReplayShip[];
+}
+
+export interface ReplayTurnExpiration {
+  expiredTurnNumber: number;
+  expiredPlayerId: string;
+  nextPlayerId: string | null;
+  consecutiveTimeoutCount: number;
+  totalTimeoutCount: number;
+  winnerId: string | null;
+  expiredAt: string;
+}
+
+export type GameTimelineEvent =
+  | { type: 'ATTACK'; payload: AttackRecord }
+  | { type: 'TURN_EXPIRED'; payload: ReplayTurnExpiration };
+
+export interface GameReplay {
+  protocolVersion: number;
+  rulesetVersion: number;
+  roomId: string;
+  roomName: string;
+  gameId: string;
+  firstPlayerId: string;
+  startedAt: string;
+  finishedAt: string;
+  players: ReplayPlayer[];
+  timeline: GameTimelineEvent[];
+  result: GameResult;
+}
+
 export type ClientEvent =
   | { type: 'room:create'; payload: { name: string; visibility: RoomVisibility } }
   | { type: 'room:join'; payload: { code: string } }

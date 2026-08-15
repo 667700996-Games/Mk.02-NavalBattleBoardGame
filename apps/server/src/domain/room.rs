@@ -8,9 +8,9 @@ use crate::error::GameError;
 
 use super::{
     ALLOWED_EMOJIS, AttackOutcome, AttackRecord, Board, ChatMessage, ChatMessageType,
-    ChatTypingEvent, ConnectionState, Coordinate, FinishReason, Game, GameResult, MAX_CHAT_HISTORY,
-    MAX_CHAT_MESSAGE_CHARS, Player, PlayerKind, PlayerReadyState, PlayerRole, QuickCommandId,
-    ShipKind, ShipPlacement, SurrenderRecord, TurnExpiration, UserSession,
+    ChatTypingEvent, ConnectionState, Coordinate, FinishReason, Game, GameResult, GameTimelineEvent,
+    MAX_CHAT_HISTORY, MAX_CHAT_MESSAGE_CHARS, Player, PlayerKind, PlayerReadyState, PlayerRole,
+    QuickCommandId, ShipKind, ShipPlacement, SurrenderRecord, TurnExpiration, UserSession,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

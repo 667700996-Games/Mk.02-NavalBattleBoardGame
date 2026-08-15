@@ -2,6 +2,7 @@ import type {
   AiDifficulty,
   ApiErrorBody,
   GameSnapshot,
+  GameReplay,
   HistoryItem,
   RoomCreatedResponse,
   RoomSummary,
@@ -106,6 +107,7 @@ export const api = {
     return snapshot === null ? null : compatibleSnapshot(snapshot);
   },
   history: () => request<{ games: HistoryItem[] }>('/games/history'),
+  replay: (roomId: string) => request<GameReplay>(`/games/${roomId}/replay`),
   enqueueMatchmaking: async () => {
     const response = await request<{
       queued: boolean;
