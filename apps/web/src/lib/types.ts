@@ -11,6 +11,8 @@ export type RoomVisibility = 'PUBLIC' | 'PRIVATE';
 export type ConnectionState = 'ONLINE' | 'RECONNECTING' | 'OFFLINE';
 export type PlayerReadyState = 'NOT_READY' | 'READY';
 export type PlayerRole = 'HOST' | 'GUEST';
+export type PlayerKind = 'HUMAN' | 'AI';
+export type AiDifficulty = 'RECRUIT' | 'OFFICER' | 'ADMIRAL';
 export type ShipKind = 'CARRIER' | 'BATTLESHIP' | 'CRUISER' | 'SUBMARINE' | 'DESTROYER';
 export type Orientation = 'HORIZONTAL' | 'VERTICAL';
 export type AttackOutcome = 'MISS' | 'HIT' | 'SUNK';
@@ -42,6 +44,7 @@ export interface ShipPlacement {
 export interface Session {
   id: string;
   nickname: string;
+  kind: PlayerKind;
   currentRoomId: string | null;
   expiresAt: string;
 }
@@ -202,6 +205,7 @@ export interface GameSnapshot {
   version: number;
   selfPlayerId: string;
   players: PlayerPublic[];
+  practiceDifficulty: AiDifficulty | null;
   ownBoard: OwnBoardSnapshot | null;
   targetBoard: TargetBoardSnapshot | null;
   revealedBoard: OwnBoardSnapshot | null;

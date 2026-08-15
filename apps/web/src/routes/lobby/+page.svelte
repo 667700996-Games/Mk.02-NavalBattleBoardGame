@@ -4,6 +4,7 @@
   import { onMount } from 'svelte';
   import {
     ArrowRight,
+    Bot,
     DoorOpen,
     History,
     KeyRound,
@@ -19,7 +20,7 @@
   import { realtime } from '$lib/realtime';
   import { gameSnapshot, session, socketStatus } from '$lib/stores';
   import { Avatar, Badge, Button, Field, Modal, Skeleton, Surface } from '$lib/ui';
-  import type { RoomSummary, RoomVisibility } from '$lib/types';
+  import type { AiDifficulty, RoomSummary, RoomVisibility } from '$lib/types';
 
   let rooms: RoomSummary[] = [];
   let loading = true;
@@ -31,6 +32,7 @@
   let roomCode = '';
   let submitting = false;
   let matching = false;
+  let practicing = false;
   let queuedAt: Date | null = null;
   let elapsed = 0;
 
@@ -141,6 +143,20 @@
     }
   }
 
+  async function startPractice(difficulty: AiDifficulty) {
+    practicing = true;
+    error = '';
+    try {
+      const snapshot = await api.createPractice(difficulty);
+      gameSnapshot.set(snapshot);
+      await goto(resolve('/room/[code]', { code: snapshot.room.code }));
+    } catch (caught) {
+      error = caught instanceof ApiError ? caught.message : 'AI 전술 훈련을 시작하지 못했습니다.';
+    } finally {
+      practicing = false;
+    }
+  }
+
   const age = (createdAt: string) => {
     const minutes = Math.max(0, Math.floor((Date.now() - new Date(createdAt).getTime()) / 60_000));
     return minutes < 1 ? '방금 전' : `${minutes}분 전`;
@@ -205,6 +221,26 @@
     </Surface>
 
     <div class="dashboard-side">
+      <Surface tone="elevated" padding="md" class="practice-card">
+        <div class="practice-heading">
+          <span><Bot size={19} /></span>
+          <div>
+            <small>AI TACTICAL RANGE</small><strong>AI 연습 교전</strong>
+            <p>서버 권위 AI와 난이도별 실전 훈련</p>
+          </div>
+        </div>
+        <div class="practice-options" aria-label="AI 난이도 선택">
+          <button disabled={practicing} onclick={() => startPractice('RECRUIT')}
+            ><span>신병</span><small>RECRUIT</small></button
+          >
+          <button disabled={practicing} onclick={() => startPractice('OFFICER')}
+            ><span>장교</span><small>OFFICER</small></button
+          >
+          <button disabled={practicing} onclick={() => startPractice('ADMIRAL')}
+            ><span>제독</span><small>ADMIRAL</small></button
+          >
+        </div>
+      </Surface>
       <Surface tone="interactive" padding="md">
         <a class="dashboard-action" href={resolve('/tutorial')}>
           <span><ShieldCheck size={19} /></span>
@@ -558,6 +594,75 @@
   .dashboard-side {
     display: grid;
     gap: 16px;
+  }
+  :global(.practice-card) :global(.ui-surface__content) {
+    display: grid;
+    gap: 12px;
+  }
+  .practice-heading {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    align-items: center;
+    gap: 12px;
+  }
+  .practice-heading > span {
+    display: grid;
+    width: 44px;
+    height: 44px;
+    place-items: center;
+    border: 1px solid rgba(255, 209, 107, 0.24);
+    border-radius: 11px;
+    color: var(--amber-400);
+    background: rgba(255, 209, 107, 0.06);
+  }
+  .practice-heading > div {
+    display: grid;
+    gap: 2px;
+  }
+  .practice-heading small,
+  .practice-options small {
+    color: var(--ink-500);
+    font-family: var(--font-display);
+    font-size: 7px;
+    letter-spacing: 0.12em;
+  }
+  .practice-heading strong {
+    font-size: 12px;
+  }
+  .practice-heading p {
+    margin: 0;
+    color: var(--ink-400);
+    font-size: 9px;
+  }
+  .practice-options {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+  }
+  .practice-options button {
+    display: grid;
+    gap: 2px;
+    min-height: 46px;
+    padding: 7px 4px;
+    border: 1px solid var(--line);
+    border-radius: 6px 2px 6px 2px;
+    color: var(--ink-200);
+    background: rgba(6, 25, 32, 0.76);
+    cursor: pointer;
+  }
+  .practice-options button:hover:not(:disabled),
+  .practice-options button:focus-visible {
+    border-color: var(--cyan-300);
+    color: white;
+    background: rgba(40, 223, 232, 0.08);
+  }
+  .practice-options button:focus-visible {
+    outline: 2px solid var(--cyan-300);
+    outline-offset: 2px;
+  }
+  .practice-options button:disabled {
+    cursor: wait;
+    opacity: 0.55;
   }
   .dashboard-action {
     display: grid;

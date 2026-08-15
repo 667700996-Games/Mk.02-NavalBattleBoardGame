@@ -9,8 +9,8 @@ use crate::error::GameError;
 use super::{
     ALLOWED_EMOJIS, AttackOutcome, AttackRecord, Board, ChatMessage, ChatMessageType,
     ChatTypingEvent, ConnectionState, Coordinate, FinishReason, Game, GameResult, MAX_CHAT_HISTORY,
-    MAX_CHAT_MESSAGE_CHARS, Player, PlayerKind, PlayerReadyState, PlayerRole, QuickCommandId, ShipKind,
-    ShipPlacement, SurrenderRecord, TurnExpiration, UserSession,
+    MAX_CHAT_MESSAGE_CHARS, Player, PlayerKind, PlayerReadyState, PlayerRole, QuickCommandId,
+    ShipKind, ShipPlacement, SurrenderRecord, TurnExpiration, UserSession,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -262,19 +262,9 @@ impl GameRoom {
             .ok_or(GameError::InvalidState)?;
         ai_player.kind = PlayerKind::Ai;
         self.practice_difficulty = Some(difficulty);
-        self.set_lobby_ready(
-            human_session_id,
-            Uuid::new_v4(),
-            human.id,
-            true,
-        )?;
+        self.set_lobby_ready(human_session_id, Uuid::new_v4(), human.id, true)?;
         self.set_lobby_ready(ai_session_id, Uuid::new_v4(), ai.id, true)?;
-        self.start_placement(
-            human_session_id,
-            Uuid::new_v4(),
-            human.id,
-            self.version,
-        )?;
+        self.start_placement(human_session_id, Uuid::new_v4(), human.id, self.version)?;
         self.place_ships(ai_session_id, ai_placements.clone())?;
         self.confirm_placement(ai_session_id, &ai_placements, 60)?;
         self.push_system_message(format!(
@@ -1347,6 +1337,7 @@ impl GameRoom {
             version: self.version,
             self_player_id: me.id,
             players,
+            practice_difficulty: self.practice_difficulty,
             own_board,
             target_board,
             revealed_board,
@@ -1463,6 +1454,7 @@ pub struct GameSnapshot {
     pub version: u64,
     pub self_player_id: Uuid,
     pub players: Vec<PlayerPublic>,
+    pub practice_difficulty: Option<AiDifficulty>,
     pub own_board: Option<OwnBoardSnapshot>,
     pub target_board: Option<TargetBoardSnapshot>,
     pub revealed_board: Option<OwnBoardSnapshot>,

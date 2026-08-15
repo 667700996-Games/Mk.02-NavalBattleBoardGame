@@ -46,7 +46,8 @@ use crate::{
     config::{Settings, StorageMode},
     domain::{
         AiDifficulty, AttackOutcome, ChatMessage, ChatTypingEvent, Coordinate, GameRoom,
-        GameTimerState, Orientation, PlayerKind, RoomVisibility, ShipKind, ShipPlacement, UserSession,
+        GameTimerState, Orientation, PlayerKind, RoomVisibility, ShipKind, ShipPlacement,
+        UserSession,
     },
     error::GameError,
     protocol::{CreateRoomInput, ServerEvent},
@@ -729,12 +730,7 @@ impl AppState {
         let room = self.join_room(&ai_session, &room.code).await?;
         let room_ref = self.room(room.id).await?;
         let mut room = room_ref.lock().await;
-        room.configure_practice(
-            session.id,
-            ai_session.id,
-            difficulty,
-            practice_fleet(),
-        )?;
+        room.configure_practice(session.id, ai_session.id, difficulty, practice_fleet())?;
         self.save_room(&mut room).await?;
         Ok(room.clone())
     }
@@ -1148,9 +1144,7 @@ impl AppState {
             let Some(ai_player) = room
                 .players
                 .iter()
-                .find(|player| {
-                    player.kind == PlayerKind::Ai && player.id == game.current_player_id
-                })
+                .find(|player| player.kind == PlayerKind::Ai && player.id == game.current_player_id)
                 .cloned()
             else {
                 return;
@@ -1176,17 +1170,11 @@ impl AppState {
             let next_timer = room.timer_state(Utc::now());
             for player in &room.players {
                 state
-                    .send_to_session(
-                        player.session_id,
-                        ServerEvent::AttackResult(record.clone()),
-                    )
+                    .send_to_session(player.session_id, ServerEvent::AttackResult(record.clone()))
                     .await;
                 if record.sunk_ship.is_some() {
                     state
-                        .send_to_session(
-                            player.session_id,
-                            ServerEvent::ShipSunk(record.clone()),
-                        )
+                        .send_to_session(player.session_id, ServerEvent::ShipSunk(record.clone()))
                         .await;
                 }
             }
@@ -1325,14 +1313,9 @@ fn select_ai_coordinate(room: &GameRoom, ai_player_id: Uuid) -> Option<Coordinat
         .collect();
     let difficulty = room.practice_difficulty.unwrap_or_default();
     if difficulty != AiDifficulty::Recruit {
-        for attack in game
-            .attacks
-            .iter()
-            .rev()
-            .filter(|attack| {
-                attack.attacker_id == ai_player_id && attack.outcome == AttackOutcome::Hit
-            })
-        {
+        for attack in game.attacks.iter().rev().filter(|attack| {
+            attack.attacker_id == ai_player_id && attack.outcome == AttackOutcome::Hit
+        }) {
             let row = i16::from(attack.coordinate.row);
             let col = i16::from(attack.coordinate.col);
             for (row_offset, col_offset) in [(-1_i16, 0_i16), (0, 1), (1, 0), (0, -1)] {
@@ -1368,8 +1351,7 @@ fn select_ai_coordinate(room: &GameRoom, ai_player_id: Uuid) -> Option<Coordinat
     if candidates.is_empty() {
         return None;
     }
-    let seed = room.id.as_u128()
-        ^ u128::from(game.turn_number).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+    let seed = room.id.as_u128() ^ u128::from(game.turn_number).wrapping_mul(0x9E37_79B9_7F4A_7C15);
     Some(candidates[(seed as usize) % candidates.len()])
 }
 

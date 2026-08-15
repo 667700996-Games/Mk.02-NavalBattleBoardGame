@@ -1,4 +1,5 @@
 import type {
+  AiDifficulty,
   ApiErrorBody,
   GameSnapshot,
   HistoryItem,
@@ -84,6 +85,13 @@ export const api = {
     });
     return { ...response, snapshot: compatibleSnapshot(response.snapshot) };
   },
+  createPractice: async (difficulty: AiDifficulty) =>
+    compatibleSnapshot(
+      await request<unknown>('/practice', {
+        method: 'POST',
+        body: JSON.stringify({ difficulty })
+      })
+    ),
   joinRoom: async (code: string) => {
     const snapshot = await request<unknown>('/rooms/join', {
       method: 'POST',

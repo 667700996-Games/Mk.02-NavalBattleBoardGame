@@ -3,9 +3,9 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::domain::{
-    AttackRecord, ChatMessage, ChatMessageType, ChatTypingEvent, Coordinate, GameSnapshot,
-    GameStartRecord, GameTimerState, PlayerReadyRecord, RoomSummary, RoomVisibility, ShipPlacement,
-    AiDifficulty, SurrenderRecord, TurnExpiredRecord,
+    AiDifficulty, AttackRecord, ChatMessage, ChatMessageType, ChatTypingEvent, Coordinate,
+    GameSnapshot, GameStartRecord, GameTimerState, PlayerReadyRecord, RoomSummary, RoomVisibility,
+    ShipPlacement, SurrenderRecord, TurnExpiredRecord,
 };
 
 #[derive(Debug, Clone, Deserialize)]
