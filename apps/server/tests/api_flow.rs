@@ -25,6 +25,12 @@ fn test_app() -> Router {
         reconnect_grace: Duration::from_secs(1),
         turn_duration_seconds: 60,
         public_base_url: "http://localhost:5173".to_string(),
+        api_requests_per_minute: 1_000,
+        session_creations_per_minute: 100,
+        websocket_events_per_second: 100,
+        websocket_send_queue_capacity: 32,
+        max_websocket_connections: 100,
+        trust_proxy_headers: false,
     };
     build_router(AppState::with_store(
         settings,

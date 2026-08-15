@@ -127,6 +127,12 @@ POSTGRES_PASSWORD='replace-this-local-password' docker compose up --build
 | `SESSION_TTL_SECONDS`     | `2592000`                 | 게스트 세션 유효 기간                         |
 | `RECONNECT_GRACE_SECONDS` | `90`                      | 재접속 유예 시간                              |
 | `TURN_DURATION_SECONDS`   | `60`                      | 턴 제한(초), `0`이면 제한 없음                |
+| `API_REQUESTS_PER_MINUTE` | `240`                     | 인증 세션별 HTTP/연결 요청 한도                |
+| `SESSION_CREATIONS_PER_MINUTE` | `20`                | 클라이언트 IP별 게스트 세션 생성 한도          |
+| `WEBSOCKET_EVENTS_PER_SECOND` | `60`                 | 세션별 수신 WebSocket 이벤트 한도              |
+| `WEBSOCKET_SEND_QUEUE_CAPACITY` | `256`               | 연결별 송신 큐 한도; 초과 시 느린 연결 종료    |
+| `MAX_WEBSOCKET_CONNECTIONS` | `10000`                 | 서버 인스턴스별 동시 WebSocket 연결 한도       |
+| `TRUST_PROXY_HEADERS`     | `false`                   | 신뢰 프록시 뒤에서만 전달 IP 헤더 사용         |
 | `RUST_LOG`                | info                      | `tracing` 로그 필터                           |
 
 ## REST API
@@ -135,9 +141,10 @@ POSTGRES_PASSWORD='replace-this-local-password' docker compose up --build
 
 | Method        | 경로                    | 기능                                     |
 | ------------- | ----------------------- | ---------------------------------------- |
-| `GET`         | `/health`               | 프로세스/저장 모드 헬스                  |
+| `GET`         | `/health`               | 프로세스 liveness                         |
+| `GET`         | `/ready`                | 주 저장소 연결을 포함한 readiness          |
 | `POST`        | `/sessions`             | 닉네임 검증 후 게스트 세션 생성          |
-| `GET`         | `/sessions/current`     | 현재 세션 복구                           |
+| `GET/DELETE`  | `/sessions/current`     | 현재 세션 복구 / 서버 세션 폐기           |
 | `GET/POST`    | `/rooms`                | 공개 방 목록 / 방 생성                   |
 | `POST`        | `/rooms/join`           | 방 코드로 참가                           |
 | `GET`         | `/rooms/{roomId}`       | 본인 기준 비공개 필터 스냅샷             |
