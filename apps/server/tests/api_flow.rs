@@ -13,8 +13,8 @@ use mk01_server::{
 use serde_json::{Value, json};
 use tower::ServiceExt;
 
-fn test_app() -> Router {
-    let settings = Settings {
+fn test_settings() -> Settings {
+    Settings {
         bind_addr: SocketAddr::from(([127, 0, 0, 1], 0)),
         storage_mode: StorageMode::Memory,
         database_url: String::new(),
@@ -32,11 +32,18 @@ fn test_app() -> Router {
         websocket_send_queue_capacity: 32,
         max_websocket_connections: 100,
         trust_proxy_headers: false,
-    };
+    }
+}
+
+fn test_app_with_settings(settings: Settings) -> Router {
     build_router(AppState::with_store(
         settings,
         Arc::new(MemoryStore::default()),
     ))
+}
+
+fn test_app() -> Router {
+    test_app_with_settings(test_settings())
 }
 
 async fn send(app: &Router, request: Request<Body>) -> Response<Body> {
@@ -256,4 +263,69 @@ async fn liveness_readiness_and_security_headers_are_exposed() {
         assert!(response.headers().contains_key("content-security-policy"));
         assert_eq!(json_body(response).await["status"], expected_status);
     }
+}
+
+#[tokio::test]
+async fn global_and_session_creation_limits_reject_excess_requests() {
+    let global_app = test_app_with_settings(Settings {
+        http_requests_per_minute_per_ip: 1,
+        ..test_settings()
+    });
+    let first = send(
+        &global_app,
+        Request::builder()
+            .uri("/api/health")
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(first.status(), StatusCode::OK);
+    let limited = send(
+        &global_app,
+        Request::builder()
+            .uri("/api/health")
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(limited.status(), StatusCode::TOO_MANY_REQUESTS);
+
+    let session_app = test_app_with_settings(Settings {
+        session_creations_per_minute: 1,
+        ..test_settings()
+    });
+    let _ = create_session(&session_app, "Alpha").await;
+    let response = send(
+        &session_app,
+        Request::builder()
+            .method("POST")
+            .uri("/api/sessions")
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(json!({ "nickname": "Bravo" }).to_string()))
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(json_body(response).await["code"], "RATE_LIMITED");
+
+    let authenticated_app = test_app_with_settings(Settings {
+        api_requests_per_minute: 1,
+        ..test_settings()
+    });
+    let (cookie, _) = create_session(&authenticated_app, "Charlie").await;
+    let current = || {
+        Request::builder()
+            .uri("/api/sessions/current")
+            .header(header::COOKIE, &cookie)
+            .body(Body::empty())
+            .unwrap()
+    };
+    assert_eq!(
+        send(&authenticated_app, current()).await.status(),
+        StatusCode::OK
+    );
+    assert_eq!(
+        send(&authenticated_app, current()).await.status(),
+        StatusCode::TOO_MANY_REQUESTS
+    );
 }
