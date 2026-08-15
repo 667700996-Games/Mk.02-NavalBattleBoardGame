@@ -39,7 +39,7 @@
     {
       eyebrow: '05 / RECOVERY',
       title: '통신이 끊겨도 작전은 복구됩니다',
-      body: '잠시 오프라인이 되면 서버가 재접속 유예 시간을 제공합니다. 새로고침 후에도 같은 방과 턴을 복구하며, 중복 명령은 한 번만 처리됩니다.'
+      body: '잠시 오프라인이 되면 서버가 재접속 유예 시간을 제공합니다. 새로고침 후에도 같은 방과 턴을 복구하며, 중복 명령은 한 번만 처리됩니다. 경기 종료 후 두 지휘관이 모두 재경기를 요청하면 같은 작전실에서 준비 단계로 돌아갑니다.'
     }
   ] as const;
 
@@ -207,7 +207,7 @@
           <div class="signal-lines"><i></i><i></i><i></i></div>
           <Radio size={42} />
           <strong>AUTHORITATIVE STATE RESTORED</strong>
-          <span>방 · 배치 · 턴 · 채팅 복구 완료</span>
+          <span>방 · 배치 · 턴 · 채팅 복구 / 양쪽 동의 후 재경기</span>
           <div class="recovered"><Check size={15} /> 안전한 재접속</div>
         </div>
       {/if}

@@ -29,8 +29,8 @@ The program is complete only when all gates below are satisfied in a production-
 
 - [ ] A room has exactly one active authoritative owner at a time.
 - [ ] Ownership is leased or fenced so a paused/stale process cannot commit after takeover.
-- [ ] Every mutation uses a persistence revision and rejects stale writes atomically.
-- [ ] WebSocket fan-out reaches players connected to different application instances.
+- [x] Every mutation uses a persistence revision and rejects stale writes atomically.
+- [x] WebSocket fan-out reaches players connected to different application instances.
 - [ ] Instance termination transfers or recovers active rooms within the reconnect SLO.
 - [ ] A rolling deployment preserves active matches across protocol-compatible releases.
 - Evidence: multi-instance integration test, stale-owner test, rolling-restart test, persisted event
@@ -41,17 +41,17 @@ The program is complete only when all gates below are satisfied in a production-
 - [ ] Matchmaking is durable, distributed, idempotent, cancellable, and cleans abandoned entries.
 - [ ] Ranked matchmaking supports region, latency, rating, party, and widening search constraints.
 - [ ] Turn and reconnect deadlines are durable jobs claimed once with fencing/idempotency.
-- [ ] No process scans every active room at a fixed sub-second interval.
+- [x] No process scans every active room at a fixed sub-second interval.
 - Evidence: two-instance matchmaking tests, worker failover tests, timer duplicate-delivery tests,
   and queue-depth/age metrics.
 
 ### A3. Transport protection and backpressure
 
-- [ ] WebSocket outbound queues are bounded and disconnect slow consumers with an observable reason.
-- [ ] HTTP, session creation, WebSocket connection, and WebSocket event limits exist per IP/session.
-- [ ] Limits are enforced through shared infrastructure when multiple instances are deployed.
+- [x] WebSocket outbound queues are bounded and disconnect slow consumers with an observable reason.
+- [x] HTTP, session creation, WebSocket connection, and WebSocket event limits exist per IP/session.
+- [x] Limits are enforced through shared infrastructure when multiple instances are deployed.
 - [ ] Payload, frame, connection, room, matchmaking, and retention quotas are configured.
-- [ ] Retry behavior uses explicit retryability and backoff contracts.
+- [x] Retry behavior uses explicit retryability and backoff contracts.
 - Evidence: abusive-client tests, slow-consumer tests, reconnect-storm load test, and rate-limit
   metrics split by endpoint/reason.
 
@@ -73,7 +73,7 @@ The program is complete only when all gates below are satisfied in a production-
 
 ### B3. Application and supply-chain security
 
-- [ ] CSP, HSTS, frame protection, content sniffing, referrer, and permissions policies are verified.
+- [x] CSP, HSTS, frame protection, content sniffing, referrer, and permissions policies are verified.
 - [ ] Secrets come from a managed secret store and never from committed/default production values.
 - [ ] Dependency, license, secret, SAST, container, and infrastructure scans gate releases.
 - [ ] Threat models cover account, room, WebSocket, matchmaking, moderation, and admin surfaces.
@@ -91,7 +91,7 @@ The program is complete only when all gates below are satisfied in a production-
 
 ### C1. First-time experience and practice
 
-- [ ] Interactive tutorial teaches placement, targeting, turn timer, fog of war, and rematch.
+- [x] Interactive tutorial teaches placement, targeting, turn timer, fog of war, and rematch.
 - [ ] Practice AI offers documented difficulty levels and deterministic test fixtures.
 - [ ] Contextual help and input prompts work on mouse, keyboard, touch, and controller if supported.
 - [ ] New-player funnel metrics identify failure and abandonment points.

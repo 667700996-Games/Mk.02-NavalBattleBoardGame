@@ -151,6 +151,7 @@ POSTGRES_PASSWORD='replace-this-local-password' docker compose up --build
 | ------------- | ----------------------- | ---------------------------------------- |
 | `GET`         | `/health`               | 프로세스 liveness                        |
 | `GET`         | `/ready`                | 주 저장소 연결을 포함한 readiness        |
+| `GET`         | `/metrics`              | Prometheus 형식 운영 메트릭              |
 | `POST`        | `/sessions`             | 닉네임 검증 후 게스트 세션 생성          |
 | `GET/DELETE`  | `/sessions/current`     | 현재 세션 복구 / 서버 세션 폐기          |
 | `GET/POST`    | `/rooms`                | 공개 방 목록 / 방 생성                   |
@@ -249,7 +250,8 @@ POSTGRES_PASSWORD='replace-this-local-password' docker compose up --build
 - DB/Redis 오류는 구조화 로그에만 원인을 남기고, 클라이언트에는 안전한 오류 코드와 추적 UUID만 보냅니다.
 - E2E는 모든 수신 WebSocket 프레임을 감사해 `targetBoard.ships`/`sessionId`가 없음을 확인합니다.
 
-취약점 제보 절차는 [SECURITY.md](SECURITY.md)를 참조하세요.
+취약점 제보 절차는 [SECURITY.md](SECURITY.md)를 참조하세요. SLO, 경보, 캐나리,
+의존성 장애, 백업 복구 훈련은 [운영 런북](docs/OPERATIONS.md)에서 관리합니다.
 
 ## 테스트와 품질 검사
 
