@@ -83,10 +83,7 @@ impl Settings {
             websocket_send_queue_capacity: env_usize("WEBSOCKET_SEND_QUEUE_CAPACITY", 256).max(8),
             max_websocket_connections: env_usize("MAX_WEBSOCKET_CONNECTIONS", 10_000).max(1),
             trust_proxy_headers: env_bool("TRUST_PROXY_HEADERS", false),
-            distributed_coordination_required: env_bool(
-                "DISTRIBUTED_COORDINATION_REQUIRED",
-                false,
-            ),
+            distributed_coordination_required: env_bool("DISTRIBUTED_COORDINATION_REQUIRED", false),
         })
     }
 }

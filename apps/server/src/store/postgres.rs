@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use chrono::{DateTime, Utc};
 use redis::{AsyncCommands, aio::ConnectionManager};
 use sqlx::{PgPool, postgres::PgPoolOptions};
 use uuid::Uuid;
@@ -8,7 +9,7 @@ use crate::{
     error::GameError,
 };
 
-use super::{GameHistoryItem, GameStore};
+use super::{GameHistoryItem, GameStore, MatchmakingClaim, MatchmakingEnqueueResult};
 
 #[derive(Clone)]
 pub struct PostgresRedisStore {
@@ -73,12 +74,11 @@ impl PostgresRedisStore {
     }
 
     async fn room_by_id_from_database(&self, id: Uuid) -> Result<Option<GameRoom>, GameError> {
-        let row: Option<(serde_json::Value, i64)> = sqlx::query_as(
-            "SELECT snapshot, persistence_revision FROM game_rooms WHERE id=$1",
-        )
-        .bind(id)
-        .fetch_optional(&self.pool)
-        .await?;
+        let row: Option<(serde_json::Value, i64)> =
+            sqlx::query_as("SELECT snapshot, persistence_revision FROM game_rooms WHERE id=$1")
+                .bind(id)
+                .fetch_optional(&self.pool)
+                .await?;
         row.map(|(snapshot, revision)| {
             let mut room: GameRoom =
                 serde_json::from_value(snapshot).map_err(|_| GameError::Internal)?;
@@ -154,8 +154,8 @@ impl GameStore for PostgresRedisStore {
     }
 
     async fn save_room(&self, room: &mut GameRoom) -> Result<(), GameError> {
-        let expected_revision = i64::try_from(room.persistence_revision)
-            .map_err(|_| GameError::Internal)?;
+        let expected_revision =
+            i64::try_from(room.persistence_revision).map_err(|_| GameError::Internal)?;
         let next_revision = expected_revision
             .checked_add(1)
             .ok_or(GameError::Internal)?;
@@ -219,12 +219,11 @@ impl GameStore for PostgresRedisStore {
     }
 
     async fn room_by_code(&self, code: &str) -> Result<Option<GameRoom>, GameError> {
-        let row: Option<(serde_json::Value, i64)> = sqlx::query_as(
-            "SELECT snapshot, persistence_revision FROM game_rooms WHERE code=$1",
-        )
-        .bind(code)
-        .fetch_optional(&self.pool)
-        .await?;
+        let row: Option<(serde_json::Value, i64)> =
+            sqlx::query_as("SELECT snapshot, persistence_revision FROM game_rooms WHERE code=$1")
+                .bind(code)
+                .fetch_optional(&self.pool)
+                .await?;
         let room = row
             .map(|(snapshot, revision)| {
                 let mut room: GameRoom =
@@ -296,6 +295,205 @@ impl GameStore for PostgresRedisStore {
                 })
             })
             .collect()
+    }
+
+    async fn enqueue_matchmaking(
+        &self,
+        session: &UserSession,
+    ) -> Result<MatchmakingEnqueueResult, GameError> {
+        let mut transaction = self.pool.begin().await?;
+        let current_room_id: Option<Option<Uuid>> =
+            sqlx::query_scalar("SELECT current_room_id FROM user_sessions WHERE id=$1 FOR UPDATE")
+                .bind(session.id)
+                .fetch_optional(&mut *transaction)
+                .await?;
+        match current_room_id {
+            None => return Err(GameError::Unauthorized),
+            Some(Some(_)) => return Err(GameError::AlreadyJoined),
+            Some(None) => {}
+        }
+
+        sqlx::query(
+            "UPDATE matchmaking_queue SET claim_id=NULL, claimed_at=NULL WHERE claimed_at < now() - interval '30 seconds'",
+        )
+        .execute(&mut *transaction)
+        .await?;
+        sqlx::query(
+            "INSERT INTO matchmaking_queue (session_id, queued_at) VALUES ($1, now()) ON CONFLICT (session_id) DO NOTHING",
+        )
+        .bind(session.id)
+        .execute(&mut *transaction)
+        .await?;
+
+        let (queued_at, existing_claim): (DateTime<Utc>, Option<Uuid>) = sqlx::query_as(
+            "SELECT queued_at, claim_id FROM matchmaking_queue WHERE session_id=$1 FOR UPDATE",
+        )
+        .bind(session.id)
+        .fetch_one(&mut *transaction)
+        .await?;
+        if existing_claim.is_some() {
+            transaction.commit().await?;
+            return Ok(MatchmakingEnqueueResult {
+                queued_at,
+                claim: None,
+            });
+        }
+
+        let opponent: Option<(
+            Uuid,
+            String,
+            String,
+            DateTime<Utc>,
+            DateTime<Utc>,
+            Option<Uuid>,
+        )> = sqlx::query_as(
+            "SELECT sessions.id, sessions.nickname, sessions.token_hash, sessions.created_at, sessions.last_seen_at, sessions.current_room_id FROM matchmaking_queue queue JOIN user_sessions sessions ON sessions.id=queue.session_id WHERE queue.session_id<>$1 AND queue.claim_id IS NULL AND sessions.current_room_id IS NULL ORDER BY queue.queued_at ASC FOR UPDATE OF queue SKIP LOCKED LIMIT 1",
+        )
+        .bind(session.id)
+        .fetch_optional(&mut *transaction)
+        .await?;
+
+        let Some((id, nickname, token_hash, created_at, last_seen_at, current_room_id)) = opponent
+        else {
+            transaction.commit().await?;
+            return Ok(MatchmakingEnqueueResult {
+                queued_at,
+                claim: None,
+            });
+        };
+        let claim_id = Uuid::new_v4();
+        let claimed = sqlx::query(
+            "UPDATE matchmaking_queue SET claim_id=$1, claimed_at=now() WHERE session_id=ANY($2) AND claim_id IS NULL",
+        )
+        .bind(claim_id)
+        .bind(vec![session.id, id])
+        .execute(&mut *transaction)
+        .await?;
+        if claimed.rows_affected() != 2 {
+            return Err(GameError::VersionConflict);
+        }
+        transaction.commit().await?;
+
+        Ok(MatchmakingEnqueueResult {
+            queued_at,
+            claim: Some(MatchmakingClaim {
+                id: claim_id,
+                opponent: UserSession {
+                    id,
+                    nickname,
+                    token_hash,
+                    created_at,
+                    last_seen_at,
+                    current_room_id,
+                },
+            }),
+        })
+    }
+
+    async fn complete_matchmaking(
+        &self,
+        claim_id: Uuid,
+        room: &mut GameRoom,
+    ) -> Result<(), GameError> {
+        let mut transaction = self.pool.begin().await?;
+        let mut claimed_session_ids: Vec<Uuid> = sqlx::query_scalar(
+            "SELECT session_id FROM matchmaking_queue WHERE claim_id=$1 ORDER BY session_id FOR UPDATE",
+        )
+        .bind(claim_id)
+        .fetch_all(&mut *transaction)
+        .await?;
+        let mut room_session_ids: Vec<_> = room
+            .players
+            .iter()
+            .map(|player| player.session_id)
+            .collect();
+        claimed_session_ids.sort_unstable();
+        room_session_ids.sort_unstable();
+        if claimed_session_ids.len() != 2 || claimed_session_ids != room_session_ids {
+            return Err(GameError::VersionConflict);
+        }
+        if room.persistence_revision != 0 {
+            return Err(GameError::VersionConflict);
+        }
+
+        let mut persisted = room.clone();
+        persisted.persistence_revision = 1;
+        let snapshot = serde_json::to_value(&persisted).map_err(|_| GameError::Internal)?;
+        let status = serde_json::to_value(room.status)
+            .map_err(|_| GameError::Internal)?
+            .as_str()
+            .unwrap_or("CANCELLED")
+            .to_string();
+        let visibility = serde_json::to_value(room.visibility)
+            .map_err(|_| GameError::Internal)?
+            .as_str()
+            .unwrap_or("PRIVATE")
+            .to_string();
+        let inserted = sqlx::query(
+            "INSERT INTO game_rooms (id, code, name, visibility, status, snapshot, created_at, updated_at, persistence_revision) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,1) ON CONFLICT (id) DO NOTHING",
+        )
+        .bind(room.id)
+        .bind(&room.code)
+        .bind(&room.name)
+        .bind(visibility)
+        .bind(status)
+        .bind(snapshot)
+        .bind(room.created_at)
+        .bind(room.updated_at)
+        .execute(&mut *transaction)
+        .await?;
+        if inserted.rows_affected() != 1 {
+            return Err(GameError::VersionConflict);
+        }
+
+        let sessions_updated = sqlx::query(
+            "UPDATE user_sessions SET current_room_id=$1, last_seen_at=now() WHERE id=ANY($2) AND current_room_id IS NULL",
+        )
+        .bind(room.id)
+        .bind(&claimed_session_ids)
+        .execute(&mut *transaction)
+        .await?;
+        if sessions_updated.rows_affected() != 2 {
+            return Err(GameError::AlreadyJoined);
+        }
+        let removed = sqlx::query("DELETE FROM matchmaking_queue WHERE claim_id=$1")
+            .bind(claim_id)
+            .execute(&mut *transaction)
+            .await?;
+        if removed.rows_affected() != 2 {
+            return Err(GameError::VersionConflict);
+        }
+        transaction.commit().await?;
+        room.persistence_revision = persisted.persistence_revision;
+        self.cache_room(&persisted).await?;
+        Ok(())
+    }
+
+    async fn release_matchmaking_claim(&self, claim_id: Uuid) -> Result<(), GameError> {
+        sqlx::query(
+            "UPDATE matchmaking_queue SET claim_id=NULL, claimed_at=NULL WHERE claim_id=$1",
+        )
+        .bind(claim_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    async fn cancel_matchmaking(&self, session_id: Uuid) -> Result<bool, GameError> {
+        let result =
+            sqlx::query("DELETE FROM matchmaking_queue WHERE session_id=$1 AND claim_id IS NULL")
+                .bind(session_id)
+                .execute(&self.pool)
+                .await?;
+        Ok(result.rows_affected() == 1)
+    }
+
+    async fn matchmaking_time(&self, session_id: Uuid) -> Result<Option<DateTime<Utc>>, GameError> {
+        sqlx::query_scalar("SELECT queued_at FROM matchmaking_queue WHERE session_id=$1")
+            .bind(session_id)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(Into::into)
     }
 
     fn kind(&self) -> &'static str {

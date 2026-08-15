@@ -71,9 +71,6 @@ pub trait GameStore: Send + Sync {
     ) -> Result<(), GameError>;
     async fn release_matchmaking_claim(&self, claim_id: Uuid) -> Result<(), GameError>;
     async fn cancel_matchmaking(&self, session_id: Uuid) -> Result<bool, GameError>;
-    async fn matchmaking_time(
-        &self,
-        session_id: Uuid,
-    ) -> Result<Option<DateTime<Utc>>, GameError>;
+    async fn matchmaking_time(&self, session_id: Uuid) -> Result<Option<DateTime<Utc>>, GameError>;
     fn kind(&self) -> &'static str;
 }

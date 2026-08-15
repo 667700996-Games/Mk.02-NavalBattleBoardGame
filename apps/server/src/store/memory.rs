@@ -316,10 +316,7 @@ impl GameStore for MemoryStore {
         Ok(queue.remove(&session_id).is_some())
     }
 
-    async fn matchmaking_time(
-        &self,
-        session_id: Uuid,
-    ) -> Result<Option<DateTime<Utc>>, GameError> {
+    async fn matchmaking_time(&self, session_id: Uuid) -> Result<Option<DateTime<Utc>>, GameError> {
         Ok(self
             .matchmaking
             .lock()
@@ -340,10 +337,14 @@ mod tests {
     use super::*;
 
     fn session() -> UserSession {
+        named_session("Alpha")
+    }
+
+    fn named_session(nickname: &str) -> UserSession {
         UserSession {
             id: Uuid::new_v4(),
-            nickname: "Alpha".to_string(),
-            token_hash: "test-token-hash".to_string(),
+            nickname: nickname.to_string(),
+            token_hash: Uuid::new_v4().to_string(),
             created_at: Utc::now(),
             last_seen_at: Utc::now(),
             current_room_id: None,
@@ -377,5 +378,69 @@ mod tests {
             store.room_by_id(room.id).await.unwrap().unwrap().name,
             "Authoritative"
         );
+    }
+
+    #[tokio::test]
+    async fn matchmaking_claims_and_completes_each_pair_exactly_once() {
+        let store = MemoryStore::default();
+        let first = named_session("Alpha");
+        let second = named_session("Bravo");
+        store.save_session(&first).await.unwrap();
+        store.save_session(&second).await.unwrap();
+
+        let queued = store.enqueue_matchmaking(&first).await.unwrap();
+        assert!(queued.claim.is_none());
+        assert_eq!(
+            store.matchmaking_time(first.id).await.unwrap(),
+            Some(queued.queued_at)
+        );
+
+        let matched = store.enqueue_matchmaking(&second).await.unwrap();
+        let claim = matched.claim.unwrap();
+        assert_eq!(claim.opponent.id, first.id);
+        assert!(
+            store
+                .enqueue_matchmaking(&first)
+                .await
+                .unwrap()
+                .claim
+                .is_none()
+        );
+        assert!(!store.cancel_matchmaking(first.id).await.unwrap());
+
+        let mut room = GameRoom::new(
+            "MATCH1".to_string(),
+            "Rapid match".to_string(),
+            RoomVisibility::Private,
+            &claim.opponent,
+        )
+        .unwrap();
+        room.join(&second).unwrap();
+        store
+            .complete_matchmaking(claim.id, &mut room)
+            .await
+            .unwrap();
+
+        assert_eq!(room.persistence_revision, 1);
+        assert_eq!(
+            store
+                .session_by_token_hash(&first.token_hash)
+                .await
+                .unwrap()
+                .unwrap()
+                .current_room_id,
+            Some(room.id)
+        );
+        assert_eq!(
+            store
+                .session_by_token_hash(&second.token_hash)
+                .await
+                .unwrap()
+                .unwrap()
+                .current_room_id,
+            Some(room.id)
+        );
+        assert!(store.matchmaking_time(first.id).await.unwrap().is_none());
+        assert!(store.matchmaking_time(second.id).await.unwrap().is_none());
     }
 }

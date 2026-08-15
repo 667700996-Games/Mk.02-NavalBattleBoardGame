@@ -249,7 +249,7 @@ async fn enqueue_matchmaking(
         .map(|room| room.snapshot_for(session.id))
         .transpose()?;
     let queued_at = if snapshot.is_none() {
-        state.matchmaking_time(session.id).await
+        state.matchmaking_time(session.id).await?
     } else {
         None
     };
@@ -266,7 +266,7 @@ async fn cancel_matchmaking(
     headers: HeaderMap,
 ) -> Result<StatusCode, GameError> {
     let session = authenticate(&state, &jar, &headers).await?;
-    state.cancel_matchmaking(session.id).await;
+    state.cancel_matchmaking(session.id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 

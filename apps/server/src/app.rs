@@ -1,5 +1,4 @@
 use std::{
-    collections::VecDeque,
     net::SocketAddr,
     sync::{
         Arc,
@@ -48,7 +47,6 @@ pub struct AppState {
     pub store: Arc<dyn GameStore>,
     pub rooms: Arc<DashMap<Uuid, Arc<Mutex<GameRoom>>>>,
     pub hub: ConnectionHub,
-    matchmaking: Arc<Mutex<VecDeque<QueuedSession>>>,
     turn_timers: Arc<DashMap<Uuid, TurnTimerKey>>,
     api_rate_limiter: FixedWindowRateLimiter,
     request_ip_rate_limiter: FixedWindowRateLimiter,
@@ -68,12 +66,6 @@ impl std::fmt::Debug for AppState {
             .field("cached_rooms", &self.rooms.len())
             .finish()
     }
-}
-
-#[derive(Debug, Clone)]
-struct QueuedSession {
-    session: UserSession,
-    queued_at: chrono::DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -148,7 +140,6 @@ impl AppState {
             store,
             rooms: Arc::new(DashMap::new()),
             hub: ConnectionHub::default(),
-            matchmaking: Arc::new(Mutex::new(VecDeque::new())),
             turn_timers: Arc::new(DashMap::new()),
             api_rate_limiter,
             request_ip_rate_limiter,
@@ -198,7 +189,6 @@ impl AppState {
             store,
             rooms: Arc::new(DashMap::new()),
             hub: ConnectionHub::default(),
-            matchmaking: Arc::new(Mutex::new(VecDeque::new())),
             turn_timers: Arc::new(DashMap::new()),
             api_rate_limiter,
             request_ip_rate_limiter,
@@ -268,7 +258,8 @@ impl AppState {
                 } else {
                     match client.get_async_pubsub().await {
                         Ok(mut subscriber) => {
-                            if let Err(error) = subscriber.subscribe(DISTRIBUTED_EVENT_CHANNEL).await
+                            if let Err(error) =
+                                subscriber.subscribe(DISTRIBUTED_EVENT_CHANNEL).await
                             {
                                 coordination_healthy.store(false, Ordering::Relaxed);
                                 tracing::error!(%error, "distributed event resubscribe failed");
@@ -429,16 +420,13 @@ impl AppState {
             .room_by_id(id)
             .await?
             .ok_or(GameError::RoomNotFound)?;
-        let changed = room.ensure_runtime_state(self.settings.turn_duration_seconds, Utc::now());
+        self.reconcile_runtime_state(&mut room).await?;
         let deadlines: Vec<_> = room
             .disconnected_deadlines
             .iter()
             .map(|(player_id, deadline)| (*player_id, *deadline))
             .collect();
         let turn_timer = room.timer_state(Utc::now());
-        if changed {
-            self.save_room(&mut room).await?;
-        }
         let room = Arc::new(Mutex::new(room));
         self.rooms.insert(id, room.clone());
         for (player_id, deadline) in deadlines {
@@ -465,12 +453,9 @@ impl AppState {
             .room_by_code(&normalized)
             .await?
             .ok_or(GameError::RoomNotFound)?;
-        let changed = room.ensure_runtime_state(self.settings.turn_duration_seconds, Utc::now());
+        self.reconcile_runtime_state(&mut room).await?;
         let id = room.id;
         let turn_timer = room.timer_state(Utc::now());
-        if changed {
-            self.save_room(&mut room).await?;
-        }
         let room = Arc::new(Mutex::new(room));
         self.rooms.insert(id, room.clone());
         self.schedule_turn_expiry(turn_timer);
@@ -547,21 +532,36 @@ impl AppState {
     pub async fn save_room(&self, room: &mut GameRoom) -> Result<(), GameError> {
         match self.store.save_room(room).await {
             Ok(()) => Ok(()),
-            Err(GameError::VersionConflict) => {
+            Err(error) => {
                 if let Ok(Some(latest)) = self.store.room_by_id_authoritative(room.id).await {
                     *room = latest;
+                } else {
+                    self.rooms.remove(&room.id);
                 }
-                Err(GameError::VersionConflict)
+                Err(error)
             }
-            Err(error) => Err(error),
         }
+    }
+
+    async fn reconcile_runtime_state(&self, room: &mut GameRoom) -> Result<(), GameError> {
+        for _ in 0..3 {
+            if !room.ensure_runtime_state(self.settings.turn_duration_seconds, Utc::now()) {
+                return Ok(());
+            }
+            match self.save_room(room).await {
+                Ok(()) => return Ok(()),
+                Err(GameError::VersionConflict) => continue,
+                Err(error) => return Err(error),
+            }
+        }
+        Err(GameError::VersionConflict)
     }
 
     pub async fn revoke_session(
         &self,
         session: &UserSession,
     ) -> Result<Option<GameRoom>, GameError> {
-        self.cancel_matchmaking(session.id).await;
+        let _ = self.cancel_matchmaking(session.id).await;
         let departed_room = if let Some(room_id) = session.current_room_id {
             match self.leave_room(session, room_id).await {
                 Ok(room) => Some(room),
@@ -616,11 +616,8 @@ impl AppState {
 
     pub async fn broadcast_chat_message(&self, room: &GameRoom, message: &ChatMessage) {
         for player in &room.players {
-            self.send_to_session(
-                player.session_id,
-                ServerEvent::ChatMessage(message.clone()),
-            )
-            .await;
+            self.send_to_session(player.session_id, ServerEvent::ChatMessage(message.clone()))
+                .await;
         }
     }
 
@@ -661,7 +658,9 @@ impl AppState {
         };
         let mut room = room.lock().await;
         if matches!(room.reconnect(session.id), Ok(true)) {
-            let _ = self.save_room(&mut room).await;
+            if self.save_room(&mut room).await.is_err() {
+                return;
+            }
             self.broadcast_latest_chat_message(&room).await;
             self.broadcast_snapshots(&room, SnapshotEvent::PlayerReconnected)
                 .await;
@@ -692,7 +691,9 @@ impl AppState {
                 Ok(player) => player.id,
                 Err(_) => continue,
             };
-            let _ = self.save_room(&mut room).await;
+            if self.save_room(&mut room).await.is_err() {
+                return;
+            }
             self.broadcast_latest_chat_message(&room).await;
             self.broadcast_snapshots(&room, SnapshotEvent::PlayerDisconnected)
                 .await;
@@ -706,17 +707,13 @@ impl AppState {
     async fn restore_active_rooms(&self) -> Result<(), GameError> {
         for mut room in self.store.active_rooms().await? {
             let room_id = room.id;
-            let changed =
-                room.ensure_runtime_state(self.settings.turn_duration_seconds, Utc::now());
+            self.reconcile_runtime_state(&mut room).await?;
             let deadlines: Vec<_> = room
                 .disconnected_deadlines
                 .iter()
                 .map(|(player_id, deadline)| (*player_id, *deadline))
                 .collect();
             let turn_timer = room.timer_state(Utc::now());
-            if changed {
-                self.save_room(&mut room).await?;
-            }
             self.rooms.insert(room_id, Arc::new(Mutex::new(room)));
             for (player_id, deadline) in deadlines {
                 self.schedule_disconnect_expiry(room_id, player_id, deadline);
@@ -749,7 +746,9 @@ impl AppState {
                 .expire_disconnect(player_id, Utc::now())
                 .unwrap_or(false)
             {
-                let _ = state.save_room(&mut room).await;
+                if state.save_room(&mut room).await.is_err() {
+                    return;
+                }
                 if room.status != crate::domain::RoomStatus::Playing {
                     state.cancel_turn_expiry(room.id);
                 }
@@ -912,56 +911,50 @@ impl AppState {
         if session.current_room_id.is_some() {
             return Err(GameError::AlreadyJoined);
         }
-        let mut queue = self.matchmaking.lock().await;
-        queue.retain(|entry| entry.session.id != session.id);
-        if let Some(opponent) = queue.pop_front() {
-            drop(queue);
-            let mut room = self
-                .create_room(
-                    &opponent.session,
-                    CreateRoomInput {
-                        name: "신속 교전".to_string(),
-                        visibility: RoomVisibility::Private,
-                    },
-                )
-                .await?;
-            let room_ref = self.room(room.id).await?;
-            {
-                let mut locked = room_ref.lock().await;
-                locked.join(&session)?;
-                self.save_room(&mut locked).await?;
-                self.store
-                    .update_session_room(session.id, Some(locked.id))
-                    .await?;
-                room = locked.clone();
-            }
+        let queued = self.store.enqueue_matchmaking(&session).await?;
+        let Some(claim) = queued.claim else {
+            return Ok(None);
+        };
+        let claim_id = claim.id;
+        let result = async {
+            let code = self.unique_room_code().await?;
+            let mut room = GameRoom::new(
+                code,
+                "신속 교전".to_string(),
+                RoomVisibility::Private,
+                &claim.opponent,
+            )?;
+            room.join(&session)?;
+            self.store.complete_matchmaking(claim_id, &mut room).await?;
+            self.rooms
+                .insert(room.id, Arc::new(Mutex::new(room.clone())));
             self.broadcast_snapshots(&room, SnapshotEvent::PlayerJoined)
                 .await;
             self.broadcast_latest_chat_message(&room).await;
-            Ok(Some(room))
-        } else {
-            queue.push_back(QueuedSession {
-                session,
-                queued_at: Utc::now(),
-            });
-            Ok(None)
+            Ok::<_, GameError>(room)
         }
+        .await;
+        if result.is_err() {
+            if let Err(release_error) = self.store.release_matchmaking_claim(claim_id).await {
+                tracing::error!(
+                    %claim_id,
+                    error_code = release_error.code(),
+                    "matchmaking claim release failed"
+                );
+            }
+        }
+        result.map(Some)
     }
 
-    pub async fn cancel_matchmaking(&self, session_id: Uuid) -> bool {
-        let mut queue = self.matchmaking.lock().await;
-        let before = queue.len();
-        queue.retain(|entry| entry.session.id != session_id);
-        before != queue.len()
+    pub async fn cancel_matchmaking(&self, session_id: Uuid) -> Result<bool, GameError> {
+        self.store.cancel_matchmaking(session_id).await
     }
 
-    pub async fn matchmaking_time(&self, session_id: Uuid) -> Option<chrono::DateTime<Utc>> {
-        self.matchmaking
-            .lock()
-            .await
-            .iter()
-            .find(|entry| entry.session.id == session_id)
-            .map(|entry| entry.queued_at)
+    pub async fn matchmaking_time(
+        &self,
+        session_id: Uuid,
+    ) -> Result<Option<chrono::DateTime<Utc>>, GameError> {
+        self.store.matchmaking_time(session_id).await
     }
 
     async fn unique_room_code(&self) -> Result<String, GameError> {
@@ -1002,9 +995,7 @@ async fn connect_distributed_events(
     }
     .await;
     match connection {
-        Ok((publisher, client, subscriber)) => {
-            Ok((Some(publisher), Some((client, subscriber))))
-        }
+        Ok((publisher, client, subscriber)) => Ok((Some(publisher), Some((client, subscriber)))),
         Err(error) if settings.distributed_coordination_required => {
             tracing::error!(%error, "required distributed event coordination unavailable");
             Err(GameError::StorageUnavailable)
