@@ -245,6 +245,7 @@ async fn handle_event(state: &AppState, session: &crate::domain::UserSession, ev
                         .broadcast_timer_state(&room, ServerEvent::TurnStarted)
                         .await;
                     state.schedule_turn_expiry(timer);
+                    state.schedule_ai_turn(room.id);
                 }
                 Ok(())
             }
@@ -382,6 +383,7 @@ async fn handle_event(state: &AppState, session: &crate::domain::UserSession, ev
                             .broadcast_timer_state(&room, ServerEvent::TurnStarted)
                             .await;
                         state.schedule_turn_expiry(timer);
+                        state.schedule_ai_turn(room.id);
                     }
                 }
                 Ok(())

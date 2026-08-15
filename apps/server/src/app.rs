@@ -1,4 +1,5 @@
 use std::{
+    collections::HashSet,
     net::SocketAddr,
     sync::{
         Arc,
@@ -43,7 +44,10 @@ return 0
 use crate::{
     api,
     config::{Settings, StorageMode},
-    domain::{ChatMessage, ChatTypingEvent, GameRoom, GameTimerState, RoomVisibility, UserSession},
+    domain::{
+        AiDifficulty, AttackOutcome, ChatMessage, ChatTypingEvent, Coordinate, GameRoom,
+        GameTimerState, Orientation, PlayerKind, RoomVisibility, ShipKind, ShipPlacement, UserSession,
+    },
     error::GameError,
     protocol::{CreateRoomInput, ServerEvent},
     rate_limit::FixedWindowRateLimiter,
@@ -644,6 +648,7 @@ impl AppState {
             self.schedule_disconnect_expiry(id, player_id, deadline);
         }
         self.schedule_turn_expiry(turn_timer);
+        self.schedule_ai_turn(id);
         Ok(room)
     }
 
@@ -670,6 +675,7 @@ impl AppState {
         let room = Arc::new(Mutex::new(room));
         self.rooms.insert(id, room.clone());
         self.schedule_turn_expiry(turn_timer);
+        self.schedule_ai_turn(id);
         Ok(room)
     }
 
@@ -695,6 +701,42 @@ impl AppState {
         self.rooms
             .insert(room.id, Arc::new(Mutex::new(room.clone())));
         Ok(room)
+    }
+
+    pub async fn create_practice_room(
+        &self,
+        session: &UserSession,
+        difficulty: AiDifficulty,
+    ) -> Result<GameRoom, GameError> {
+        if session.current_room_id.is_some() {
+            return Err(GameError::AlreadyJoined);
+        }
+        let ai_name = match difficulty {
+            AiDifficulty::Recruit => "MK-AI RECRUIT",
+            AiDifficulty::Officer => "MK-AI OFFICER",
+            AiDifficulty::Admiral => "MK-AI ADMIRAL",
+        };
+        let (ai_session, _) = self.create_session(ai_name.to_string()).await?;
+        let room = self
+            .create_room(
+                session,
+                CreateRoomInput {
+                    name: "AI 전술 훈련".to_string(),
+                    visibility: RoomVisibility::Private,
+                },
+            )
+            .await?;
+        let room = self.join_room(&ai_session, &room.code).await?;
+        let room_ref = self.room(room.id).await?;
+        let mut room = room_ref.lock().await;
+        room.configure_practice(
+            session.id,
+            ai_session.id,
+            difficulty,
+            practice_fleet(),
+        )?;
+        self.save_room(&mut room).await?;
+        Ok(room.clone())
     }
 
     pub async fn join_room(
@@ -938,6 +980,7 @@ impl AppState {
                 self.schedule_disconnect_expiry(room_id, player_id, deadline);
             }
             self.schedule_turn_expiry(turn_timer);
+            self.schedule_ai_turn(room_id);
         }
         Ok(())
     }
@@ -1083,8 +1126,92 @@ impl AppState {
             self.broadcast_timer_state(room, ServerEvent::TurnStarted)
                 .await;
             self.schedule_turn_expiry(next_timer);
+            self.schedule_ai_turn(room.id);
         }
         true
+    }
+
+    pub fn schedule_ai_turn(&self, room_id: Uuid) {
+        let state = self.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(650)).await;
+            let Ok(room_ref) = state.room(room_id).await else {
+                return;
+            };
+            let mut room = room_ref.lock().await;
+            let Some(game) = room.game.as_ref() else {
+                return;
+            };
+            if room.status != crate::domain::RoomStatus::Playing || game.result.is_some() {
+                return;
+            }
+            let Some(ai_player) = room
+                .players
+                .iter()
+                .find(|player| {
+                    player.kind == PlayerKind::Ai && player.id == game.current_player_id
+                })
+                .cloned()
+            else {
+                return;
+            };
+            let Some(coordinate) = select_ai_coordinate(&room, ai_player.id) else {
+                return;
+            };
+            let expected_version = room.version;
+            let expected_turn = game.turn_number;
+            let Ok((record, _)) = room.fire(
+                ai_player.session_id,
+                Uuid::new_v4(),
+                ai_player.id,
+                coordinate,
+                expected_version,
+                expected_turn,
+            ) else {
+                return;
+            };
+            if state.save_room(&mut room).await.is_err() {
+                return;
+            }
+            let next_timer = room.timer_state(Utc::now());
+            for player in &room.players {
+                state
+                    .send_to_session(
+                        player.session_id,
+                        ServerEvent::AttackResult(record.clone()),
+                    )
+                    .await;
+                if record.sunk_ship.is_some() {
+                    state
+                        .send_to_session(
+                            player.session_id,
+                            ServerEvent::ShipSunk(record.clone()),
+                        )
+                        .await;
+                }
+            }
+            if record.winner_id.is_some() {
+                state.broadcast_latest_chat_message(&room).await;
+            }
+            state
+                .broadcast_snapshots(
+                    &room,
+                    if record.winner_id.is_some() {
+                        SnapshotEvent::GameFinished
+                    } else {
+                        SnapshotEvent::TurnChanged
+                    },
+                )
+                .await;
+            if record.winner_id.is_some() {
+                state.cancel_turn_expiry(room.id);
+            } else {
+                state
+                    .broadcast_timer_state(&room, ServerEvent::TurnStarted)
+                    .await;
+                state.schedule_turn_expiry(next_timer);
+            }
+        });
     }
 
     pub fn cancel_turn_expiry(&self, room_id: Uuid) {
@@ -1171,6 +1298,79 @@ impl AppState {
         }
         Err(GameError::Internal)
     }
+}
+
+fn practice_fleet() -> Vec<ShipPlacement> {
+    ShipKind::ALL
+        .into_iter()
+        .enumerate()
+        .map(|(index, kind)| ShipPlacement {
+            kind,
+            origin: Coordinate {
+                row: (index as u8) * 2,
+                col: 0,
+            },
+            orientation: Orientation::Horizontal,
+        })
+        .collect()
+}
+
+fn select_ai_coordinate(room: &GameRoom, ai_player_id: Uuid) -> Option<Coordinate> {
+    let game = room.game.as_ref()?;
+    let used: HashSet<_> = game
+        .attacks
+        .iter()
+        .filter(|attack| attack.attacker_id == ai_player_id)
+        .map(|attack| attack.coordinate)
+        .collect();
+    let difficulty = room.practice_difficulty.unwrap_or_default();
+    if difficulty != AiDifficulty::Recruit {
+        for attack in game
+            .attacks
+            .iter()
+            .rev()
+            .filter(|attack| {
+                attack.attacker_id == ai_player_id && attack.outcome == AttackOutcome::Hit
+            })
+        {
+            let row = i16::from(attack.coordinate.row);
+            let col = i16::from(attack.coordinate.col);
+            for (row_offset, col_offset) in [(-1_i16, 0_i16), (0, 1), (1, 0), (0, -1)] {
+                let next_row = row + row_offset;
+                let next_col = col + col_offset;
+                if (0..10).contains(&next_row) && (0..10).contains(&next_col) {
+                    let coordinate = Coordinate {
+                        row: next_row as u8,
+                        col: next_col as u8,
+                    };
+                    if !used.contains(&coordinate) {
+                        return Some(coordinate);
+                    }
+                }
+            }
+        }
+    }
+
+    let mut candidates: Vec<_> = (0_u8..10)
+        .flat_map(|row| (0_u8..10).map(move |col| Coordinate { row, col }))
+        .filter(|coordinate| !used.contains(coordinate))
+        .collect();
+    if difficulty == AiDifficulty::Admiral {
+        let parity: Vec<_> = candidates
+            .iter()
+            .copied()
+            .filter(|coordinate| (coordinate.row + coordinate.col) % 2 == 0)
+            .collect();
+        if !parity.is_empty() {
+            candidates = parity;
+        }
+    }
+    if candidates.is_empty() {
+        return None;
+    }
+    let seed = room.id.as_u128()
+        ^ u128::from(game.turn_number).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+    Some(candidates[(seed as usize) % candidates.len()])
 }
 
 async fn connect_distributed_events(
