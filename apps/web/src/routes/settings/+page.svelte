@@ -21,7 +21,9 @@
       await goto(resolve('/'));
     } catch (caught) {
       logoutError =
-        caught instanceof ApiError ? caught.message : '세션을 종료하지 못했습니다. 다시 시도해 주세요.';
+        caught instanceof ApiError
+          ? caught.message
+          : '세션을 종료하지 못했습니다. 다시 시도해 주세요.';
     } finally {
       signingOut = false;
     }
@@ -115,8 +117,14 @@
             <p>로그아웃하면 서버의 인증 세션도 즉시 폐기되며 다시 사용할 수 없습니다.</p>
             {#if logoutError}<p class="session-error" role="alert">{logoutError}</p>{/if}
           </div>
-          <button class="button button--danger" type="button" onclick={signOut} disabled={signingOut}>
-            <LogOut size={16} /> {signingOut ? '세션 종료 중…' : '로그아웃 및 세션 폐기'}
+          <button
+            class="button button--danger"
+            type="button"
+            onclick={signOut}
+            disabled={signingOut}
+          >
+            <LogOut size={16} />
+            {signingOut ? '세션 종료 중…' : '로그아웃 및 세션 폐기'}
           </button>
         </section>
       {/if}

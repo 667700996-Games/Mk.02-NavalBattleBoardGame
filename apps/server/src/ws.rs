@@ -152,7 +152,7 @@ async fn handle_event(state: &AppState, session: &crate::domain::UserSession, ev
                 let (record, duplicate) =
                     room.set_lobby_ready(session.id, input.request_id, input.player_id, true)?;
                 if !duplicate {
-                    state.save_room(&room).await?;
+                    state.save_room(&mut room).await?;
                 }
                 state
                     .hub
@@ -177,7 +177,7 @@ async fn handle_event(state: &AppState, session: &crate::domain::UserSession, ev
                     return Err(GameError::Unauthorized);
                 }
                 room.place_ships(session.id, input.placements)?;
-                state.save_room(&room).await?;
+                state.save_room(&mut room).await?;
                 state
                     .broadcast_snapshots(&room, SnapshotEvent::PlacementAccepted)
                     .await;
@@ -197,7 +197,7 @@ async fn handle_event(state: &AppState, session: &crate::domain::UserSession, ev
                     &input.placements,
                     state.settings.turn_duration_seconds,
                 )?;
-                state.save_room(&room).await?;
+                state.save_room(&mut room).await?;
                 let timer = room.timer_state(Utc::now());
                 state
                     .broadcast_snapshots(
@@ -227,7 +227,7 @@ async fn handle_event(state: &AppState, session: &crate::domain::UserSession, ev
                 let (record, duplicate) =
                     room.set_lobby_ready(session.id, input.request_id, input.player_id, false)?;
                 if !duplicate {
-                    state.save_room(&room).await?;
+                    state.save_room(&mut room).await?;
                 }
                 state
                     .hub
@@ -258,14 +258,14 @@ async fn handle_event(state: &AppState, session: &crate::domain::UserSession, ev
                     Ok(result) => result,
                     Err(error) => {
                         if let Ok(message) = room.record_start_rejection(session.id, error.code()) {
-                            state.save_room(&room).await?;
+                            state.save_room(&mut room).await?;
                             state.broadcast_chat_message(&room, &message);
                         }
                         return Err(error);
                     }
                 };
                 if !duplicate {
-                    state.save_room(&room).await?;
+                    state.save_room(&mut room).await?;
                 }
                 state
                     .hub
@@ -301,7 +301,7 @@ async fn handle_event(state: &AppState, session: &crate::domain::UserSession, ev
                     input.turn_number,
                 )?;
                 if !duplicate {
-                    state.save_room(&room).await?;
+                    state.save_room(&mut room).await?;
                 }
                 if duplicate {
                     state
@@ -353,7 +353,7 @@ async fn handle_event(state: &AppState, session: &crate::domain::UserSession, ev
                 let room_ref = state.room(input.room_id).await?;
                 let mut room = room_ref.lock().await;
                 let record = room.surrender(session.id, input.player_id)?;
-                state.save_room(&room).await?;
+                state.save_room(&mut room).await?;
                 state.cancel_turn_expiry(room.id);
                 for player in &room.players {
                     state.hub.send(
@@ -391,7 +391,7 @@ async fn handle_event(state: &AppState, session: &crate::domain::UserSession, ev
                         .hub
                         .send(session.id, ServerEvent::ChatMessage(message));
                 } else {
-                    state.save_room(&room).await?;
+                    state.save_room(&mut room).await?;
                     state.broadcast_chat_message(&room, &message);
                 }
                 Ok(())
@@ -413,7 +413,7 @@ async fn handle_event(state: &AppState, session: &crate::domain::UserSession, ev
                 let room_ref = state.room(input.room_id).await?;
                 let mut room = room_ref.lock().await;
                 let accepted = room.request_rematch(session.id)?;
-                state.save_room(&room).await?;
+                state.save_room(&mut room).await?;
                 state
                     .broadcast_snapshots(&room, SnapshotEvent::RoomUpdated)
                     .await;

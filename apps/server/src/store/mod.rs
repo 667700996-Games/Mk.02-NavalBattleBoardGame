@@ -35,7 +35,7 @@ pub trait GameStore: Send + Sync {
         room_id: Option<Uuid>,
     ) -> Result<(), GameError>;
     async fn delete_session(&self, session_id: Uuid) -> Result<(), GameError>;
-    async fn save_room(&self, room: &GameRoom) -> Result<(), GameError>;
+    async fn save_room(&self, room: &mut GameRoom) -> Result<(), GameError>;
     async fn room_by_id(&self, id: Uuid) -> Result<Option<GameRoom>, GameError>;
     async fn room_by_code(&self, code: &str) -> Result<Option<GameRoom>, GameError>;
     async fn active_rooms(&self) -> Result<Vec<GameRoom>, GameError>;

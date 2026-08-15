@@ -125,6 +125,8 @@ pub struct GameRoom {
     pub game_id: Option<Uuid>,
     pub game: Option<Game>,
     pub version: u64,
+    #[serde(default)]
+    pub persistence_revision: u64,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     #[serde(default)]
@@ -168,6 +170,7 @@ impl GameRoom {
             game_id: None,
             game: None,
             version: 1,
+            persistence_revision: 0,
             created_at: now,
             updated_at: now,
             placement_started_at: None,

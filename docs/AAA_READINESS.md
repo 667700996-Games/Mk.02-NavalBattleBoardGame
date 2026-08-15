@@ -82,7 +82,7 @@ The program is complete only when all gates below are satisfied in a production-
 ### B4. Data lifecycle
 
 - [ ] Sessions, abandoned rooms, chat, replay, telemetry, moderation, and account data have retention
-  and deletion policies.
+      and deletion policies.
 - [ ] User export and deletion cover every datastore, cache, backup policy, and derived record.
 - [ ] PostgreSQL backups are encrypted and automated; restore drills meet RPO/RTO.
 - [ ] Migrations are backward compatible with mixed-version rolling deployments.
@@ -107,7 +107,7 @@ The program is complete only when all gates below are satisfied in a production-
 ### C3. Progression and live content
 
 - [ ] Profile progression, achievements, daily/weekly missions, and meaningful non-pay-to-win rewards
-  exist.
+      exist.
 - [ ] Seasons, events, content configuration, feature flags, and safe live tuning are supported.
 - [ ] Cosmetics cover fleet, board, effects, profile, and presentation without leaking hidden state.
 - [ ] Economy and reward issuance are transactional, idempotent, auditable, and rollback-safe.
@@ -117,7 +117,7 @@ The program is complete only when all gates below are satisfied in a production-
 - [ ] Friends, parties, direct invites, recent players, presence, privacy, mute, and block exist.
 - [ ] Spectators receive delayed, visibility-filtered authoritative state.
 - [ ] Deterministic replays include ruleset/protocol versions and cannot expose hidden information
-  before a match is complete.
+      before a match is complete.
 - [ ] Post-match analysis can step through turns, compare decisions, and share a safe replay link.
 
 ## Gate D — Presentation and experience
@@ -132,7 +132,7 @@ The program is complete only when all gates below are satisfied in a production-
 ### D2. Audio and haptics
 
 - [ ] Final music, ambience, UI, weapon, impact, sinking, victory, and defeat assets replace prototype
-  oscillator tones.
+      oscillator tones.
 - [ ] Music, effects, ambience, voice, and master volume are independently adjustable.
 - [ ] Audio handles focus, backgrounding, interruptions, device changes, and accessibility cues.
 - [ ] Supported mobile devices receive intentional, optional haptic feedback.
@@ -140,7 +140,7 @@ The program is complete only when all gates below are satisfied in a production-
 ### D3. UX, accessibility, localization
 
 - [ ] The complete flow, not only the landing page, is responsive on supported mobile/tablet/desktop
-  classes.
+      classes.
 - [ ] Keyboard focus, dialogs, grids, chat, timers, errors, and live announcements pass WCAG 2.2 AA.
 - [ ] Color is never the only carrier of game state; color-vision presets are tested.
 - [ ] All user-facing copy uses localization keys with Korean, English, and the launch locale set.
@@ -149,7 +149,7 @@ The program is complete only when all gates below are satisfied in a production-
 ### D4. Performance budgets
 
 - [ ] Route JS/CSS, fonts, images, audio, memory, CPU, animation frame time, and WebSocket bandwidth
-  have budgets by device tier.
+      have budgets by device tier.
 - [ ] Korean fonts are subsetted and modern formats are preferred without redundant transfer.
 - [ ] Core Web Vitals and battle interaction latency are captured from real users by release.
 - [ ] Low-end mobile play remains readable and responsive during the heaviest effects sequence.
@@ -159,7 +159,7 @@ The program is complete only when all gates below are satisfied in a production-
 ### E1. Maintainable architecture and contracts
 
 - [ ] Large room and UI modules are split by state machine, timer, chat, matchmaking, presentation,
-  and orchestration responsibility.
+      and orchestration responsibility.
 - [ ] HTTP/WebSocket schemas generate or validate Rust and TypeScript contracts at runtime.
 - [ ] Protocol compatibility and migration policy supports mixed client/server release windows.
 - [ ] Architecture decisions and ownership boundaries are documented and reviewed.
@@ -167,19 +167,19 @@ The program is complete only when all gates below are satisfied in a production-
 ### E2. Automated quality gates
 
 - [ ] CI runs formatting, linting, type checks, unit, integration, contract, E2E, build, audit, and
-  artifact checks on every change.
+      artifact checks on every change.
 - [ ] PostgreSQL and Redis integration tests exercise migrations, recovery, cache failure, and
-  concurrent writes.
+      concurrent writes.
 - [ ] Full matches run on Chromium, Firefox, WebKit, and supported mobile profiles.
 - [ ] Component, accessibility, visual-regression, property, fuzz, load, soak, and chaos suites have
-  owned thresholds.
+      owned thresholds.
 - [ ] Coverage reports identify untested behavior; targets are risk-based rather than cosmetic.
 
 ### E3. Release and service operations
 
 - [ ] Separate development, staging, canary, and production environments use reproducible artifacts.
 - [ ] Deployments include preflight, migration safety, canary analysis, rollback, and active-match
-  compatibility gates.
+      compatibility gates.
 - [ ] SLOs cover availability, matchmaking latency, command latency, disconnect rate, and recovery.
 - [ ] Dashboards, alerts, incident roles, status communication, runbooks, and postmortems exist.
 - [ ] Customer support and moderation tooling can act without direct database access.

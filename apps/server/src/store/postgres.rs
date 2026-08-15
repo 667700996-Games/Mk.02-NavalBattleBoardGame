@@ -137,8 +137,15 @@ impl GameStore for PostgresRedisStore {
         Ok(())
     }
 
-    async fn save_room(&self, room: &GameRoom) -> Result<(), GameError> {
-        let snapshot = serde_json::to_value(room).map_err(|_| GameError::Internal)?;
+    async fn save_room(&self, room: &mut GameRoom) -> Result<(), GameError> {
+        let expected_revision = i64::try_from(room.persistence_revision)
+            .map_err(|_| GameError::Internal)?;
+        let next_revision = expected_revision
+            .checked_add(1)
+            .ok_or(GameError::Internal)?;
+        let mut persisted = room.clone();
+        persisted.persistence_revision = next_revision as u64;
+        let snapshot = serde_json::to_value(&persisted).map_err(|_| GameError::Internal)?;
         let status = serde_json::to_value(room.status)
             .map_err(|_| GameError::Internal)?
             .as_str()
@@ -150,10 +157,14 @@ impl GameStore for PostgresRedisStore {
             .unwrap_or("PRIVATE")
             .to_string();
         let mut transaction = self.pool.begin().await?;
-        sqlx::query(
-            "INSERT INTO game_rooms (id, code, name, visibility, status, snapshot, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (id) DO UPDATE SET name=$3, visibility=$4, status=$5, snapshot=$6, updated_at=$8"
+        let result = sqlx::query(
+            "INSERT INTO game_rooms (id, code, name, visibility, status, snapshot, created_at, updated_at, persistence_revision) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (id) DO UPDATE SET name=$3, visibility=$4, status=$5, snapshot=$6, updated_at=$8, persistence_revision=$9 WHERE game_rooms.persistence_revision=$10"
         ).bind(room.id).bind(&room.code).bind(&room.name).bind(visibility).bind(status)
-            .bind(snapshot).bind(room.created_at).bind(room.updated_at).execute(&mut *transaction).await?;
+            .bind(snapshot).bind(room.created_at).bind(room.updated_at).bind(next_revision)
+            .bind(expected_revision).execute(&mut *transaction).await?;
+        if result.rows_affected() == 0 {
+            return Err(GameError::VersionConflict);
+        }
         if let Some(result) = room.game.as_ref().and_then(|game| game.result.as_ref()) {
             let participant_session_ids: Vec<_> = room
                 .players
@@ -167,7 +178,8 @@ impl GameStore for PostgresRedisStore {
                 .execute(&mut *transaction).await?;
         }
         transaction.commit().await?;
-        self.cache_room(room).await?;
+        room.persistence_revision = persisted.persistence_revision;
+        self.cache_room(&persisted).await?;
         Ok(())
     }
 
@@ -186,15 +198,20 @@ impl GameStore for PostgresRedisStore {
                 }
             }
         }
-        let snapshot: Option<serde_json::Value> =
-            sqlx::query_scalar("SELECT snapshot FROM game_rooms WHERE id=$1")
-                .bind(id)
-                .fetch_optional(&self.pool)
-                .await?;
-        let room = snapshot
-            .map(serde_json::from_value)
-            .transpose()
-            .map_err(|_| GameError::Internal)?;
+        let row: Option<(serde_json::Value, i64)> = sqlx::query_as(
+            "SELECT snapshot, persistence_revision FROM game_rooms WHERE id=$1",
+        )
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await?;
+        let room = row
+            .map(|(snapshot, revision)| {
+                let mut room: GameRoom =
+                    serde_json::from_value(snapshot).map_err(|_| GameError::Internal)?;
+                room.persistence_revision = revision.max(0) as u64;
+                Ok(room)
+            })
+            .transpose()?;
         if let Some(room) = &room {
             self.cache_room(room).await?;
         }
@@ -202,15 +219,20 @@ impl GameStore for PostgresRedisStore {
     }
 
     async fn room_by_code(&self, code: &str) -> Result<Option<GameRoom>, GameError> {
-        let snapshot: Option<serde_json::Value> =
-            sqlx::query_scalar("SELECT snapshot FROM game_rooms WHERE code=$1")
-                .bind(code)
-                .fetch_optional(&self.pool)
-                .await?;
-        let room = snapshot
-            .map(serde_json::from_value)
-            .transpose()
-            .map_err(|_| GameError::Internal)?;
+        let row: Option<(serde_json::Value, i64)> = sqlx::query_as(
+            "SELECT snapshot, persistence_revision FROM game_rooms WHERE code=$1",
+        )
+        .bind(code)
+        .fetch_optional(&self.pool)
+        .await?;
+        let room = row
+            .map(|(snapshot, revision)| {
+                let mut room: GameRoom =
+                    serde_json::from_value(snapshot).map_err(|_| GameError::Internal)?;
+                room.persistence_revision = revision.max(0) as u64;
+                Ok(room)
+            })
+            .transpose()?;
         if let Some(room) = &room {
             self.cache_room(room).await?;
         }
@@ -218,14 +240,19 @@ impl GameStore for PostgresRedisStore {
     }
 
     async fn active_rooms(&self) -> Result<Vec<GameRoom>, GameError> {
-        let snapshots: Vec<serde_json::Value> = sqlx::query_scalar(
-            "SELECT snapshot FROM game_rooms WHERE status NOT IN ('FINISHED', 'CANCELLED')",
+        let snapshots: Vec<(serde_json::Value, i64)> = sqlx::query_as(
+            "SELECT snapshot, persistence_revision FROM game_rooms WHERE status NOT IN ('FINISHED', 'CANCELLED')",
         )
         .fetch_all(&self.pool)
         .await?;
         snapshots
             .into_iter()
-            .map(|value| serde_json::from_value(value).map_err(|_| GameError::Internal))
+            .map(|(value, revision)| {
+                let mut room: GameRoom =
+                    serde_json::from_value(value).map_err(|_| GameError::Internal)?;
+                room.persistence_revision = revision.max(0) as u64;
+                Ok(room)
+            })
             .collect()
     }
 

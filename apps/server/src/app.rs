@@ -298,7 +298,7 @@ impl AppState {
             .collect();
         let turn_timer = room.timer_state(Utc::now());
         if changed {
-            self.store.save_room(&room).await?;
+            self.save_room(&mut room).await?;
         }
         let room = Arc::new(Mutex::new(room));
         self.rooms.insert(id, room.clone());
@@ -330,7 +330,7 @@ impl AppState {
         let id = room.id;
         let turn_timer = room.timer_state(Utc::now());
         if changed {
-            self.store.save_room(&room).await?;
+            self.save_room(&mut room).await?;
         }
         let room = Arc::new(Mutex::new(room));
         self.rooms.insert(id, room.clone());
@@ -347,13 +347,13 @@ impl AppState {
             return Err(GameError::AlreadyJoined);
         }
         let code = self.unique_room_code().await?;
-        let room = GameRoom::new(
+        let mut room = GameRoom::new(
             code,
             input.name.trim().to_string(),
             input.visibility,
             session,
         )?;
-        self.store.save_room(&room).await?;
+        self.save_room(&mut room).await?;
         self.store
             .update_session_room(session.id, Some(room.id))
             .await?;
@@ -382,7 +382,7 @@ impl AppState {
         let room = self.room_by_code(code).await?;
         let mut room = room.lock().await;
         room.join(session)?;
-        self.store.save_room(&room).await?;
+        self.save_room(&mut room).await?;
         self.store
             .update_session_room(session.id, Some(room.id))
             .await?;
@@ -397,7 +397,7 @@ impl AppState {
         let room = self.room(room_id).await?;
         let mut room = room.lock().await;
         room.leave(session.id)?;
-        self.store.save_room(&room).await?;
+        self.save_room(&mut room).await?;
         self.store.update_session_room(session.id, None).await?;
         if room.game.as_ref().is_some_and(|game| game.result.is_some()) {
             self.cancel_turn_expiry(room.id);
@@ -405,8 +405,17 @@ impl AppState {
         Ok(room.clone())
     }
 
-    pub async fn save_room(&self, room: &GameRoom) -> Result<(), GameError> {
-        self.store.save_room(room).await
+    pub async fn save_room(&self, room: &mut GameRoom) -> Result<(), GameError> {
+        match self.store.save_room(room).await {
+            Ok(()) => Ok(()),
+            Err(GameError::VersionConflict) => {
+                if let Ok(Some(latest)) = self.store.room_by_id(room.id).await {
+                    *room = latest;
+                }
+                Err(GameError::VersionConflict)
+            }
+            Err(error) => Err(error),
+        }
     }
 
     pub async fn revoke_session(
@@ -505,7 +514,7 @@ impl AppState {
         };
         let mut room = room.lock().await;
         if matches!(room.reconnect(session.id), Ok(true)) {
-            let _ = self.store.save_room(&room).await;
+            let _ = self.save_room(&mut room).await;
             self.broadcast_latest_chat_message(&room);
             self.broadcast_snapshots(&room, SnapshotEvent::PlayerReconnected)
                 .await;
@@ -536,7 +545,7 @@ impl AppState {
                 Ok(player) => player.id,
                 Err(_) => continue,
             };
-            let _ = self.store.save_room(&room).await;
+            let _ = self.save_room(&mut room).await;
             self.broadcast_latest_chat_message(&room);
             self.broadcast_snapshots(&room, SnapshotEvent::PlayerDisconnected)
                 .await;
@@ -559,7 +568,7 @@ impl AppState {
                 .collect();
             let turn_timer = room.timer_state(Utc::now());
             if changed {
-                self.store.save_room(&room).await?;
+                self.save_room(&mut room).await?;
             }
             self.rooms.insert(room_id, Arc::new(Mutex::new(room)));
             for (player_id, deadline) in deadlines {
@@ -593,7 +602,7 @@ impl AppState {
                 .expire_disconnect(player_id, Utc::now())
                 .unwrap_or(false)
             {
-                let _ = state.store.save_room(&room).await;
+                let _ = state.save_room(&mut room).await;
                 if room.status != crate::domain::RoomStatus::Playing {
                     state.cancel_turn_expiry(room.id);
                 }
@@ -718,7 +727,9 @@ impl AppState {
         };
         let finished = record.winner_id.is_some();
         let next_timer = room.timer_state(Utc::now());
-        let _ = self.store.save_room(room).await;
+        if self.save_room(room).await.is_err() {
+            return false;
+        }
         for player in &room.players {
             self.hub
                 .send(player.session_id, ServerEvent::TurnExpired(record.clone()));
@@ -770,7 +781,7 @@ impl AppState {
             {
                 let mut locked = room_ref.lock().await;
                 locked.join(&session)?;
-                self.store.save_room(&locked).await?;
+                self.save_room(&mut locked).await?;
                 self.store
                     .update_session_room(session.id, Some(locked.id))
                     .await?;
@@ -1064,7 +1075,7 @@ mod tests {
             Some(Utc::now() - chrono::Duration::seconds(1));
 
         let store = Arc::new(MemoryStore::default());
-        store.save_room(&room).await.unwrap();
+        store.save_room(&mut room).await.unwrap();
         let settings = Settings {
             storage_mode: StorageMode::Memory,
             turn_duration_seconds: 1,
@@ -1127,7 +1138,7 @@ mod tests {
         let original_turn = room.game.as_ref().unwrap().turn_number;
         let original_player = room.game.as_ref().unwrap().current_player_id;
         let store = Arc::new(MemoryStore::default());
-        store.save_room(&room).await.unwrap();
+        store.save_room(&mut room).await.unwrap();
         let settings = Settings {
             storage_mode: StorageMode::Memory,
             turn_duration_seconds: 1,

@@ -66,8 +66,19 @@ impl GameStore for MemoryStore {
         Ok(())
     }
 
-    async fn save_room(&self, room: &GameRoom) -> Result<(), GameError> {
-        self.rooms.insert(room.id, room.clone());
+    async fn save_room(&self, room: &mut GameRoom) -> Result<(), GameError> {
+        if self
+            .rooms
+            .get(&room.id)
+            .is_some_and(|stored| stored.persistence_revision != room.persistence_revision)
+        {
+            return Err(GameError::VersionConflict);
+        }
+        let next_revision = room.persistence_revision.saturating_add(1);
+        let mut persisted = room.clone();
+        persisted.persistence_revision = next_revision;
+        self.rooms.insert(room.id, persisted);
+        room.persistence_revision = next_revision;
         Ok(())
     }
 
