@@ -250,6 +250,54 @@ async fn guest_sessions_create_join_and_recover_a_two_player_room() {
 }
 
 #[tokio::test]
+async fn practice_room_is_server_authoritative_and_keeps_the_ai_fleet_private() {
+    let app = test_app();
+    let (cookie, _) = create_session(&app, "Trainee").await;
+    let response = send(
+        &app,
+        Request::builder()
+            .method("POST")
+            .uri("/api/practice")
+            .header(header::CONTENT_TYPE, "application/json")
+            .header(header::COOKIE, &cookie)
+            .body(Body::from(json!({ "difficulty": "OFFICER" }).to_string()))
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let snapshot = json_body(response).await;
+    assert_eq!(snapshot["protocolVersion"], PROTOCOL_VERSION);
+    assert_eq!(snapshot["roomState"], "PLACEMENT");
+    assert_eq!(snapshot["room"]["status"], "PLACEMENT");
+    assert_eq!(snapshot["practiceDifficulty"], "OFFICER");
+    assert!(snapshot["ownBoard"].is_null());
+    assert!(snapshot["targetBoard"].is_null());
+    assert!(snapshot["revealedBoard"].is_null());
+    assert!(snapshot["placement"].is_null());
+
+    let players = snapshot["players"].as_array().unwrap();
+    assert_eq!(players.len(), 2);
+    assert_eq!(
+        players
+            .iter()
+            .filter(|player| player["kind"] == "AI")
+            .count(),
+        1
+    );
+    assert!(
+        players
+            .iter()
+            .all(|player| player.get("sessionId").is_none())
+    );
+    assert!(
+        players
+            .iter()
+            .find(|player| player["kind"] == "AI")
+            .is_some_and(|player| player["placementConfirmed"] == true)
+    );
+}
+
+#[tokio::test]
 async fn liveness_readiness_and_security_headers_are_exposed() {
     let app = test_app();
     for (path, expected_status) in [("/api/health", "ok"), ("/api/ready", "ready")] {

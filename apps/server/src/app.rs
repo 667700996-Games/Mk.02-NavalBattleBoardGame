@@ -1621,6 +1621,34 @@ mod tests {
         .collect()
     }
 
+    #[test]
+    fn ai_targeting_is_deterministic_and_never_repeats_a_resolved_cell() {
+        let human = session("Trainee");
+        let ai = session("MK-AI OFFICER");
+        let mut room = GameRoom::new(
+            "AI2345".to_string(),
+            "AI training".to_string(),
+            RoomVisibility::Private,
+            &human,
+        )
+        .unwrap();
+        room.join(&ai).unwrap();
+        room.configure_practice(human.id, ai.id, AiDifficulty::Officer, practice_fleet())
+            .unwrap();
+        room.place_ships(human.id, fleet(0)).unwrap();
+        room.confirm_placement(human.id, &fleet(0), 60).unwrap();
+
+        let ai_player = room.player_for_session(ai.id).unwrap().clone();
+        room.game.as_mut().unwrap().current_player_id = ai_player.id;
+        let first = select_ai_coordinate(&room, ai_player.id).unwrap();
+        assert_eq!(select_ai_coordinate(&room, ai_player.id), Some(first));
+        let version = room.version;
+        let turn = room.game.as_ref().unwrap().turn_number;
+        room.fire(ai.id, Uuid::new_v4(), ai_player.id, first, version, turn)
+            .unwrap();
+        assert_ne!(select_ai_coordinate(&room, ai_player.id), Some(first));
+    }
+
     #[tokio::test]
     async fn restart_reclaims_an_already_expired_persisted_turn_once() {
         let first = session("Alpha");
