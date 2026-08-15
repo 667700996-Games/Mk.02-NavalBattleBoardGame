@@ -73,17 +73,13 @@ impl Settings {
                 .unwrap_or_else(|_| "http://localhost:5173".to_string()),
             api_requests_per_minute: env_u64("API_REQUESTS_PER_MINUTE", 240)
                 .min(u64::from(u32::MAX)) as u32,
-            http_requests_per_minute_per_ip: env_u64(
-                "HTTP_REQUESTS_PER_MINUTE_PER_IP",
-                600,
-            )
-            .min(u64::from(u32::MAX)) as u32,
+            http_requests_per_minute_per_ip: env_u64("HTTP_REQUESTS_PER_MINUTE_PER_IP", 600)
+                .min(u64::from(u32::MAX)) as u32,
             session_creations_per_minute: env_u64("SESSION_CREATIONS_PER_MINUTE", 20)
                 .min(u64::from(u32::MAX)) as u32,
             websocket_events_per_second: env_u64("WEBSOCKET_EVENTS_PER_SECOND", 60)
                 .min(u64::from(u32::MAX)) as u32,
-            websocket_send_queue_capacity: env_usize("WEBSOCKET_SEND_QUEUE_CAPACITY", 256)
-                .max(8),
+            websocket_send_queue_capacity: env_usize("WEBSOCKET_SEND_QUEUE_CAPACITY", 256).max(8),
             max_websocket_connections: env_usize("MAX_WEBSOCKET_CONNECTIONS", 10_000).max(1),
             trust_proxy_headers: env_bool("TRUST_PROXY_HEADERS", false),
         })
@@ -107,7 +103,12 @@ fn env_usize(key: &str, default: usize) -> usize {
 fn env_bool(key: &str, default: bool) -> bool {
     env::var(key)
         .ok()
-        .map(|value| matches!(value.to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
+        .map(|value| {
+            matches!(
+                value.to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
         .unwrap_or(default)
 }
 

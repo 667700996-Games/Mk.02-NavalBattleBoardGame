@@ -50,8 +50,7 @@ async fn handle_socket(
     _connection_permit: tokio::sync::OwnedSemaphorePermit,
 ) {
     let (mut socket_sender, mut socket_receiver) = socket.split();
-    let (event_sender, mut event_receiver) =
-        mpsc::channel(state.websocket_send_queue_capacity());
+    let (event_sender, mut event_receiver) = mpsc::channel(state.websocket_send_queue_capacity());
     let connection_id = state.hub.connect(session.id, event_sender);
     state.restore_connection(&session).await;
 

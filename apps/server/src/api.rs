@@ -8,13 +8,13 @@ use axum::{
     response::IntoResponse,
     routing::{get, post},
 };
-use std::net::SocketAddr;
 use axum_extra::extract::{
     CookieJar,
     cookie::{Cookie, SameSite},
 };
 use chrono::{Duration as ChronoDuration, Utc};
 use serde::Serialize;
+use std::net::SocketAddr;
 use uuid::Uuid;
 
 use crate::{
