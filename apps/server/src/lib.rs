@@ -4,6 +4,7 @@ pub mod config;
 pub mod domain;
 pub mod error;
 pub mod protocol;
+pub mod rate_limit;
 pub mod store;
 pub mod ws;
 
