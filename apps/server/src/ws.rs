@@ -64,9 +64,12 @@ async fn handle_socket(
                 let Some(Ok(message)) = incoming else { break };
                 match message {
                     Message::Text(text) => {
-                        if !state.allow_websocket_event(session.id) {
+                        if let Err(error) = state
+                            .enforce_websocket_event_rate_limit(session.id)
+                            .await
+                        {
                             state
-                                .send_to_session(session.id, error_event(GameError::RateLimited))
+                                .send_to_session(session.id, error_event(error))
                                 .await;
                             continue;
                         }

@@ -76,7 +76,9 @@ async fn create_session(
     input: Result<Json<CreateSessionInput>, JsonRejection>,
 ) -> Result<impl IntoResponse, GameError> {
     let client_key = state.client_rate_limit_key(&headers, direct_address);
-    state.enforce_session_creation_rate_limit(&client_key)?;
+    state
+        .enforce_session_creation_rate_limit(&client_key)
+        .await?;
     let input = parse_json(input)?;
     let (session, token) = state.create_session(input.nickname).await?;
     let max_age = time::Duration::seconds(state.settings.session_ttl.as_secs() as i64);
@@ -299,6 +301,6 @@ pub async fn authenticate(
         .get(AUTHORIZATION)
         .and_then(|value| value.to_str().ok());
     let session = state.authenticate(jar, authorization).await?;
-    state.enforce_api_rate_limit(session.id)?;
+    state.enforce_api_rate_limit(session.id).await?;
     Ok(session)
 }

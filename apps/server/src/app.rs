@@ -29,6 +29,16 @@ use tower_http::{
 use uuid::Uuid;
 
 const DISTRIBUTED_EVENT_CHANNEL: &str = "mk01:server-events:v1";
+const DISTRIBUTED_RATE_LIMIT_SCRIPT: &str = r#"
+local current = redis.call('INCR', KEYS[1])
+if current == 1 then
+  redis.call('PEXPIRE', KEYS[1], ARGV[2])
+end
+if current <= tonumber(ARGV[1]) then
+  return 1
+end
+return 0
+"#;
 
 use crate::{
     api,
@@ -296,23 +306,79 @@ impl AppState {
         });
     }
 
-    pub fn enforce_api_rate_limit(&self, session_id: Uuid) -> Result<(), GameError> {
+    pub async fn enforce_api_rate_limit(&self, session_id: Uuid) -> Result<(), GameError> {
+        let key = session_id.to_string();
         self.api_rate_limiter
-            .check(session_id.to_string())
+            .check(&key)
             .then_some(())
-            .ok_or(GameError::RateLimited)
+            .ok_or(GameError::RateLimited)?;
+        self.enforce_distributed_rate_limit(
+            "api-session",
+            &key,
+            self.settings.api_requests_per_minute,
+            Duration::from_secs(60),
+        )
+        .await
     }
 
-    pub fn enforce_ip_rate_limit(
+    pub async fn enforce_ip_rate_limit(
         &self,
         headers: &http::HeaderMap,
         direct_address: SocketAddr,
     ) -> Result<(), GameError> {
         let client_key = self.client_rate_limit_key(headers, direct_address);
         self.request_ip_rate_limiter
-            .check(client_key)
+            .check(&client_key)
             .then_some(())
-            .ok_or(GameError::RateLimited)
+            .ok_or(GameError::RateLimited)?;
+        self.enforce_distributed_rate_limit(
+            "http-ip",
+            &client_key,
+            self.settings.http_requests_per_minute_per_ip,
+            Duration::from_secs(60),
+        )
+        .await
+    }
+
+    async fn enforce_distributed_rate_limit(
+        &self,
+        scope: &str,
+        identity: &str,
+        limit: u32,
+        window: Duration,
+    ) -> Result<(), GameError> {
+        if limit == 0 {
+            return Ok(());
+        }
+        let Some(mut connection) = self.distributed_event_publisher.clone() else {
+            return Ok(());
+        };
+        let digest = hash_token(identity);
+        let key = format!("mk01:rate-limit:{scope}:{digest}");
+        let result: Result<i64, redis::RedisError> = redis::cmd("EVAL")
+            .arg(DISTRIBUTED_RATE_LIMIT_SCRIPT)
+            .arg(1)
+            .arg(key)
+            .arg(limit)
+            .arg(window.as_millis().min(u128::from(u64::MAX)) as u64)
+            .query_async(&mut connection)
+            .await;
+        match result {
+            Ok(1) => {
+                self.coordination_healthy.store(true, Ordering::Relaxed);
+                Ok(())
+            }
+            Ok(_) => Err(GameError::RateLimited),
+            Err(error) if self.settings.distributed_coordination_required => {
+                self.coordination_healthy.store(false, Ordering::Relaxed);
+                tracing::error!(%error, %scope, "required shared rate limiter unavailable");
+                Err(GameError::StorageUnavailable)
+            }
+            Err(error) => {
+                tracing::warn!(%error, %scope, "shared rate limiter unavailable; local limit retained");
+                Ok(())
+            }
+        }
     }
 
     pub fn client_rate_limit_key(
@@ -340,16 +406,39 @@ impl AppState {
         direct_address.ip().to_string()
     }
 
-    pub fn enforce_session_creation_rate_limit(&self, client_key: &str) -> Result<(), GameError> {
+    pub async fn enforce_session_creation_rate_limit(
+        &self,
+        client_key: &str,
+    ) -> Result<(), GameError> {
         self.session_creation_rate_limiter
             .check(client_key)
             .then_some(())
-            .ok_or(GameError::RateLimited)
+            .ok_or(GameError::RateLimited)?;
+        self.enforce_distributed_rate_limit(
+            "session-create-ip",
+            client_key,
+            self.settings.session_creations_per_minute,
+            Duration::from_secs(60),
+        )
+        .await
     }
 
-    pub fn allow_websocket_event(&self, session_id: Uuid) -> bool {
+    pub async fn enforce_websocket_event_rate_limit(
+        &self,
+        session_id: Uuid,
+    ) -> Result<(), GameError> {
+        let key = session_id.to_string();
         self.websocket_event_rate_limiter
             .check(session_id.to_string())
+            .then_some(())
+            .ok_or(GameError::RateLimited)?;
+        self.enforce_distributed_rate_limit(
+            "websocket-session",
+            &key,
+            self.settings.websocket_events_per_second,
+            Duration::from_secs(1),
+        )
+        .await
     }
 
     pub fn websocket_send_queue_capacity(&self) -> usize {
@@ -1144,7 +1233,9 @@ async fn request_ip_rate_limit(
     request: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> Result<axum::response::Response, GameError> {
-    state.enforce_ip_rate_limit(request.headers(), address)?;
+    state
+        .enforce_ip_rate_limit(request.headers(), address)
+        .await?;
     Ok(next.run(request).await)
 }
 
