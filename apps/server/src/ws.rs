@@ -530,15 +530,7 @@ async fn handle_event(state: &AppState, session: &crate::domain::UserSession, ev
             request_id = ?client_request_id,
             "websocket request rejected"
         );
-        if matches!(
-            error,
-            GameError::NotYourTurn
-                | GameError::CoordinateAlreadyAttacked
-                | GameError::TurnConflict
-                | GameError::StaleRoomVersion
-                | GameError::PlacementMismatch
-                | GameError::Unauthorized
-        ) {
+        if is_impossible_order_error(&error) {
             state
                 .record_integrity_signal(
                     session,
@@ -584,6 +576,18 @@ async fn handle_event(state: &AppState, session: &crate::domain::UserSession, ev
             )
             .await;
     }
+}
+
+fn is_impossible_order_error(error: &GameError) -> bool {
+    matches!(
+        error,
+        GameError::NotYourTurn
+            | GameError::CoordinateAlreadyAttacked
+            | GameError::TurnConflict
+            | GameError::StaleRoomVersion
+            | GameError::PlacementMismatch
+            | GameError::Unauthorized
+    )
 }
 
 fn integrity_event_context(event: &ClientEvent) -> (Option<Uuid>, &'static str) {
@@ -653,5 +657,22 @@ mod tests {
         assert!(!origin_allowed(&allowed, &headers));
         headers.insert(AUTHORIZATION, HeaderValue::from_static("Bearer test"));
         assert!(origin_allowed(&allowed, &headers));
+    }
+
+    #[test]
+    fn impossible_order_detector_targets_authoritative_abuse_without_flagging_retries() {
+        for error in [
+            GameError::NotYourTurn,
+            GameError::CoordinateAlreadyAttacked,
+            GameError::TurnConflict,
+            GameError::StaleRoomVersion,
+            GameError::PlacementMismatch,
+            GameError::Unauthorized,
+        ] {
+            assert!(is_impossible_order_error(&error));
+        }
+        assert!(!is_impossible_order_error(&GameError::VersionConflict));
+        assert!(!is_impossible_order_error(&GameError::StorageUnavailable));
+        assert!(!is_impossible_order_error(&GameError::RateLimited));
     }
 }

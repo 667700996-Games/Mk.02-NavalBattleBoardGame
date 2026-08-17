@@ -434,12 +434,15 @@ impl GameStore for MemoryStore {
     ) -> Result<IntegritySignal, GameError> {
         let _guard = self.integrity_mutations.lock().await;
         if let Some(room_id) = signal.room_id {
-            if let Some(existing_id) = self.integrity_signals.iter().find_map(|entry| {
-                (entry.subject_identity_id == signal.subject_identity_id
-                    && entry.room_id == Some(room_id)
-                    && entry.kind == signal.kind)
-                    .then_some(entry.id)
-            }) {
+            let existing_id = {
+                self.integrity_signals.iter().find_map(|entry| {
+                    (entry.subject_identity_id == signal.subject_identity_id
+                        && entry.room_id == Some(room_id)
+                        && entry.kind == signal.kind)
+                        .then_some(entry.id)
+                })
+            };
+            if let Some(existing_id) = existing_id {
                 let mut existing = self
                     .integrity_signals
                     .get_mut(&existing_id)

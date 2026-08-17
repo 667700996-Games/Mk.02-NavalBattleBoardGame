@@ -3043,4 +3043,69 @@ mod tests {
         hub.send(session_id, heartbeat());
         assert!(hub.is_empty());
     }
+
+    #[tokio::test]
+    async fn finished_match_assessment_detects_repeated_short_pairing_and_stalling() {
+        let first = session("Integrity Alpha");
+        let second = session("Integrity Bravo");
+        let store = Arc::new(MemoryStore::default());
+        store.save_session(&first).await.unwrap();
+        store.save_session(&second).await.unwrap();
+        let state = AppState::with_store(Settings::default(), store.clone());
+
+        for index in 0..3 {
+            let mut room = GameRoom::new(
+                format!("INT{index}23"),
+                format!("Integrity match {index}"),
+                RoomVisibility::Private,
+                &first,
+            )
+            .unwrap();
+            room.join(&second).unwrap();
+            let first_player_id = room.player_for_session(first.id).unwrap().id;
+            let second_player_id = room.player_for_session(second.id).unwrap().id;
+            room.set_lobby_ready(first.id, Uuid::new_v4(), first_player_id, true)
+                .unwrap();
+            room.set_lobby_ready(second.id, Uuid::new_v4(), second_player_id, true)
+                .unwrap();
+            room.start_placement(first.id, Uuid::new_v4(), first_player_id, room.version)
+                .unwrap();
+            room.place_ships(first.id, fleet(0)).unwrap();
+            room.place_ships(second.id, fleet(5)).unwrap();
+            room.confirm_placement(first.id, &fleet(0), 60).unwrap();
+            room.confirm_placement(second.id, &fleet(5), 60).unwrap();
+            if index == 2 {
+                room.game
+                    .as_mut()
+                    .unwrap()
+                    .total_timeout_counts
+                    .insert(first_player_id, 3);
+            }
+            room.surrender(second.id, second_player_id).unwrap();
+            state.save_room(&mut room).await.unwrap();
+        }
+
+        let collusion = store
+            .integrity_signals(None, Some(IntegritySignalKind::Collusion), None, 25)
+            .await
+            .unwrap();
+        assert_eq!(collusion.signals.len(), 2);
+        assert!(
+            collusion
+                .signals
+                .iter()
+                .all(|signal| signal.evidence["suspiciousShortMatchesSevenDays"] == 3)
+        );
+        let stalling = store
+            .integrity_signals(
+                None,
+                Some(IntegritySignalKind::IntentionalStalling),
+                None,
+                25,
+            )
+            .await
+            .unwrap();
+        assert_eq!(stalling.signals.len(), 1);
+        assert_eq!(stalling.signals[0].evidence["totalTimeouts"], 3);
+    }
 }
