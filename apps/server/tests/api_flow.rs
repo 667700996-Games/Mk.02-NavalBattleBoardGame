@@ -1115,3 +1115,60 @@ async fn social_safety_mutes_blocks_reports_and_prevents_future_room_pairing() {
     assert_eq!(blocked_join.status(), StatusCode::FORBIDDEN);
     assert_eq!(json_body(blocked_join).await["code"], "PLAYER_BLOCKED");
 }
+
+#[tokio::test]
+async fn admin_integrity_queue_is_private_filterable_and_preserves_detection_evidence() {
+    use mk01_server::domain::{IntegritySignalKind, NewIntegritySignal};
+
+    let store = Arc::new(MemoryStore::default());
+    let subject_identity_id = uuid::Uuid::new_v4();
+    store
+        .record_integrity_signal(&NewIntegritySignal {
+            id: uuid::Uuid::new_v4(),
+            subject_identity_id,
+            room_id: Some(uuid::Uuid::new_v4()),
+            kind: IntegritySignalKind::Automation,
+            severity: 3,
+            confidence: 0.88,
+            evidence: json!({
+                "detector": "WEBSOCKET_EVENT_BURST",
+                "eventsPerSecondLimit": 60
+            }),
+            observed_at: Utc::now(),
+        })
+        .await
+        .unwrap();
+    let app = build_router(AppState::with_store(test_settings(), store));
+
+    let unauthorized = send(
+        &app,
+        Request::builder()
+            .uri("/api/admin/integrity/signals")
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(unauthorized.status(), StatusCode::UNAUTHORIZED);
+
+    let response = send(
+        &app,
+        Request::builder()
+            .uri("/api/admin/integrity/signals?kind=AUTOMATION&search=event_burst")
+            .header(
+                header::AUTHORIZATION,
+                "Bearer integration-admin-token-32-characters-long",
+            )
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_body(response).await;
+    assert_eq!(body["signals"].as_array().unwrap().len(), 1);
+    assert_eq!(body["signals"][0]["kind"], "AUTOMATION");
+    assert_eq!(
+        body["signals"][0]["subjectIdentityId"],
+        subject_identity_id.to_string()
+    );
+    assert_eq!(body["signals"][0]["evidence"]["eventsPerSecondLimit"], 60);
+}

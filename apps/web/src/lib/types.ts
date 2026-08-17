@@ -162,10 +162,7 @@ export interface ModerationCasePage {
 }
 
 export type IntegritySignalKind =
-  | 'IMPOSSIBLE_ORDER'
-  | 'AUTOMATION'
-  | 'COLLUSION'
-  | 'INTENTIONAL_STALLING';
+  'IMPOSSIBLE_ORDER' | 'AUTOMATION' | 'COLLUSION' | 'INTENTIONAL_STALLING';
 
 export interface IntegritySignal {
   id: string;

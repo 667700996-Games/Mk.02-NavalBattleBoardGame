@@ -1077,4 +1077,54 @@ mod tests {
         assert_eq!(rewards.len(), 2);
         assert_eq!(rewards.iter().map(|reward| reward.xp).sum::<u32>(), 200);
     }
+
+    #[tokio::test]
+    async fn integrity_signals_deduplicate_room_evidence_and_remain_searchable() {
+        let store = MemoryStore::default();
+        let subject_identity_id = Uuid::new_v4();
+        let room_id = Uuid::new_v4();
+        let first = store
+            .record_integrity_signal(&NewIntegritySignal {
+                id: Uuid::new_v4(),
+                subject_identity_id,
+                room_id: Some(room_id),
+                kind: IntegritySignalKind::ImpossibleOrder,
+                severity: 2,
+                confidence: 0.72,
+                evidence: serde_json::json!({ "errorCode": "NOT_YOUR_TURN" }),
+                observed_at: Utc::now(),
+            })
+            .await
+            .unwrap();
+        let repeated = store
+            .record_integrity_signal(&NewIntegritySignal {
+                id: Uuid::new_v4(),
+                subject_identity_id,
+                room_id: Some(room_id),
+                kind: IntegritySignalKind::ImpossibleOrder,
+                severity: 4,
+                confidence: 0.96,
+                evidence: serde_json::json!({ "errorCode": "UNAUTHORIZED" }),
+                observed_at: Utc::now(),
+            })
+            .await
+            .unwrap();
+        assert_eq!(first.id, repeated.id);
+        assert_eq!(repeated.occurrences, 2);
+        assert_eq!(repeated.severity, 4);
+        assert_eq!(repeated.confidence, 0.96);
+
+        let page = store
+            .integrity_signals(
+                Some("unauthorized"),
+                Some(IntegritySignalKind::ImpossibleOrder),
+                None,
+                25,
+            )
+            .await
+            .unwrap();
+        assert_eq!(page.signals.len(), 1);
+        assert_eq!(page.signals[0].subject_identity_id, subject_identity_id);
+        assert!(page.next_before.is_none());
+    }
 }

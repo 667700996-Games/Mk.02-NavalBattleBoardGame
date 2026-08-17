@@ -203,11 +203,10 @@
               <strong>{signal.kind}</strong>
               <small>{signal.subjectIdentityId} · {formatTime(signal.lastObservedAt)}</small>
               <p>신뢰도 {Math.round(signal.confidence * 100)}% · {signal.occurrences}회 관측</p>
-              <details
-                ><summary>탐지 근거</summary><pre
-                  >{JSON.stringify(signal.evidence, null, 2)}</pre
-                ></details
-              >
+              <details>
+                <summary>탐지 근거</summary>
+                <pre>{JSON.stringify(signal.evidence, null, 2)}</pre>
+              </details>
             </article>
           {/each}
         {/if}
@@ -453,6 +452,74 @@
     gap: 10px;
     padding: 14px;
   }
+  .integrity-panel {
+    padding: 14px;
+  }
+  .integrity-panel > summary {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--cyan-300);
+    cursor: pointer;
+    font-family: var(--font-display);
+    font-size: 11px;
+  }
+  .integrity-panel > summary strong {
+    margin-left: auto;
+    color: var(--amber-500);
+  }
+  .integrity-tools {
+    display: grid;
+    grid-template-columns: minmax(180px, 260px) 1fr;
+    align-items: end;
+    gap: 14px;
+    margin-top: 14px;
+  }
+  .integrity-tools p {
+    margin: 0 0 9px;
+    color: var(--ink-500);
+    font-size: 9px;
+  }
+  .integrity-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 8px;
+    margin-top: 12px;
+  }
+  .integrity-list > article {
+    display: grid;
+    gap: 5px;
+    min-width: 0;
+    padding: 11px;
+    border: 1px solid var(--line);
+    border-radius: 9px;
+    background: rgba(3, 14, 22, 0.5);
+  }
+  .integrity-list article > small,
+  .integrity-list article > p {
+    overflow-wrap: anywhere;
+    margin: 0;
+    color: var(--ink-500);
+    font-size: 8px;
+  }
+  .integrity-list details summary {
+    color: var(--ink-400);
+    cursor: pointer;
+    font-size: 8px;
+  }
+  .integrity-list pre {
+    max-height: 180px;
+    overflow: auto;
+    color: var(--ink-400);
+    font-size: 8px;
+    white-space: pre-wrap;
+  }
+  .signal-severity {
+    width: fit-content;
+    color: var(--red-400);
+    font-family: var(--font-display);
+    font-size: 8px;
+  }
   .operations-grid {
     display: grid;
     grid-template-columns: minmax(280px, 0.72fr) minmax(0, 1.6fr);
@@ -657,7 +724,8 @@
   @media (max-width: 600px) {
     .queue-tools,
     .case-detail dl,
-    .action-fields {
+    .action-fields,
+    .integrity-tools {
       grid-template-columns: 1fr;
     }
     .page-head {
