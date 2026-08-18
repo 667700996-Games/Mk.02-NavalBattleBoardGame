@@ -5,6 +5,7 @@ import {
   test,
   type BrowserContextOptions,
   type CDPSession,
+  type Page,
   type Response
 } from '@playwright/test';
 
@@ -59,6 +60,33 @@ async function metricValue(session: CDPSession, name: string): Promise<number> {
     metrics: Array<{ name: string; value: number }>;
   };
   return result.metrics.find((metric) => metric.name === name)?.value ?? 0;
+}
+
+async function expectNoHorizontalOverflow(page: Page): Promise<void> {
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) <=
+          document.documentElement.clientWidth + 1
+      )
+    )
+    .toBe(true);
+}
+
+async function expectReadableBattleControls(page: Page): Promise<void> {
+  await expectNoHorizontalOverflow(page);
+  const targetBox = await page.getByTestId('target-cell-0-0').boundingBox();
+  const fireBox = await page.getByRole('button', { name: '공격 실행' }).boundingBox();
+  if (!targetBox || !fireBox) throw new Error('Battle controls are not visibly measurable');
+  expect(targetBox.width).toBeGreaterThanOrEqual(24);
+  expect(targetBox.height).toBeGreaterThanOrEqual(24);
+  expect(fireBox.height).toBeGreaterThanOrEqual(40);
+  expect(fireBox.width).toBeGreaterThanOrEqual(120);
+  const headingFontSize = await page
+    .getByRole('heading', { name: /공격 좌표를 지정하십시오/ })
+    .evaluate((heading) => Number.parseFloat(getComputedStyle(heading).fontSize));
+  expect(headingFontSize).toBeGreaterThanOrEqual(14);
 }
 
 for (const [tierName, budget] of Object.entries(tiers)) {
@@ -156,21 +184,45 @@ for (const [tierName, budget] of Object.entries(tiers)) {
     await expect(page.getByText('5/5 함선 배치')).toBeVisible();
     await page.getByRole('button', { name: '배치 확정' }).click();
     await expect(page.getByText('상대 공격 보드')).toBeVisible();
-    await expect(page.getByRole('heading', { name: /공격 좌표를 지정하십시오/ })).toBeVisible({
+    const attackHeading = page.getByRole('heading', { name: /공격 좌표를 지정하십시오/ });
+    await expect(attackHeading).toBeVisible({
       timeout: 30_000
     });
+    await expectReadableBattleControls(page);
     await sampleHeap();
 
     await page.evaluate(() => {
       (window as Window & { __mk01StartEffects: () => void }).__mk01StartEffects();
     });
-    const target = page.getByTestId('target-cell-0-0');
-    await target.click();
-    await page.getByRole('button', { name: '공격 실행' }).click();
-    await expect(target).toHaveAttribute('aria-label', /A1, (빗나감|명중|격침)/);
+    for (let column = 0; column < 5; column += 1) {
+      const target = page.getByTestId(`target-cell-0-${column}`);
+      await target.click();
+      await page.getByRole('button', { name: '공격 실행' }).click();
+      const outcome = column === 4 ? '격침' : '명중';
+      await expect(target).toHaveAttribute('aria-label', new RegExp(`A${column + 1}, ${outcome}`));
+      if (column < 4) await expect(attackHeading).toBeVisible({ timeout: 15_000 });
+    }
+    await expectNoHorizontalOverflow(page);
+    if (tierName === 'lowMobile') {
+      await page.getByTestId('target-cell-0-4').scrollIntoViewIfNeeded();
+      await testInfo.attach('low-mobile-carrier-sunk.png', {
+        body: await page.screenshot(),
+        contentType: 'image/png'
+      });
+    }
     await page.getByRole('button', { name: '작전 포기' }).click();
     await page.getByRole('dialog').getByRole('button', { name: '기권' }).click();
     await expect(page.getByRole('heading', { name: /작전 (승리|패배)/ })).toBeVisible();
+    await expectNoHorizontalOverflow(page);
+    if (tierName === 'lowMobile') {
+      const closeNotification = page.getByRole('button', { name: '알림 닫기' });
+      while ((await closeNotification.count()) > 0) await closeNotification.first().click();
+      await page.evaluate(() => window.scrollTo({ top: 0 }));
+      await testInfo.attach('low-mobile-result.png', {
+        body: await page.screenshot(),
+        contentType: 'image/png'
+      });
+    }
     await page.waitForTimeout(1_500);
     const effects = await page.evaluate(() =>
       (window as Window & { __mk01StopEffects: () => EffectMetrics }).__mk01StopEffects()

@@ -206,7 +206,7 @@ The program is complete only when all gates below are satisfied in a production-
       have budgets by device tier.
 - [x] Korean fonts are subsetted and modern formats are preferred without redundant transfer.
 - [ ] Core Web Vitals and battle interaction latency are captured from real users by release.
-- [ ] Low-end mobile play remains readable and responsive during the heaviest effects sequence.
+- [x] Low-end mobile play remains readable and responsive during the heaviest effects sequence.
 - Evidence: `check-font-subsets.mjs` scans all production Rust/Svelte/TypeScript copy, proves every
   static Korean glyph maps to one of 28 disjoint 400/700 WOFF2 slices, rejects duplicate selection
   and stale generated CSS, and caps the Korean payload at 450 KB. The production artifact fell from
@@ -215,11 +215,13 @@ The program is complete only when all gates below are satisfied in a production-
   and a route font transfer above 500 KB. Dynamic player copy uses the documented system fallback.
   `performance-budgets.json` is the shared artifact/runtime authority for JavaScript, CSS, fonts,
   images, audio, heap, CPU tasks, long tasks, frame p95, and WebSocket bytes. A production-adapter
-  Playwright journey exercises placement, target lock, fire/impact, surrender modal, and result at
-  desktop, 3× CPU mobile, and 6× CPU low-mobile tiers. The reference run passed 3/3 with zero long
-  tasks; desktop frame p95 improved from 66.7 to 18.2 ms in the latest run after redundant
-  full-surface backdrop filters were removed. CI reruns this release-blocking gate. See
-  `FONT_DELIVERY.md` and
+  Playwright journey exercises placement, five deterministic target-lock/hit sequences, carrier
+  sinking, surrender modal, and result at desktop, 3× CPU mobile, and 6× CPU low-mobile tiers. The
+  reference run passed 3/3 with zero long tasks; low mobile held 18.6 ms frame p95 under 6× CPU
+  throttle while retaining a 14 px status heading, 24 px board-cell floor, 40 px fire-control floor,
+  and no horizontal overflow. Its report attaches 360×640 sunk-carrier and unobscured result
+  captures. Desktop frame p95 improved from 66.7 to 33.4 ms after redundant full-surface backdrop
+  filters were removed. CI reruns this release-blocking gate. See `FONT_DELIVERY.md` and
   `PERFORMANCE_BUDGETS.md` for generation, measurement, and review contracts.
 
 ## Gate E — Engineering quality and delivery

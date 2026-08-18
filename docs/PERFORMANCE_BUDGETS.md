@@ -25,10 +25,11 @@ does not fetch them. Font generation and the tighter Korean subset limit are doc
 ## Runtime gate
 
 `npm run test:performance` builds and serves the production adapter, then completes a real practice
-journey from landing through session creation, placement, first attack, surrender confirmation, and
-result. Chromium DevTools Protocol applies the configured CPU throttle and reports task time and
-heap use. Playwright records decoded unique response bodies, long tasks, animation-frame intervals,
-and WebSocket frames.
+journey from landing through session creation and placement. It targets the deterministic practice
+carrier at A1–A5, verifies four hits and the final sinking sequence, then exercises surrender
+confirmation and the result. Chromium DevTools Protocol applies the configured CPU throttle and
+reports task time and peak sampled heap use. Playwright records decoded unique response bodies,
+long tasks, animation-frame intervals, and WebSocket frames.
 
 | Tier | Viewport | CPU throttle | Frame p95 budget | CPU task budget | Long-task budget |
 | --- | --- | ---: | ---: | ---: | ---: |
@@ -43,13 +44,13 @@ The August 18, 2026 reference run passed all tiers:
 
 | Tier | JS / CSS / fonts | Heap | CPU tasks | Long tasks | Frame p50 / p95 | WebSocket |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| Desktop | 253,919 / 144,713 / 429,840 B | 11.8 MiB | 675 ms | 0 ms | 16.7 / 18.2 ms | 18,750 B |
-| Mobile | 253,919 / 144,713 / 429,840 B | 10.6 MiB | 1,462 ms | 0 ms | 16.7 / 18.4 ms | 25,871 B |
-| Low mobile | 253,919 / 144,713 / 429,840 B | 8.3 MiB | 2,911 ms | 0 ms | 16.7 / 18.5 ms | 22,343 B |
+| Desktop | 253,915 / 144,713 / 429,840 B | 9.9 MiB | 963 ms | 0 ms | 16.7 / 33.4 ms | 50,702 B |
+| Mobile | 253,915 / 144,713 / 429,840 B | 14.0 MiB | 3,059 ms | 0 ms | 16.7 / 18.5 ms | 58,723 B |
+| Low mobile | 253,915 / 144,713 / 429,840 B | 9.0 MiB | 6,444 ms | 0 ms | 16.7 / 18.6 ms | 58,756 B |
 
 Large translucent surfaces formerly used nested `backdrop-filter` blurs. The reference desktop
-sequence measured 66.7 ms frame p95 before those redundant filters were removed and 18.2 ms in the
-latest reference run, while the existing opaque gradients, borders, and shadows preserved the
+sequence measured 66.7 ms frame p95 before those redundant filters were removed and 33.4 ms in the
+five-hit reference run, while the existing opaque gradients, borders, and shadows preserved the
 visual hierarchy.
 
 ## Interpretation and release use
@@ -57,7 +58,10 @@ visual hierarchy.
 - Artifact totals prevent unvisited routes and social images from silently growing the release.
 - Runtime transfer totals cover only resources actually loaded by the critical gameplay journey.
 - Task duration is cumulative renderer CPU time; long-task duration captures main-thread stalls of
-  at least 50 ms; frame p95 covers target lock, fire/impact feedback, modal, and result transition.
+  at least 50 ms; frame p95 covers repeated target lock, hit/sinking feedback, modal, and result
+  transition.
+- Every tier rejects horizontal overflow and controls smaller than the documented readable/touch
+  floor. The low-mobile report attaches 360×640 carrier-sunk and unobscured result captures.
 - Synthetic CI catches deterministic regressions but does not replace field Core Web Vitals or
   battle interaction telemetry. That real-user monitoring remains a separate release gate.
 - CI attaches one JSON report per tier. Compare candidate and stable runs on the same runner class;
