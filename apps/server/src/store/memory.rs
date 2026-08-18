@@ -17,8 +17,8 @@ use crate::{
 };
 
 use super::{
-    AccountDeletionStats, GameHistoryItem, GameStore, MatchmakingClaim, MatchmakingEnqueueResult,
-    MatchmakingQueueStats, MissionReward, RetentionStats,
+    AccountDeletionScope, AccountDeletionStats, GameHistoryItem, GameStore, MatchmakingClaim,
+    MatchmakingEnqueueResult, MatchmakingQueueStats, MissionReward, RetentionStats,
 };
 
 #[derive(Debug, Clone)]
@@ -300,6 +300,7 @@ impl GameStore for MemoryStore {
         subject_fingerprint: &str,
         known_room_ids: &[Uuid],
         deleted_at: DateTime<Utc>,
+        _scope: AccountDeletionScope,
     ) -> Result<AccountDeletionStats, GameError> {
         let _account_guard = self.account_mutations.lock().await;
         let account = self

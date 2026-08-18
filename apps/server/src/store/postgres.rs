@@ -18,9 +18,12 @@ use crate::{
 };
 
 use super::{
-    AccountDeletionStats, GameHistoryItem, GameStore, MatchmakingClaim, MatchmakingEnqueueResult,
-    MatchmakingQueueStats, MissionReward, RetentionStats, RoomAuthorityLease,
+    AccountDeletionScope, AccountDeletionStats, GameHistoryItem, GameStore, MatchmakingClaim,
+    MatchmakingEnqueueResult, MatchmakingQueueStats, MissionReward, RetentionStats,
+    RoomAuthorityLease,
 };
+
+const DELETION_RESURRECTION_COUNT_QUERY: &str = "SELECT (SELECT count(*) FROM player_accounts account JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=account.id) + (SELECT count(*) FROM user_sessions session JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=session.account_id) + (SELECT count(*) FROM progression_reward_ledger reward JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=reward.account_id) + (SELECT count(*) FROM game_result_participants participant JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=participant.account_id) + (SELECT count(*) FROM game_results result JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=ANY(result.participant_account_ids)) + (SELECT count(*) FROM player_relationships relationship JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=relationship.actor_identity_id OR tombstone.account_id=relationship.target_identity_id) + (SELECT count(*) FROM player_reports report JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=report.reporter_identity_id OR tombstone.account_id=report.target_identity_id) + (SELECT count(*) FROM integrity_signals signal JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=signal.subject_identity_id)";
 
 #[derive(Clone)]
 pub struct PostgresRedisStore {
@@ -36,6 +39,33 @@ pub struct DatabaseVerification {
     pub rooms: i64,
     pub results: i64,
     pub privacy_requests: i64,
+    pub deletion_tombstones: i64,
+    pub checked_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PrivacyDeletionTombstone {
+    pub account_id: Uuid,
+    pub request_id: Uuid,
+    pub subject_fingerprint: String,
+    pub deleted_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PrivacyDeletionLedger {
+    pub format_version: u8,
+    pub generated_at: DateTime<Utc>,
+    pub tombstones: Vec<PrivacyDeletionTombstone>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeletionLedgerApplyReport {
+    pub applied: u64,
+    pub already_absent: u64,
+    pub remaining_personal_records: i64,
     pub checked_at: DateTime<Utc>,
 }
 
@@ -104,6 +134,16 @@ impl PostgresRedisStore {
         let privacy_requests: i64 = sqlx::query_scalar("SELECT count(*) FROM privacy_requests")
             .fetch_one(&pool)
             .await?;
+        let deletion_tombstones: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM privacy_deletion_tombstones")
+                .fetch_one(&pool)
+                .await?;
+        let resurrected_deletions: i64 = sqlx::query_scalar(DELETION_RESURRECTION_COUNT_QUERY)
+            .fetch_one(&pool)
+            .await?;
+        if resurrected_deletions != 0 {
+            return Err(GameError::Internal);
+        }
         pool.close().await;
         Ok(DatabaseVerification {
             migrations_applied,
@@ -111,6 +151,129 @@ impl PostgresRedisStore {
             rooms: snapshots.len() as i64,
             results,
             privacy_requests,
+            deletion_tombstones,
+            checked_at: Utc::now(),
+        })
+    }
+
+    pub async fn export_deletion_ledger(
+        database_url: &str,
+    ) -> Result<PrivacyDeletionLedger, GameError> {
+        let pool = PgPoolOptions::new()
+            .max_connections(2)
+            .connect(database_url)
+            .await?;
+        let rows: Vec<(Uuid, Uuid, String, DateTime<Utc>)> = sqlx::query_as(
+            "SELECT account_id,request_id,subject_fingerprint,deleted_at FROM privacy_deletion_tombstones ORDER BY deleted_at,account_id",
+        )
+        .fetch_all(&pool)
+        .await?;
+        pool.close().await;
+        Ok(PrivacyDeletionLedger {
+            format_version: 1,
+            generated_at: Utc::now(),
+            tombstones: rows
+                .into_iter()
+                .map(
+                    |(account_id, request_id, subject_fingerprint, deleted_at)| {
+                        PrivacyDeletionTombstone {
+                            account_id,
+                            request_id,
+                            subject_fingerprint,
+                            deleted_at,
+                        }
+                    },
+                )
+                .collect(),
+        })
+    }
+
+    pub async fn apply_deletion_ledger(
+        database_url: &str,
+        ledger: PrivacyDeletionLedger,
+    ) -> Result<DeletionLedgerApplyReport, GameError> {
+        if ledger.format_version != 1 {
+            return Err(GameError::InvalidRequest);
+        }
+        let mut seen_accounts = std::collections::HashSet::new();
+        for tombstone in &ledger.tombstones {
+            if !seen_accounts.insert(tombstone.account_id)
+                || tombstone.subject_fingerprint.len() != 64
+                || !tombstone
+                    .subject_fingerprint
+                    .bytes()
+                    .all(|byte| byte.is_ascii_hexdigit())
+            {
+                return Err(GameError::InvalidRequest);
+            }
+        }
+
+        let pool = PgPoolOptions::new()
+            .max_connections(4)
+            .connect(database_url)
+            .await?;
+        sqlx::migrate!("./migrations")
+            .run(&pool)
+            .await
+            .map_err(|error| {
+                tracing::error!(%error, "deletion ledger migration failed");
+                GameError::StorageUnavailable
+            })?;
+        let store = Self { pool, cache: None };
+        let mut applied = 0_u64;
+        let mut already_absent = 0_u64;
+        for tombstone in ledger.tombstones {
+            let account_exists: bool =
+                sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM player_accounts WHERE id=$1)")
+                    .bind(tombstone.account_id)
+                    .fetch_one(&store.pool)
+                    .await?;
+            if account_exists {
+                GameStore::delete_account_data(
+                    &store,
+                    tombstone.account_id,
+                    tombstone.request_id,
+                    &tombstone.subject_fingerprint,
+                    &[],
+                    tombstone.deleted_at,
+                    AccountDeletionScope::RestoredBackup,
+                )
+                .await?;
+                applied += 1;
+            } else {
+                let mut transaction = store.pool.begin().await?;
+                sqlx::query(
+                    "INSERT INTO privacy_deletion_tombstones (account_id,request_id,subject_fingerprint,deleted_at) VALUES ($1,$2,$3,$4) ON CONFLICT (account_id) DO NOTHING",
+                )
+                .bind(tombstone.account_id)
+                .bind(tombstone.request_id)
+                .bind(&tombstone.subject_fingerprint)
+                .bind(tombstone.deleted_at)
+                .execute(&mut *transaction)
+                .await?;
+                sqlx::query(
+                    "INSERT INTO privacy_requests (id,subject_fingerprint,request_type,status,created_at,completed_at) VALUES ($1,$2,'DELETE','COMPLETED',$3,$3) ON CONFLICT (id) DO NOTHING",
+                )
+                .bind(tombstone.request_id)
+                .bind(&tombstone.subject_fingerprint)
+                .bind(tombstone.deleted_at)
+                .execute(&mut *transaction)
+                .await?;
+                transaction.commit().await?;
+                already_absent += 1;
+            }
+        }
+        let remaining_personal_records: i64 = sqlx::query_scalar(DELETION_RESURRECTION_COUNT_QUERY)
+            .fetch_one(&store.pool)
+            .await?;
+        if remaining_personal_records != 0 {
+            return Err(GameError::Internal);
+        }
+        store.pool.close().await;
+        Ok(DeletionLedgerApplyReport {
+            applied,
+            already_absent,
+            remaining_personal_records,
             checked_at: Utc::now(),
         })
     }
@@ -578,6 +741,7 @@ impl GameStore for PostgresRedisStore {
         subject_fingerprint: &str,
         known_room_ids: &[Uuid],
         deleted_at: DateTime<Utc>,
+        scope: AccountDeletionScope,
     ) -> Result<AccountDeletionStats, GameError> {
         let mut transaction = self.pool.begin().await?;
         let account_handle: String =
@@ -612,16 +776,24 @@ impl GameStore for PostgresRedisStore {
         for (room_id, snapshot) in room_rows {
             let mut room: GameRoom =
                 serde_json::from_value(snapshot).map_err(|_| GameError::Internal)?;
+            let deleted_player_ids: Vec<_> = room
+                .players
+                .iter()
+                .filter(|player| session_ids.contains(&player.session_id))
+                .map(|player| player.id)
+                .collect();
             if !matches!(room.status, RoomStatus::Finished | RoomStatus::Cancelled) {
-                return Err(GameError::InvalidState);
+                if scope == AccountDeletionScope::LiveRequest {
+                    return Err(GameError::InvalidState);
+                }
+                room.status = RoomStatus::Cancelled;
+                room.disconnected_deadlines.clear();
             }
-            let mut deleted_player_ids = Vec::new();
             for player in &mut room.players {
                 if let Some((_, replacement)) = replacement_session_ids
                     .iter()
                     .find(|(session_id, _)| *session_id == player.session_id)
                 {
-                    deleted_player_ids.push(player.id);
                     player.session_id = *replacement;
                     player.nickname = "Deleted Commander".to_string();
                 }
@@ -710,6 +882,15 @@ impl GameStore for PostgresRedisStore {
             .bind(account_id)
             .execute(&mut *transaction)
             .await?;
+        sqlx::query(
+            "INSERT INTO privacy_deletion_tombstones (account_id,request_id,subject_fingerprint,deleted_at) VALUES ($1,$2,$3,$4) ON CONFLICT (account_id) DO UPDATE SET request_id=EXCLUDED.request_id,subject_fingerprint=EXCLUDED.subject_fingerprint,deleted_at=GREATEST(privacy_deletion_tombstones.deleted_at,EXCLUDED.deleted_at)",
+        )
+        .bind(account_id)
+        .bind(request_id)
+        .bind(subject_fingerprint)
+        .bind(deleted_at)
+        .execute(&mut *transaction)
+        .await?;
         sqlx::query(
             "INSERT INTO privacy_requests (id,subject_fingerprint,request_type,status,created_at,completed_at) VALUES ($1,$2,'DELETE','COMPLETED',$3,$3)",
         )
@@ -1622,5 +1803,32 @@ impl GameStore for PostgresRedisStore {
 
     fn kind(&self) -> &'static str {
         "postgres+redis"
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn deletion_ledger_rejects_duplicate_accounts_before_database_access() {
+        let tombstone = PrivacyDeletionTombstone {
+            account_id: Uuid::new_v4(),
+            request_id: Uuid::new_v4(),
+            subject_fingerprint: "a".repeat(64),
+            deleted_at: Utc::now(),
+        };
+        let ledger = PrivacyDeletionLedger {
+            format_version: 1,
+            generated_at: Utc::now(),
+            tombstones: vec![tombstone.clone(), tombstone],
+        };
+
+        assert_eq!(
+            PostgresRedisStore::apply_deletion_ledger("postgres://not-contacted", ledger)
+                .await
+                .unwrap_err(),
+            GameError::InvalidRequest
+        );
     }
 }

@@ -109,9 +109,10 @@ The program is complete only when all gates below are satisfied in a production-
   prunes inactive sessions, abandoned matchmaking, terminal room/chat/replay records, closed
   moderation cases, and integrity signals using configurable UTC cutoffs and publishes per-class
   counters. Unit coverage proves expired terminal data is removed while active sessions and open or
-  recent safety records survive. Account export/deletion APIs and PostgreSQL integration coverage
-  exist, but the full export/deletion gate remains open until backup deletion-ledger replay is
-  automated and restore-tested.
+  recent safety records survive. Account export/deletion APIs cover credentials, sessions,
+  results, progression, social, moderation, integrity and both cache layers. An encrypted deletion
+  ledger and fail-closed restore replay now prevent older backups from resurrecting an account; the
+  gate remains open until the PostgreSQL CI restore artifact proves that replay end to end.
 
 ## Gate C — Game product and player retention
 

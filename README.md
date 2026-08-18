@@ -302,6 +302,11 @@ npm run build       # Rust release + SvelteKit adapter-node
 npm run budget      # JS/CSS/WOFF2 파일·총량 제한과 기존 WOFF 차단
 ```
 
+운영 백업은 `scripts/backup-postgres.sh`와 `scripts/export-deletion-ledger.sh`를 각각 다른
+수명주기 객체로 저장합니다. 복구 시 `scripts/restore-postgres-drill.sh`는 두 객체의
+체크섬·암호화를 검증하고, 과거 백업에 되살아난 계정 삭제를 먼저 재적용한 뒤에만
+스냅샷·참조 무결성과 RPO/RTO 증거를 승인합니다.
+
 Rust 테스트는 대기실 상태 머신, 멱등성, 버전 충돌, 배치, AI의 결정적·비반복 공격, 공격/만료 경쟁, 재시작 복구, 채팅 검증과 공개 정보 필터를 검증합니다. CI의 PostgreSQL/Redis 통합 테스트는 동시 CAS 쓰기에서 단 하나만 성공함, 권위 임대 만료 후 인수와 오래 멈춘 소유자의 펜싱, 분산 매칭의 원자적 확정, 두 AppState 사이 Pub/Sub 이벤트 전달을 검증합니다. Playwright는 Chromium·Firefox·WebKit과 Pixel 7·iPhone 13 프로필에서 독립 브라우저 2개의 전체 경기·변조 요청 거절·새로고침 복구·숨은 정보 비노출을 검증하고, 문서 CSP 아래의 실제 hydration과 모바일 오버플로를 검사합니다.
 
 Security workflow는 취약점 대응 모의훈련, Rust·JavaScript/TypeScript·GitHub Actions

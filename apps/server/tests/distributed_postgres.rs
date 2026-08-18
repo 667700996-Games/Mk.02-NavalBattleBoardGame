@@ -10,7 +10,10 @@ use mk01_server::{
         RoomVisibility, ShipKind, ShipPlacement, UserSession,
     },
     protocol::{HeartbeatResponse, ServerEvent},
-    store::{GameStore, PostgresRedisStore},
+    store::{
+        AccountDeletionScope, GameStore, PostgresRedisStore, PrivacyDeletionLedger,
+        PrivacyDeletionTombstone,
+    },
 };
 use tokio::sync::mpsc;
 use uuid::Uuid;
@@ -245,6 +248,7 @@ async fn postgres_account_export_and_deletion_cover_migrations_and_anonymized_ro
             &hash_token("delete-subject"),
             &[room.id],
             Utc::now(),
+            AccountDeletionScope::LiveRequest,
         )
         .await
         .unwrap();
@@ -286,10 +290,80 @@ async fn postgres_account_export_and_deletion_cover_migrations_and_anonymized_ro
             .await
             .unwrap();
     assert_eq!(audit, ("DELETE".to_string(), "COMPLETED".to_string()));
+
+    let restored_guest = session("RestoreTarget");
+    store.save_session(&restored_guest).await.unwrap();
+    let restored_account = PlayerAccount {
+        id: Uuid::new_v4(),
+        handle: "RestoreTarget".to_string(),
+        created_at: Utc::now(),
+    };
+    store
+        .create_account(
+            restored_guest.id,
+            &restored_account,
+            &hash_token("restore-recovery"),
+            &hash_token("restore-token"),
+        )
+        .await
+        .unwrap();
+    let restored_session = store
+        .session_by_token_hash(&hash_token("restore-token"))
+        .await
+        .unwrap()
+        .unwrap();
+    let mut restored_active_room = GameRoom::new(
+        Uuid::new_v4().simple().to_string()[..6].to_ascii_uppercase(),
+        "Restored active privacy room".to_string(),
+        RoomVisibility::Private,
+        &restored_session,
+    )
+    .unwrap();
+    store.save_room(&mut restored_active_room).await.unwrap();
+    let restored_request_id = Uuid::new_v4();
+    let restored_ledger = PrivacyDeletionLedger {
+        format_version: 1,
+        generated_at: Utc::now(),
+        tombstones: vec![PrivacyDeletionTombstone {
+            account_id: restored_account.id,
+            request_id: restored_request_id,
+            subject_fingerprint: hash_token("restored-delete-subject"),
+            deleted_at: Utc::now(),
+        }],
+    };
+    let restored_application =
+        PostgresRedisStore::apply_deletion_ledger(&database_url, restored_ledger)
+            .await
+            .unwrap();
+    assert_eq!(restored_application.applied, 1);
+    assert_eq!(restored_application.remaining_personal_records, 0);
+    let restored_room = store
+        .room_by_id_authoritative(restored_active_room.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(restored_room.status, RoomStatus::Cancelled);
+    assert_eq!(restored_room.players[0].nickname, "Deleted Commander");
+
+    let deletion_ledger = PostgresRedisStore::export_deletion_ledger(&database_url)
+        .await
+        .unwrap();
+    assert!(
+        deletion_ledger
+            .tombstones
+            .iter()
+            .any(|tombstone| tombstone.account_id == account.id)
+    );
+    let reapplied = PostgresRedisStore::apply_deletion_ledger(&database_url, deletion_ledger)
+        .await
+        .unwrap();
+    assert!(reapplied.already_absent >= 2);
+    assert_eq!(reapplied.remaining_personal_records, 0);
     let verification = PostgresRedisStore::verify_database(&database_url)
         .await
         .unwrap();
-    assert!(verification.migrations_applied >= 11);
+    assert!(verification.migrations_applied >= 12);
+    assert!(verification.deletion_tombstones >= 1);
 }
 
 #[tokio::test]

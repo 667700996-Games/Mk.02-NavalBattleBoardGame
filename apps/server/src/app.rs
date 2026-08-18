@@ -58,8 +58,8 @@ use crate::{
     protocol::{CreateRoomInput, ProtocolError, ServerEvent},
     rate_limit::FixedWindowRateLimiter,
     store::{
-        AccountDeletionStats, GameHistoryItem, GameStore, MatchmakingQueueStats, MemoryStore,
-        MissionReward, PostgresRedisStore,
+        AccountDeletionScope, AccountDeletionStats, GameHistoryItem, GameStore,
+        MatchmakingQueueStats, MemoryStore, MissionReward, PostgresRedisStore,
     },
     ws,
 };
@@ -986,6 +986,7 @@ impl AppState {
                 &subject_fingerprint,
                 &known_room_ids,
                 deleted_at,
+                AccountDeletionScope::LiveRequest,
             )
             .await?;
         for room_id in known_room_ids {

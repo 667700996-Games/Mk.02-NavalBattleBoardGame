@@ -18,7 +18,10 @@ use crate::{
 };
 
 pub use memory::MemoryStore;
-pub use postgres::{DatabaseVerification, PostgresRedisStore};
+pub use postgres::{
+    DatabaseVerification, DeletionLedgerApplyReport, PostgresRedisStore, PrivacyDeletionLedger,
+    PrivacyDeletionTombstone,
+};
 
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -65,6 +68,12 @@ pub struct AccountDeletionStats {
     pub reports_deleted: u64,
     pub integrity_signals_deleted: u64,
     pub rooms_anonymized: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AccountDeletionScope {
+    LiveRequest,
+    RestoredBackup,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
@@ -131,6 +140,7 @@ pub trait GameStore: Send + Sync {
         subject_fingerprint: &str,
         known_room_ids: &[Uuid],
         deleted_at: DateTime<Utc>,
+        scope: AccountDeletionScope,
     ) -> Result<AccountDeletionStats, GameError>;
     async fn mission_rewards(&self, account_id: Uuid) -> Result<Vec<MissionReward>, GameError>;
     async fn claim_mission_reward(

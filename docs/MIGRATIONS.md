@@ -31,4 +31,7 @@ a new forward migration.
 `mk01-server --migrate-only` applies embedded SQLx migrations without starting HTTP or Redis.
 `mk01-server --verify-restore` decodes every room snapshot, compares embedded and relational
 persistence revisions, checks migration status and orphan invariants, and emits a JSON count report.
-These commands are used by the automated encrypted restore drill.
+It also fails if a deletion tombstone has any surviving account, session, reward, participant, or
+result identity. `--export-deletion-ledger` and `--apply-deletion-ledger <file>` provide the
+encrypted restore workflow with idempotent backup-deletion replay. These commands are used by the
+automated encrypted restore drill.

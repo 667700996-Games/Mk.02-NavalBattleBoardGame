@@ -92,17 +92,23 @@ Production PostgreSQL backups must be encrypted, automated, and retained under t
 policy. The initial production objectives are **RPO ≤ 12 hours** and **RTO ≤ 15 minutes**. Provider
 continuous recovery/PITR is the primary control; `scripts/backup-postgres.sh` produces a portable
 GPG AES-256 encrypted custom-format backup and checksum as the independent recovery path.
-`scripts/restore-postgres-drill.sh` refuses non-isolated database names, rejects stale or corrupt
-backups, applies forward migrations, verifies relational/snapshot invariants, and writes timestamped
-JSON evidence. CI exercises that path on every accepted change with stricter five-minute RPO and
-two-minute RTO fixture gates. At least quarterly in production-like staging:
+`scripts/export-deletion-ledger.sh` produces a separately encrypted, checksum-protected current
+deletion ledger. `scripts/restore-postgres-drill.sh` refuses non-isolated database names, rejects
+backups older than the RPO or deletion ledgers older than one hour by default, rejects corruption,
+applies forward migrations and every deletion tombstone, verifies
+relational/snapshot/privacy invariants, and writes timestamped JSON evidence. CI backs up a fixture
+before account deletion and proves that ledger replay removes the resurrected account/session, with
+stricter five-minute RPO and two-minute RTO fixture gates. At least quarterly in production-like
+staging:
 
 1. restore the latest full backup and point-in-time logs into an isolated staging database;
 2. run migrations with the release artifact;
-3. verify session counts, active-room revisions, game-result counts, and matchmaking invariants;
-4. recover sampled games through the public API and complete one restored active game;
-5. record recovery point and recovery time against the approved RPO/RTO;
-6. destroy the isolated copy using the provider's audited deletion workflow.
+3. supply the latest independently stored deletion ledger and require zero remaining personal
+   records for every tombstone;
+4. verify session counts, active-room revisions, game-result counts, and matchmaking invariants;
+5. recover sampled games through the public API and complete one restored active game;
+6. record recovery point and recovery time against the approved RPO/RTO;
+7. destroy the isolated copy using the provider's audited deletion workflow.
 
 Never restore production tokens into an internet-accessible environment. Staging access must be
 restricted and token hashes should be invalidated or replaced when the drill does not require them.

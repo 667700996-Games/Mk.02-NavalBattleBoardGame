@@ -15,7 +15,8 @@ documented, and no longer than the values below without a legal basis.
 | Closed moderation cases | 365 days after closure | Reports and their action audit rows are removed together. Open/reviewing cases are retained until resolved; legal holds require a separately audited export before closure. |
 | Integrity telemetry | 180 days after last observation | Deduplicated anti-cheat signals and evidence are removed by the same hourly worker. Aggregated counters contain no player identity. |
 | Privacy request audit | Operational audit lifetime | Only a random request ID, one-way subject fingerprint, request type, status, and timestamps survive deletion; credentials and account IDs are never written. |
-| Encrypted backups | 35 days | Provider lifecycle rules delete expired backup objects; a user deletion becomes absent when the last protected backup expires. |
+| Privacy deletion tombstones | Backup lifetime + 7 days (42 days minimum) | A random account UUID, request ID, one-way subject fingerprint and deletion time are kept in a separately encrypted deletion ledger solely to prevent resurrection from an older backup. Ledger-object lifecycle deletion is audited after every possibly older backup has expired. |
+| Encrypted backups | 35 days | Provider lifecycle rules delete expired backup objects. Every restore reapplies the latest independent deletion ledger before verification or traffic. |
 
 `SESSION_TTL_SECONDS`, `MATCHMAKING_ENTRY_TTL_SECONDS`,
 `COMPLETED_ROOM_RETENTION_SECONDS`, `RETENTION_SWEEP_INTERVAL_SECONDS`,
@@ -52,11 +53,15 @@ transaction then:
   names in completed records with unlinkable placeholders while preserving aggregate match
   correctness;
 - evicts every affected Redis and application room cache and closes all device connections; and
-- records only the non-identifying privacy request audit described above.
+- records the non-identifying privacy request audit plus the minimal backup-deletion tombstone
+  described above.
 
-Deletion is intentionally not applied in-place to encrypted immutable backups. Backup objects are
-inaccessible to application traffic and expire within 35 days. A production restore may not receive
-traffic until point-in-time logs have advanced through all completed deletion transactions and a
-privacy audit comparison proves that no later deletion is missing. If that proof is unavailable,
-the restored copy is destroyed; the operator must select a newer recovery point or wait for the
-protected backup to expire.
+Deletion is not applied in-place to encrypted immutable backups. `scripts/export-deletion-ledger.sh`
+exports the current tombstones as a checksum-protected GPG AES-256 object stored independently from
+database backups. `scripts/restore-postgres-drill.sh` requires that ledger, verifies and decrypts it,
+rejects a ledger older than the configured freshness gate (one hour by default), replays every
+deletion against the isolated restored database, and rejects the restore if any
+tombstoned account, session, reward, participant identity, or result identity remains. The replay is
+idempotent and writes its counts into restore evidence. A restored copy may not receive traffic if
+the current ledger is missing, stale, corrupt, or cannot be fully applied; it must be destroyed and
+recovered from a valid backup/ledger pair.

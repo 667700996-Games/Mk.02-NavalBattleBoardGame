@@ -57,6 +57,52 @@ async fn main() {
         );
         return;
     }
+    if arguments
+        .iter()
+        .any(|argument| argument == "--export-deletion-ledger")
+    {
+        require_postgres(&settings);
+        let ledger = PostgresRedisStore::export_deletion_ledger(&settings.database_url)
+            .await
+            .unwrap_or_else(|error| {
+                tracing::error!(%error, "deletion ledger export failed");
+                std::process::exit(1);
+            });
+        println!(
+            "{}",
+            serde_json::to_string(&ledger).expect("deletion ledger must serialize")
+        );
+        return;
+    }
+    if let Some(index) = arguments
+        .iter()
+        .position(|argument| argument == "--apply-deletion-ledger")
+    {
+        require_postgres(&settings);
+        let Some(path) = arguments.get(index + 1) else {
+            eprintln!("--apply-deletion-ledger requires a JSON file path");
+            std::process::exit(2);
+        };
+        let contents = tokio::fs::read(path).await.unwrap_or_else(|error| {
+            tracing::error!(%error, %path, "deletion ledger file read failed");
+            std::process::exit(1);
+        });
+        let ledger = serde_json::from_slice(&contents).unwrap_or_else(|error| {
+            tracing::error!(%error, %path, "deletion ledger JSON is invalid");
+            std::process::exit(1);
+        });
+        let report = PostgresRedisStore::apply_deletion_ledger(&settings.database_url, ledger)
+            .await
+            .unwrap_or_else(|error| {
+                tracing::error!(%error, "deletion ledger application failed");
+                std::process::exit(1);
+            });
+        println!(
+            "{}",
+            serde_json::to_string(&report).expect("deletion ledger report must serialize")
+        );
+        return;
+    }
     let state = AppState::new(settings.clone())
         .await
         .unwrap_or_else(|error| {
