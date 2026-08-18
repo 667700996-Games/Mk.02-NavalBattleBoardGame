@@ -1,6 +1,6 @@
 <script lang="ts">
   import { resolve } from '$app/paths';
-  import { ArrowRight, History, Radio, ShieldCheck, X } from '@lucide/svelte';
+  import { ArrowRight, History, Radio, ShieldCheck, Users, X } from '@lucide/svelte';
   import type {
     AiDifficulty,
     MatchmakingPool,
@@ -153,13 +153,16 @@
       </div>
       <div class="practice-options" aria-label={$t('dashboard.aiDifficulty')}>
         <button disabled={practicing} onclick={() => startPractice('RECRUIT')}
-          ><span>{$t('dashboard.recruit')}</span><small>{$t('dashboard.recruit')}</small></button
+          ><span>{$t('dashboard.recruit')}</span><small>{$t('dashboard.recruitCode')}</small
+          ></button
         >
         <button disabled={practicing} onclick={() => startPractice('OFFICER')}
-          ><span>{$t('dashboard.officer')}</span><small>{$t('dashboard.officer')}</small></button
+          ><span>{$t('dashboard.officer')}</span><small>{$t('dashboard.officerCode')}</small
+          ></button
         >
         <button disabled={practicing} onclick={() => startPractice('ADMIRAL')}
-          ><span>{$t('dashboard.admiral')}</span><small>{$t('dashboard.admiral')}</small></button
+          ><span>{$t('dashboard.admiral')}</span><small>{$t('dashboard.admiralCode')}</small
+          ></button
         >
       </div>
     </Surface>
@@ -180,6 +183,16 @@
           <small>{$t('dashboard.operationArchive')}</small><strong>{$t('dashboard.history')}</strong
           >
           <p>{$t('dashboard.historyDescription')}</p>
+        </div>
+        <ArrowRight size={16} />
+      </a>
+    </Surface>
+    <Surface tone="interactive" padding="md">
+      <a class="dashboard-action" href={resolve('/social')}>
+        <span><Users size={19} /></span>
+        <div>
+          <small>{$t('dashboard.commandNetwork')}</small><strong>{$t('dashboard.social')}</strong>
+          <p>{$t('dashboard.socialDescription')}</p>
         </div>
         <ArrowRight size={16} />
       </a>

@@ -7,6 +7,7 @@ const webOrigin = `http://127.0.0.1:${webPort}`;
 
 export default defineConfig({
   testDir: './e2e',
+  testIgnore: 'visual-regression.spec.ts',
   timeout: 120_000,
   fullyParallel: false,
   workers: 1,

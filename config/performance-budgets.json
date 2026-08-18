@@ -3,22 +3,23 @@
     "javascript": {
       "extensions": [".js"],
       "perFileBytes": 100000,
-      "totalBytes": 392000
+      "totalBytes": 435000
     },
     "css": {
       "extensions": [".css"],
       "perFileBytes": 90000,
-      "totalBytes": 205000
+      "totalBytes": 255000
     },
     "fonts": {
       "extensions": [".woff2"],
       "perFileBytes": 550000,
-      "totalBytes": 1200000
+      "totalBytes": 1200000,
+      "requiredGlyphPayloadBytes": 570000
     },
     "images": {
       "extensions": [".png", ".jpg", ".jpeg", ".webp", ".avif"],
       "perFileBytes": 1100000,
-      "totalBytes": 2200000
+      "totalBytes": 2250000
     },
     "audio": {
       "extensions": [".ogg", ".mp3", ".m4a", ".wav"],
@@ -28,8 +29,8 @@
   },
   "localeBundles": {
     "required": ["locale-ko-KR", "locale-en-US"],
-    "perFileBytes": 65000,
-    "totalBytes": 125000
+    "perFileBytes": 70000,
+    "totalBytes": 135000
   },
   "routeEntries": {
     "/admin/moderation": {
@@ -51,6 +52,10 @@
     "/spectate/[roomId]": {
       "javascriptBytes": 8500,
       "cssBytes": 3800
+    },
+    "/social": {
+      "javascriptBytes": 15500,
+      "cssBytes": 9000
     }
   },
   "tiers": {
@@ -60,7 +65,7 @@
       "isMobile": false,
       "hasTouch": false,
       "cpuThrottlingRate": 1,
-      "javascriptBytes": 320000,
+      "javascriptBytes": 370000,
       "cssBytes": 185000,
       "fontBytes": 500000,
       "imageBytes": 1200000,
@@ -77,7 +82,7 @@
       "isMobile": true,
       "hasTouch": true,
       "cpuThrottlingRate": 3,
-      "javascriptBytes": 320000,
+      "javascriptBytes": 370000,
       "cssBytes": 185000,
       "fontBytes": 500000,
       "imageBytes": 1200000,
@@ -94,7 +99,7 @@
       "isMobile": true,
       "hasTouch": true,
       "cpuThrottlingRate": 6,
-      "javascriptBytes": 320000,
+      "javascriptBytes": 370000,
       "cssBytes": 185000,
       "fontBytes": 500000,
       "imageBytes": 1200000,

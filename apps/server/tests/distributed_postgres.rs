@@ -1365,6 +1365,15 @@ async fn postgres_account_export_and_deletion_cover_migrations_and_anonymized_ro
     let direct_action_report_id = Uuid::new_v4();
     let direct_action_id = Uuid::new_v4();
     let relationship_target = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO player_accounts (id,handle,recovery_key_hash,created_at) VALUES ($1,'PrivacyPeer',$2,$3)",
+    )
+    .bind(relationship_target)
+    .bind(hash_token("privacy-peer-recovery"))
+    .bind(Utc::now())
+    .execute(&audit_pool)
+    .await
+    .unwrap();
     sqlx::query("INSERT INTO progression_reward_ledger (id,account_id,source_kind,source_id,period_key,xp) VALUES ($1,$2,'MISSION','PRIVACY_DAILY','2026-08-18',100)")
         .bind(Uuid::new_v4())
         .bind(account.id)
@@ -1399,6 +1408,12 @@ async fn postgres_account_export_and_deletion_cover_migrations_and_anonymized_ro
         .await
         .unwrap();
     sqlx::query("INSERT INTO player_relationships (actor_identity_id,target_identity_id,target_nickname,muted,blocked) VALUES ($1,$2,'Privacy Peer',true,false)")
+        .bind(account.id)
+        .bind(relationship_target)
+        .execute(&audit_pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO player_social_links (actor_account_id,target_account_id,target_handle,friend_state) VALUES ($1,$2,'PrivacyPeer','FRIEND')")
         .bind(account.id)
         .bind(relationship_target)
         .execute(&audit_pool)
@@ -1492,6 +1507,7 @@ async fn postgres_account_export_and_deletion_cover_migrations_and_anonymized_ro
         1
     );
     assert_eq!(archive["socialRelationships"].as_array().unwrap().len(), 1);
+    assert_eq!(archive["socialLinks"].as_array().unwrap().len(), 1);
     assert_eq!(archive["moderationReports"].as_array().unwrap().len(), 1);
     assert_eq!(archive["moderationActions"].as_array().unwrap().len(), 1);
     assert_eq!(archive["integritySignals"].as_array().unwrap().len(), 1);
@@ -1513,7 +1529,7 @@ async fn postgres_account_export_and_deletion_cover_migrations_and_anonymized_ro
         .unwrap();
     assert_eq!(stats.sessions_deleted, 0);
     assert_eq!(stats.rewards_deleted, 2);
-    assert_eq!(stats.relationships_deleted, 1);
+    assert_eq!(stats.relationships_deleted, 2);
     assert_eq!(stats.reports_deleted, 1);
     assert_eq!(stats.integrity_signals_deleted, 1);
     assert_eq!(stats.rooms_anonymized, 1);
@@ -1573,7 +1589,7 @@ async fn postgres_account_export_and_deletion_cover_migrations_and_anonymized_ro
     assert_ne!(participant_identity.0, account_session.id);
     assert_eq!(participant_identity.1, None);
     let removed_derived_records: i64 = sqlx::query_scalar(
-        "SELECT (SELECT count(*) FROM ranked_ratings WHERE account_id=$1) + (SELECT count(*) FROM ranked_season_standings WHERE account_id=$1) + (SELECT count(*) FROM ranked_reward_ledger WHERE account_id=$1) + (SELECT count(*) FROM progression_reward_ledger WHERE account_id=$1) + (SELECT count(*) FROM ranked_leaderboard_snapshot_entries WHERE account_id=$1) + (SELECT count(*) FROM player_relationships WHERE actor_identity_id=$1 OR target_identity_id=$1) + (SELECT count(*) FROM player_reports WHERE reporter_identity_id=$1 OR target_identity_id=$1) + (SELECT count(*) FROM player_moderation_actions WHERE target_identity_id=$1) + (SELECT count(*) FROM integrity_signals WHERE subject_identity_id=$1)",
+        "SELECT (SELECT count(*) FROM ranked_ratings WHERE account_id=$1) + (SELECT count(*) FROM ranked_season_standings WHERE account_id=$1) + (SELECT count(*) FROM ranked_reward_ledger WHERE account_id=$1) + (SELECT count(*) FROM progression_reward_ledger WHERE account_id=$1) + (SELECT count(*) FROM ranked_leaderboard_snapshot_entries WHERE account_id=$1) + (SELECT count(*) FROM player_relationships WHERE actor_identity_id=$1 OR target_identity_id=$1) + (SELECT count(*) FROM player_social_links WHERE actor_account_id=$1 OR target_account_id=$1) + (SELECT count(*) FROM player_reports WHERE reporter_identity_id=$1 OR target_identity_id=$1) + (SELECT count(*) FROM player_moderation_actions WHERE target_identity_id=$1) + (SELECT count(*) FROM integrity_signals WHERE subject_identity_id=$1)",
     )
     .bind(account.id)
     .fetch_one(&audit_pool)

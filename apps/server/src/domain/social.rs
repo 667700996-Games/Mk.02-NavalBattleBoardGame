@@ -9,7 +9,192 @@ pub struct SocialRelationship {
     pub target_nickname: String,
     pub muted: bool,
     pub blocked: bool,
+    #[serde(default)]
+    pub friend_state: SocialFriendState,
+    #[serde(default)]
+    pub friend_request_id: Option<Uuid>,
+    #[serde(default)]
+    pub party_state: SocialPartyState,
+    #[serde(default)]
+    pub party_id: Option<Uuid>,
+    #[serde(default)]
+    pub game_invite: Option<DirectGameInvite>,
+    #[serde(default)]
+    pub presence: SocialPresence,
+    #[serde(default)]
+    pub current_room_id: Option<Uuid>,
     pub updated_at: DateTime<Utc>,
+}
+
+impl SocialRelationship {
+    pub fn new(target_identity_id: Uuid, target_nickname: String, now: DateTime<Utc>) -> Self {
+        Self {
+            target_identity_id,
+            target_nickname,
+            muted: false,
+            blocked: false,
+            friend_state: SocialFriendState::None,
+            friend_request_id: None,
+            party_state: SocialPartyState::None,
+            party_id: None,
+            game_invite: None,
+            presence: SocialPresence::Offline,
+            current_room_id: None,
+            updated_at: now,
+        }
+    }
+
+    pub fn has_effect(&self) -> bool {
+        self.muted
+            || self.blocked
+            || self.friend_state != SocialFriendState::None
+            || self.party_state != SocialPartyState::None
+            || self.game_invite.is_some()
+    }
+
+    pub fn clear_social_state(&mut self) {
+        self.friend_state = SocialFriendState::None;
+        self.friend_request_id = None;
+        self.party_state = SocialPartyState::None;
+        self.party_id = None;
+        self.game_invite = None;
+        self.presence = SocialPresence::Offline;
+        self.current_room_id = None;
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum SocialFriendState {
+    #[default]
+    None,
+    Outgoing,
+    Incoming,
+    Friend,
+}
+
+impl SocialFriendState {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::None => "NONE",
+            Self::Outgoing => "OUTGOING",
+            Self::Incoming => "INCOMING",
+            Self::Friend => "FRIEND",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "NONE" => Some(Self::None),
+            "OUTGOING" => Some(Self::Outgoing),
+            "INCOMING" => Some(Self::Incoming),
+            "FRIEND" => Some(Self::Friend),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum SocialPartyState {
+    #[default]
+    None,
+    OutgoingInvite,
+    IncomingInvite,
+    Owner,
+    Member,
+}
+
+impl SocialPartyState {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::None => "NONE",
+            Self::OutgoingInvite => "OUTGOING_INVITE",
+            Self::IncomingInvite => "INCOMING_INVITE",
+            Self::Owner => "OWNER",
+            Self::Member => "MEMBER",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "NONE" => Some(Self::None),
+            "OUTGOING_INVITE" => Some(Self::OutgoingInvite),
+            "INCOMING_INVITE" => Some(Self::IncomingInvite),
+            "OWNER" => Some(Self::Owner),
+            "MEMBER" => Some(Self::Member),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum SocialPresence {
+    #[default]
+    Offline,
+    Online,
+    InGame,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum SocialInviteDirection {
+    Outgoing,
+    Incoming,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct DirectGameInvite {
+    pub id: Uuid,
+    pub direction: SocialInviteDirection,
+    pub room_id: Uuid,
+    pub room_code: String,
+    pub room_name: String,
+    pub expires_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SocialPrivacy {
+    pub allow_friend_requests: bool,
+    pub show_presence: bool,
+    pub allow_game_invites: bool,
+    pub updated_at: DateTime<Utc>,
+}
+
+impl SocialPrivacy {
+    pub fn open(now: DateTime<Utc>) -> Self {
+        Self {
+            allow_friend_requests: true,
+            show_presence: true,
+            allow_game_invites: true,
+            updated_at: now,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct RecentPlayer {
+    pub account_id: Uuid,
+    pub handle: String,
+    pub last_played_at: DateTime<Utc>,
+    #[serde(default)]
+    pub friend: bool,
+    #[serde(default)]
+    pub muted: bool,
+    #[serde(default)]
+    pub blocked: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SocialOverview {
+    pub privacy: SocialPrivacy,
+    pub relationships: Vec<SocialRelationship>,
+    pub recent_players: Vec<RecentPlayer>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]

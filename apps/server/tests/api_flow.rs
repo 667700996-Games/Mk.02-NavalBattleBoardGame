@@ -140,6 +140,22 @@ async fn upgrade_account(app: &Router, guest_cookie: &str, handle: &str) -> (Str
     (cookie, body)
 }
 
+async fn social_action(app: &Router, cookie: &str, action: Value) -> (StatusCode, Value) {
+    let response = send(
+        app,
+        Request::builder()
+            .method("POST")
+            .uri("/api/social/actions")
+            .header(header::CONTENT_TYPE, "application/json")
+            .header(header::COOKIE, cookie)
+            .body(Body::from(action.to_string()))
+            .unwrap(),
+    )
+    .await;
+    let status = response.status();
+    (status, json_body(response).await)
+}
+
 fn fleet(first_row: u8) -> Vec<ShipPlacement> {
     [
         (ShipKind::Carrier, 0_u8),
@@ -1911,6 +1927,230 @@ async fn delayed_spectating_lists_public_battles_and_never_serializes_hidden_sta
             "spectator API leaked {hidden_field}"
         );
     }
+}
+
+#[tokio::test]
+async fn account_social_graph_supports_privacy_friends_parties_presence_and_direct_invites() {
+    let app = test_app();
+    let (guest_cookie, _) = create_session(&app, "Social Guest").await;
+    let guest_overview = send(
+        &app,
+        Request::builder()
+            .uri("/api/social/overview")
+            .header(header::COOKIE, &guest_cookie)
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(guest_overview.status(), StatusCode::FORBIDDEN);
+    assert_eq!(
+        json_body(guest_overview).await["code"],
+        "SOCIAL_ACCOUNT_REQUIRED"
+    );
+
+    let (alpha_guest, _) = create_session(&app, "Alpha Guest").await;
+    let (bravo_guest, _) = create_session(&app, "Bravo Guest").await;
+    let (alpha_cookie, alpha_upgrade) = upgrade_account(&app, &alpha_guest, "Social Alpha").await;
+    let (bravo_cookie, bravo_upgrade) = upgrade_account(&app, &bravo_guest, "Social Bravo").await;
+    let alpha_id = alpha_upgrade["account"]["id"].as_str().unwrap();
+    let bravo_id = bravo_upgrade["account"]["id"].as_str().unwrap();
+
+    let privacy_response = send(
+        &app,
+        Request::builder()
+            .method("PUT")
+            .uri("/api/social/privacy")
+            .header(header::CONTENT_TYPE, "application/json")
+            .header(header::COOKIE, &bravo_cookie)
+            .body(Body::from(
+                json!({
+                    "allowFriendRequests": false,
+                    "showPresence": true,
+                    "allowGameInvites": true
+                })
+                .to_string(),
+            ))
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(privacy_response.status(), StatusCode::OK);
+    assert_eq!(
+        json_body(privacy_response).await["privacy"]["allowFriendRequests"],
+        false
+    );
+
+    let (status, rejected) = social_action(
+        &app,
+        &alpha_cookie,
+        json!({ "action": "FRIEND_REQUEST", "targetHandle": "Social Bravo" }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(rejected["code"], "INVALID_STATE");
+
+    let enable_requests = send(
+        &app,
+        Request::builder()
+            .method("PUT")
+            .uri("/api/social/privacy")
+            .header(header::CONTENT_TYPE, "application/json")
+            .header(header::COOKIE, &bravo_cookie)
+            .body(Body::from(
+                json!({
+                    "allowFriendRequests": true,
+                    "showPresence": true,
+                    "allowGameInvites": true
+                })
+                .to_string(),
+            ))
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(enable_requests.status(), StatusCode::OK);
+
+    let (status, requested) = social_action(
+        &app,
+        &alpha_cookie,
+        json!({ "action": "FRIEND_REQUEST", "targetHandle": "Social Bravo" }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        requested["overview"]["relationships"][0]["friendState"],
+        "OUTGOING"
+    );
+
+    let bravo_overview = json_body(
+        send(
+            &app,
+            Request::builder()
+                .uri("/api/social/overview")
+                .header(header::COOKIE, &bravo_cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await,
+    )
+    .await;
+    let request_id = bravo_overview["relationships"][0]["friendRequestId"]
+        .as_str()
+        .unwrap();
+    assert_eq!(
+        bravo_overview["relationships"][0]["friendState"],
+        "INCOMING"
+    );
+
+    let (status, accepted) = social_action(
+        &app,
+        &bravo_cookie,
+        json!({
+            "action": "FRIEND_RESPOND",
+            "targetAccountId": alpha_id,
+            "requestId": request_id,
+            "accept": true
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        accepted["overview"]["relationships"][0]["friendState"],
+        "FRIEND"
+    );
+    assert_eq!(
+        accepted["overview"]["relationships"][0]["presence"],
+        "ONLINE"
+    );
+
+    let (status, party_invited) = social_action(
+        &app,
+        &alpha_cookie,
+        json!({ "action": "PARTY_INVITE", "targetAccountId": bravo_id }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let party_id = party_invited["overview"]["relationships"][0]["partyId"]
+        .as_str()
+        .unwrap();
+    let (status, party_accepted) = social_action(
+        &app,
+        &bravo_cookie,
+        json!({
+            "action": "PARTY_RESPOND",
+            "targetAccountId": alpha_id,
+            "partyId": party_id,
+            "accept": true
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        party_accepted["overview"]["relationships"][0]["partyState"],
+        "MEMBER"
+    );
+
+    let created_response = send(
+        &app,
+        Request::builder()
+            .method("POST")
+            .uri("/api/rooms")
+            .header(header::CONTENT_TYPE, "application/json")
+            .header(header::COOKIE, &alpha_cookie)
+            .body(Body::from(
+                json!({ "name": "Friend operation", "visibility": "PRIVATE" }).to_string(),
+            ))
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(created_response.status(), StatusCode::CREATED);
+    let created = json_body(created_response).await;
+    let room_id = created["snapshot"]["room"]["id"].as_str().unwrap();
+    let room_code = created["snapshot"]["room"]["code"].as_str().unwrap();
+
+    let (status, invited) = social_action(
+        &app,
+        &alpha_cookie,
+        json!({
+            "action": "GAME_INVITE",
+            "targetAccountId": bravo_id,
+            "roomId": room_id
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        invited["overview"]["relationships"][0]["gameInvite"]["direction"],
+        "OUTGOING"
+    );
+
+    let bravo_overview = json_body(
+        send(
+            &app,
+            Request::builder()
+                .uri("/api/social/overview")
+                .header(header::COOKIE, &bravo_cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await,
+    )
+    .await;
+    let invite_id = bravo_overview["relationships"][0]["gameInvite"]["id"]
+        .as_str()
+        .unwrap();
+    let (status, game_accepted) = social_action(
+        &app,
+        &bravo_cookie,
+        json!({
+            "action": "GAME_INVITE_RESPOND",
+            "targetAccountId": alpha_id,
+            "inviteId": invite_id,
+            "accept": true
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(game_accepted["joinCode"], room_code);
+    assert!(game_accepted["overview"]["relationships"][0]["gameInvite"].is_null());
 }
 
 #[tokio::test]

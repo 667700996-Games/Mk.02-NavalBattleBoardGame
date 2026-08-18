@@ -121,7 +121,7 @@
             <Button
               variant="secondary"
               full
-              onclick={() => joinRoom(room.code)}
+              onclick={joinRoom.bind(null, room.code)}
               disabled={submitting}>{$t('lobbyRooms.join')} <ArrowRight size={15} /></Button
             >
           </article>

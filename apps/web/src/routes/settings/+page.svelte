@@ -14,13 +14,13 @@
     Palette,
     ShieldCheck,
     Trash2,
-    UserRound,
-    Volume2
+    UserRound
   } from '@lucide/svelte';
   import { api } from '$lib/api';
+  import AudioSettings from '$lib/components/settings/AudioSettings.svelte';
+  import PresentationSettings from '$lib/components/settings/PresentationSettings.svelte';
   import { realtime } from '$lib/realtime';
   import { gameSnapshot, preferences, session, type ColorVisionMode } from '$lib/stores';
-  import { sounds } from '$lib/sound';
   import { formatDateTime, localizeError, t } from '$lib/i18n';
   import type { AccountSession } from '$lib/types';
 
@@ -179,22 +179,8 @@
       </dl>
     </aside>
     <div class="settings-main">
+      <AudioSettings />
       <section class="settings-panel panel">
-        <div class="setting-row">
-          <span class="setting-icon"><Volume2 size={20} /></span>
-          <div>
-            <strong>{$t('settings.sound')}</strong>
-            <p>{$t('settings.soundDescription')}</p>
-          </div>
-          <label class="switch"
-            ><input
-              type="checkbox"
-              aria-label={$t('settings.sound')}
-              bind:checked={$preferences.sound}
-              onchange={() => $preferences.sound && sounds.select()}
-            /><span></span><em>{$preferences.sound ? $t('common.on') : $t('common.off')}</em></label
-          >
-        </div>
         <div class="setting-row">
           <span class="setting-icon"><Gauge size={20} /></span>
           <div>
@@ -242,6 +228,7 @@
           </label>
         </div>
       </section>
+      <PresentationSettings />
       <aside class="security-note">
         <ShieldCheck size={18} />
         <div>

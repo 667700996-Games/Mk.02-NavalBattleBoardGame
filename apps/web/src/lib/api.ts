@@ -25,6 +25,9 @@ import type {
   RoomSummary,
   RoomVisibility,
   Session,
+  SocialAction,
+  SocialActionResponse,
+  SocialOverview,
   SocialRelationship,
   SpectatorSnapshot,
   SupportAccountSnapshot
@@ -171,6 +174,21 @@ export const api = {
     }),
   socialRelationships: () =>
     request<{ relationships: SocialRelationship[] }>('/social/relationships'),
+  socialOverview: () => request<SocialOverview>('/social/overview'),
+  setSocialPrivacy: (privacy: {
+    allowFriendRequests: boolean;
+    showPresence: boolean;
+    allowGameInvites: boolean;
+  }) =>
+    request<SocialOverview>('/social/privacy', {
+      method: 'PUT',
+      body: JSON.stringify(privacy)
+    }),
+  applySocialAction: (action: SocialAction) =>
+    request<SocialActionResponse>('/social/actions', {
+      method: 'POST',
+      body: JSON.stringify(action)
+    }),
   updateSocialRelationship: (
     roomId: string,
     targetPlayerId: string,

@@ -341,9 +341,8 @@
   .board-wrap::after {
     inset: 12% 12% -4%;
     border-radius: 50%;
-    background: rgba(25, 200, 218, 0.14);
-    filter: blur(38px);
-    opacity: 0.26;
+    background: radial-gradient(ellipse, rgba(25, 200, 218, 0.16), transparent 72%);
+    opacity: 0.22;
   }
   .board-wrap__bezel {
     position: absolute;
@@ -361,6 +360,10 @@
     opacity: 0.36;
   }
   .board-grid {
+    --water-glow: rgba(34, 180, 190, 0.18);
+    --water-line: rgba(34, 101, 119, 0.08);
+    --water-tint-a: rgba(4, 35, 48, 0.72);
+    --water-tint-b: rgba(1, 16, 26, 0.84);
     position: relative;
     display: grid;
     grid-template-columns: 28px repeat(var(--board-size), 1fr);
@@ -372,14 +375,17 @@
     overflow: hidden;
     border-radius: 8px 3px 8px 3px;
     background:
-      radial-gradient(circle at 28% 16%, rgba(34, 180, 190, 0.12), transparent 30%),
-      repeating-linear-gradient(120deg, rgba(34, 101, 119, 0.06) 0 1px, transparent 1px 7px),
-      linear-gradient(135deg, rgba(4, 35, 48, 0.99), rgba(1, 16, 26, 0.99));
+      radial-gradient(circle at 28% 16%, var(--water-glow), transparent 30%),
+      repeating-linear-gradient(120deg, var(--water-line) 0 1px, transparent 1px 7px),
+      linear-gradient(135deg, var(--water-tint-a), var(--water-tint-b)),
+      url('/art/ocean-command-surface-v1.webp') center / cover;
+    background-blend-mode: screen, screen, multiply, normal;
     box-shadow:
       inset 0 0 45px rgba(30, 166, 190, 0.055),
       0 18px 48px rgba(0, 0, 0, 0.2);
     user-select: none;
     touch-action: manipulation;
+    contain: layout paint;
   }
 
   .board-hover-readout {
@@ -451,7 +457,7 @@
     color: white;
     background:
       radial-gradient(circle at 30% 24%, rgba(124, 228, 232, 0.04), transparent 42%),
-      linear-gradient(145deg, rgba(8, 55, 68, 0.54), rgba(4, 31, 45, 0.7));
+      linear-gradient(145deg, rgba(8, 55, 68, 0.39), rgba(4, 31, 45, 0.56));
     cursor: default;
     transition:
       background 0.12s ease,
@@ -525,7 +531,8 @@
   }
   .cell--selected::before {
     border-color: rgba(255, 190, 77, 0.8);
-    animation: target-lock 900ms var(--ease-out) infinite;
+    animation: target-lock 560ms var(--ease-out) infinite;
+    will-change: transform, opacity;
   }
   .miss-marker,
   .hit-marker {
@@ -545,7 +552,7 @@
     aspect-ratio: 1;
     border: 1px solid rgba(144, 230, 244, 0.72);
     border-radius: 50%;
-    animation: water-ring 1.8s ease-out 2 both;
+    animation: water-ring 520ms ease-out 1 both;
   }
   .hit-marker {
     color: #fff0d8;
@@ -555,7 +562,6 @@
       rgba(255, 99, 48, 0.2) 38%,
       transparent 70%
     );
-    filter: drop-shadow(0 0 5px #ff5e3b);
   }
   .hit-marker i {
     position: absolute;
@@ -567,7 +573,7 @@
       0 0 8px #fff0c2,
       0 0 16px #ff7b3e,
       0 0 24px rgba(255, 70, 33, 0.75);
-    animation: impact-core 1.7s ease-in-out 2;
+    animation: impact-core 420ms ease-out 1 both;
   }
   .hit-marker :global(svg) {
     position: relative;
@@ -576,13 +582,101 @@
   .cell--sunk {
     background: rgba(111, 23, 38, 0.4);
   }
+
+  :global(html[data-board-theme='sonar']) .board-grid {
+    --water-glow: rgba(72, 244, 236, 0.28);
+    --water-line: rgba(71, 217, 223, 0.14);
+    --water-tint-a: rgba(0, 55, 59, 0.58);
+    --water-tint-b: rgba(0, 19, 24, 0.82);
+  }
+
+  :global(html[data-board-theme='ice']) .board-grid {
+    --water-glow: rgba(197, 238, 255, 0.22);
+    --water-line: rgba(165, 209, 235, 0.13);
+    --water-tint-a: rgba(31, 66, 91, 0.62);
+    --water-tint-b: rgba(5, 25, 41, 0.84);
+  }
+
+  :global(html[data-effect-theme='plasma']) .hit-marker {
+    color: #f4e9ff;
+    background: radial-gradient(
+      circle,
+      rgba(174, 91, 255, 0.78),
+      rgba(82, 73, 242, 0.22) 40%,
+      transparent 70%
+    );
+  }
+
+  :global(html[data-effect-theme='plasma']) .hit-marker i {
+    background: #f8efff;
+    box-shadow:
+      0 0 8px #f2dbff,
+      0 0 17px #a86cff,
+      0 0 24px rgba(91, 81, 240, 0.7);
+  }
+
+  :global(html[data-effect-theme='ordnance']) .hit-marker {
+    color: #fff6d8;
+    background: radial-gradient(
+      circle,
+      rgba(255, 190, 57, 0.78),
+      rgba(186, 67, 22, 0.26) 42%,
+      transparent 72%
+    );
+  }
+
+  :global(html[data-effect-theme='ordnance']) .hit-marker i {
+    background: #fff8db;
+    box-shadow:
+      0 0 7px #fff0ae,
+      0 0 14px #ffb434,
+      0 0 22px rgba(181, 47, 20, 0.66);
+  }
+
+  :global(html[data-effect-quality='low']) .board-wrap::after {
+    opacity: 0.12;
+  }
+
+  :global(html[data-effect-quality='low']) .hit-marker,
+  :global(html[data-effect-quality='low']) .vessel-slot--selected :global(.vessel) {
+    filter: none;
+  }
+
+  :global(html[data-effect-quality='low']) .hit-marker i {
+    box-shadow: 0 0 8px currentColor;
+    animation-iteration-count: 1;
+  }
+
+  :global(html[data-effect-quality='minimal']) .board-grid {
+    background:
+      radial-gradient(circle at 28% 16%, rgba(30, 130, 151, 0.12), transparent 30%),
+      linear-gradient(135deg, #062631, #03131e);
+    background-blend-mode: normal;
+    box-shadow: none;
+  }
+
+  :global(html[data-effect-quality='minimal']) .board-wrap::after {
+    display: none;
+  }
+
+  :global(html[data-effect-quality='minimal']) .hit-marker,
+  :global(html[data-effect-quality='minimal']) .vessel-slot--selected :global(.vessel) {
+    filter: none;
+  }
+
+  :global(html[data-effect-quality='minimal']) .hit-marker i,
+  :global(html[data-effect-quality='minimal']) .miss-marker i,
+  :global(html[data-effect-quality='minimal']) .cell--selected::before {
+    animation: none;
+    box-shadow: none;
+  }
   .board-disabled {
     filter: saturate(0.72);
     opacity: 0.86;
   }
   @keyframes target-lock {
     50% {
-      inset: 20%;
+      transform: scale(0.72);
       opacity: 0.28;
     }
   }

@@ -103,9 +103,9 @@ test('color-vision presets persist and every combat state has non-color semantic
     await audit(page, `${mode} battle`);
   }
 
-  await expect(page.getByText('MISS', { exact: true })).toBeVisible();
-  await expect(page.getByText('HIT', { exact: true })).toBeVisible();
-  await expect(page.getByText('SUNK', { exact: true })).toBeVisible();
+  await expect(page.getByText('빗나감', { exact: true })).toBeVisible();
+  await expect(page.getByText('명중', { exact: true })).toBeVisible();
+  await expect(page.getByText('격침', { exact: true })).toBeVisible();
   await expect(page.getByRole('heading', { name: /공격 좌표를 지정하십시오/ })).toBeVisible({
     timeout: 15_000
   });

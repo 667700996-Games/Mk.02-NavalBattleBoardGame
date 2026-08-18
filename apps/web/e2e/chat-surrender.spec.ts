@@ -17,6 +17,7 @@ async function register(page: Page, nickname: string) {
   expect((await sessionCreated).status()).toBe(201);
   await expect(page).toHaveURL(/\/lobby$/);
   await expect(page.getByRole('heading', { name: '작전 로비' })).toBeVisible();
+  await page.waitForLoadState('networkidle');
 }
 
 async function deploy(page: Page) {
@@ -99,9 +100,9 @@ test('room chat restores after refresh and surrender ends both clients immediate
 
   await expect(first.getByRole('heading', { name: '작전 패배' })).toBeVisible();
   await expect(second.getByRole('heading', { name: '작전 승리' })).toBeVisible();
-  await expect(first.getByText('Defeat by Surrender')).toBeVisible();
-  await expect(second.getByText('Victory by Surrender')).toBeVisible();
-  await expect(second.getByText('Commander Alpha surrendered.', { exact: false })).toBeVisible();
+  await expect(first.getByText('항복 패배', { exact: true })).toBeVisible();
+  await expect(second.getByText('항복 승리', { exact: true })).toBeVisible();
+  await expect(second.getByText('적 지휘관이 작전을 포기했습니다.')).toBeVisible();
 
   await firstContext.close();
   await secondContext.close();

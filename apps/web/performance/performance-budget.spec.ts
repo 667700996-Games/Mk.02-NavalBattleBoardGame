@@ -40,6 +40,7 @@ const budgetConfig = JSON.parse(
 const tiers = budgetConfig.tiers;
 
 function resourceKind(response: Response): ResourceKind | null {
+  if (new URL(response.url()).pathname.startsWith('/audio/')) return 'audio';
   const type = response.request().resourceType();
   if (type === 'script') return 'javascript';
   if (type === 'stylesheet') return 'css';
@@ -63,15 +64,38 @@ async function metricValue(session: CDPSession, name: string): Promise<number> {
 }
 
 async function expectNoHorizontalOverflow(page: Page): Promise<void> {
-  await expect
-    .poll(() =>
-      page.evaluate(
-        () =>
-          Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) <=
-          document.documentElement.clientWidth + 1
+  try {
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) <=
+            document.documentElement.clientWidth + 1
+        )
       )
-    )
-    .toBe(true);
+      .toBe(true);
+  } catch (error) {
+    const details = await page.evaluate(() => {
+      const width = document.documentElement.clientWidth;
+      return [...document.querySelectorAll<HTMLElement>('body *')]
+        .map((element) => {
+          const rect = element.getBoundingClientRect();
+          return {
+            element: `${element.tagName.toLowerCase()}.${element.className}`,
+            left: Math.round(rect.left),
+            right: Math.round(rect.right),
+            scrollWidth: element.scrollWidth,
+            clientWidth: element.clientWidth
+          };
+        })
+        .filter(
+          (entry) =>
+            entry.right > width + 1 || entry.left < -1 || entry.scrollWidth > entry.clientWidth + 1
+        )
+        .slice(0, 20);
+    });
+    throw new Error(`Horizontal overflow sources: ${JSON.stringify(details)}`, { cause: error });
+  }
 }
 
 async function expectReadableBattleControls(page: Page): Promise<void> {
@@ -99,7 +123,9 @@ for (const [tierName, budget] of Object.entries(tiers)) {
       deviceScaleFactor: budget.deviceScaleFactor,
       isMobile: budget.isMobile,
       hasTouch: budget.hasTouch,
-      reducedMotion: 'no-preference'
+      reducedMotion: 'no-preference',
+      locale: 'ko-KR',
+      timezoneId: 'Asia/Seoul'
     };
     const context = await browser.newContext(options);
     await context.addInitScript(() => {
@@ -171,6 +197,9 @@ for (const [tierName, budget] of Object.entries(tiers)) {
     );
     await page.goto('/');
     await sessionProbe;
+    await expect(page.locator('html')).toHaveAttribute('data-hydrated', 'true', {
+      timeout: 30_000
+    });
     await sampleHeap();
     await page.locator('#nickname').fill(`Perf ${tierName}`.slice(0, 16));
     await page.getByRole('button', { name: '작전 로비 입장' }).click();

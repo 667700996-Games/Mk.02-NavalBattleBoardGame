@@ -49,16 +49,18 @@ use crate::{
     config::{Settings, StorageMode},
     domain::{
         AccountSession, AchievementProgress, ActivePenalty, AiDifficulty, AttackOutcome,
-        ChatMessage, ChatTypingEvent, Coordinate, FinishReason, GameRoom, GameTimerState,
-        IntegritySignalKind, IntegritySignalPage, LiveContentPayload, LiveContentRevision,
-        LiveContentValidation, LiveContentView, MatchmakingCriteria, MatchmakingPool,
-        MatchmakingPreferences, MatchmakingQuality, MatchmakingSearchWindow, MissionCadence,
-        MissionProgress, ModerationAction, ModerationActionKind, ModerationCasePage,
-        NewIntegritySignal, NewModerationAction, NewPlayerReport, NewSupportAction, Orientation,
-        PlayerAccount, PlayerKind, PlayerProgression, PlayerReportReceipt,
-        RANKED_LEADERBOARD_DEFAULT_LIMIT, RANKED_LEADERBOARD_FINALIZATION_HOURS,
-        RANKED_LEADERBOARD_MAX_LIMIT, RankedLeaderboardPage, RankedMatchContext, RankedProfile,
-        ReportCategory, ReportStatus, RoomVisibility, ShipKind, ShipPlacement, SocialRelationship,
+        ChatMessage, ChatTypingEvent, Coordinate, DirectGameInvite, FinishReason, GameRoom,
+        GameTimerState, IntegritySignalKind, IntegritySignalPage, LiveContentPayload,
+        LiveContentRevision, LiveContentValidation, LiveContentView, MatchmakingCriteria,
+        MatchmakingPool, MatchmakingPreferences, MatchmakingQuality, MatchmakingSearchWindow,
+        MissionCadence, MissionProgress, ModerationAction, ModerationActionKind,
+        ModerationCasePage, NewIntegritySignal, NewModerationAction, NewPlayerReport,
+        NewSupportAction, Orientation, PlayerAccount, PlayerKind, PlayerProgression,
+        PlayerReportReceipt, RANKED_LEADERBOARD_DEFAULT_LIMIT,
+        RANKED_LEADERBOARD_FINALIZATION_HOURS, RANKED_LEADERBOARD_MAX_LIMIT, RankedLeaderboardPage,
+        RankedMatchContext, RankedProfile, ReportCategory, ReportStatus, RoomStatus,
+        RoomVisibility, ShipKind, ShipPlacement, SocialFriendState, SocialInviteDirection,
+        SocialOverview, SocialPartyState, SocialPresence, SocialPrivacy, SocialRelationship,
         SupportAccountSnapshot, SupportAction, SupportActionKind, UserSession,
         baseline_live_content, ranked_season_key,
     },
@@ -114,6 +116,8 @@ mod metrics;
 mod rooms;
 mod router;
 mod safety;
+mod social;
+mod support;
 mod timers;
 
 pub use accounts::hash_token;

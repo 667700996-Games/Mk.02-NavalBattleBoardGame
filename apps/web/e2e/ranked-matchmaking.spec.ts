@@ -46,8 +46,8 @@ test('ranked queue measures RTT and sends only player-controlled preferences', a
   expect(submitted).not.toHaveProperty('partyId');
 
   await expect(page.getByRole('heading', { name: '상대 지휘관 탐색 중' })).toBeVisible();
-  await expect(page.getByText(/EXACT 범위/)).toBeVisible();
-  await expect(page.getByText('RATING 1500')).toBeVisible();
+  await expect(page.getByText(/정밀 범위/)).toBeVisible();
+  await expect(page.getByText('레이팅 1,500')).toBeVisible();
   await page.getByRole('button', { name: '매칭 취소' }).click();
   await expect(page.getByRole('heading', { name: '랭크 교전' })).toBeVisible();
 

@@ -76,7 +76,7 @@ test('ready cancellation, tactical signals, deadline recovery and timeout defeat
 
   await second.reload();
   await expect(second.getByRole('button', { name: '준비 취소' })).toBeVisible();
-  await expect(second.getByText('GUEST', { exact: true })).toBeVisible();
+  await expect(second.getByText('참가자', { exact: true })).toBeVisible();
   await second.getByRole('button', { name: '준비 취소' }).click();
   await expect(first.getByRole('button', { name: '작전 시작' })).toBeDisabled();
   await first.getByRole('button', { name: '전술 채팅 열기' }).click();
@@ -142,7 +142,7 @@ test('ready cancellation, tactical signals, deadline recovery and timeout defeat
   await expect(first.getByText('상대 공격 보드')).toBeVisible();
   await expect(second.getByText('상대 공격 보드')).toBeVisible();
   await expect(first.locator('.turn-clock strong')).toHaveText(/00:(0\d|10)/);
-  await expect(second.getByText('ELAPSED')).toBeVisible();
+  await expect(second.getByText('경과', { exact: true })).toBeVisible();
   const initialTurnPage = (await first.locator('.turn-banner--mine').isVisible()) ? first : second;
   await expect(initialTurnPage.locator('.sr-only[aria-live="assertive"]')).toHaveText(
     /턴 제한 시간 (10|5|3|2|1)초 남았습니다/,
@@ -157,7 +157,7 @@ test('ready cancellation, tactical signals, deadline recovery and timeout defeat
     .getByRole('button', { name: /나이스 샷/ })
     .click();
   await expect(second.getByText('나이스 샷', { exact: true })).toBeVisible();
-  await expect(second.getByText('QUICK COMMAND', { exact: true })).toBeVisible();
+  await expect(second.getByText('빠른 명령', { exact: true })).toBeVisible();
 
   await second.getByRole('button', { name: '이모지 선택' }).click();
   await second.getByRole('dialog').getByRole('button', { name: '🎯 이모지 전송' }).click();
@@ -184,15 +184,15 @@ test('ready cancellation, tactical signals, deadline recovery and timeout defeat
       });
       break;
     }
-    await expect(victim.getByText(`TIMEOUT ${timeout}/3`)).toBeVisible({ timeout: 15_000 });
+    await expect(victim.getByText(`시간 초과 ${timeout}/3`)).toBeVisible({ timeout: 15_000 });
     await expect(attacker.locator('.turn-banner--mine')).toBeVisible();
     await fire(attacker, timeout, 0);
     await expect(victim.locator('.turn-banner--mine')).toBeVisible();
   }
 
   await expect(attacker.getByRole('heading', { name: '작전 승리' })).toBeVisible();
-  await expect(attacker.getByText('Victory by Timeout')).toBeVisible();
-  await expect(victim.getByText('Defeat by Timeout')).toBeVisible();
+  await expect(attacker.getByText('시간 초과 승리')).toBeVisible();
+  await expect(victim.getByText('시간 초과 패배')).toBeVisible();
   await expect(victim.getByText('3회 연속 작전 시간 초과로 교전이 종료되었습니다.')).toBeVisible();
   await expect(victim.getByText('00:', { exact: false })).toBeVisible();
 

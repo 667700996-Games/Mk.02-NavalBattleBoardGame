@@ -181,7 +181,7 @@ The complete code-split artifact and the production gameplay journey share the v
 audio; `npm run test:performance` gates decoded route transfer, heap, CPU tasks, long tasks, frame
 p95, and WebSocket bytes on desktop, 3× CPU mobile, and 6× CPU low-mobile tiers. Both are
 release-blocking checks. The generated Korean subsets currently reduce the complete WOFF2 artifact
-from 1,091,828 to 483,304 bytes; `npm run fonts:check` enforces source-glyph coverage and a 450 KB
+from 1,091,828 to 633,804 bytes; `npm run fonts:check` enforces source-glyph coverage and a 570 KB
 Korean-slice cap. Baselines, measurement definitions, and budget review rules are in
 `PERFORMANCE_BUDGETS.md`.
 
@@ -300,7 +300,7 @@ non-personal leaderboard snapshot shell, with stricter five-minute RPO and two-m
 gates.
 
 The August 18, 2026 local parity drill verified both SHA-256 sidecars, decrypted the independent GPG
-AES-256 backup and deletion ledger, applied all 20 migrations, and restored into an isolated
+AES-256 backup and deletion ledger, applied all 20 migrations then present, and restored into an isolated
 database. The latest run reported zero whole seconds for backup age, ledger age, and restore time
 (each under the one-second measurement resolution) against the 300 / 300 / 120-second fixture
 gates. The restored database contained zero accounts, sessions, queue rows, rewards, ratings,

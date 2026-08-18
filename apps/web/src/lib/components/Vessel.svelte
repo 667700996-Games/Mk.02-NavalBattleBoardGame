@@ -127,6 +127,46 @@
     vector-effect: non-scaling-stroke;
   }
 
+  :global(html[data-fleet-skin='arctic']) .vessel--deployed,
+  :global(html[data-fleet-skin='arctic']) .vessel--docked {
+    color: #e4f7ff;
+  }
+
+  :global(html[data-fleet-skin='arctic']) .vessel--deployed .vessel__hull,
+  :global(html[data-fleet-skin='arctic']) .vessel--docked .vessel__hull {
+    fill: #456b7f;
+  }
+
+  :global(html[data-fleet-skin='arctic']) .vessel--deployed .vessel__deck,
+  :global(html[data-fleet-skin='arctic']) .vessel--docked .vessel__deck {
+    fill: #7096a8;
+  }
+
+  :global(html[data-fleet-skin='arctic']) .vessel--deployed .vessel__island,
+  :global(html[data-fleet-skin='arctic']) .vessel--docked .vessel__island {
+    fill: #274557;
+  }
+
+  :global(html[data-fleet-skin='ember']) .vessel--deployed,
+  :global(html[data-fleet-skin='ember']) .vessel--docked {
+    color: #ffd4a6;
+  }
+
+  :global(html[data-fleet-skin='ember']) .vessel--deployed .vessel__hull,
+  :global(html[data-fleet-skin='ember']) .vessel--docked .vessel__hull {
+    fill: #533326;
+  }
+
+  :global(html[data-fleet-skin='ember']) .vessel--deployed .vessel__deck,
+  :global(html[data-fleet-skin='ember']) .vessel--docked .vessel__deck {
+    fill: #80503a;
+  }
+
+  :global(html[data-fleet-skin='ember']) .vessel--deployed .vessel__island,
+  :global(html[data-fleet-skin='ember']) .vessel--docked .vessel__island {
+    fill: #321e1a;
+  }
+
   .vessel--docked {
     color: #88bfc5;
     filter: none;

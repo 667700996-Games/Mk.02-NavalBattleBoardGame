@@ -13,8 +13,9 @@ use crate::{
         IntegritySignalKind, IntegritySignalPage, LiveContentRevision, MatchmakingCriteria,
         MatchmakingQuality, ModerationAction, ModerationCasePage, NewIntegritySignal,
         NewModerationAction, NewPlayerReport, NewSupportAction, PlayerAccount,
-        RankedLeaderboardPage, RankedProfile, ReportStatus, RoomSummary, SocialRelationship,
-        SupportAccountSnapshot, SupportAction, UserSession,
+        RankedLeaderboardPage, RankedProfile, RecentPlayer, ReportStatus, RoomSummary,
+        SocialPresence, SocialPrivacy, SocialRelationship, SupportAccountSnapshot, SupportAction,
+        UserSession,
     },
     error::GameError,
 };
@@ -198,10 +199,24 @@ pub trait GameStore: Send + Sync {
         candidate: &LiveContentRevision,
     ) -> Result<bool, GameError>;
     async fn identity_for_session(&self, session_id: Uuid) -> Result<Option<Uuid>, GameError>;
+    async fn account_by_handle(&self, handle: &str) -> Result<Option<PlayerAccount>, GameError>;
+    async fn social_privacy(&self, account_id: Uuid) -> Result<SocialPrivacy, GameError>;
+    async fn set_social_privacy(
+        &self,
+        account_id: Uuid,
+        privacy: SocialPrivacy,
+    ) -> Result<(), GameError>;
     async fn set_social_relationship(
         &self,
         actor_identity_id: Uuid,
         relationship: SocialRelationship,
+    ) -> Result<(), GameError>;
+    async fn set_social_relationship_pair(
+        &self,
+        first_actor_id: Uuid,
+        first_relationship: SocialRelationship,
+        second_actor_id: Uuid,
+        second_relationship: SocialRelationship,
     ) -> Result<(), GameError>;
     async fn social_relationships(
         &self,
@@ -212,6 +227,16 @@ pub trait GameStore: Send + Sync {
         actor_identity_id: Uuid,
         target_identity_id: Uuid,
     ) -> Result<Option<SocialRelationship>, GameError>;
+    async fn social_presence(
+        &self,
+        account_id: Uuid,
+        now: DateTime<Utc>,
+    ) -> Result<(SocialPresence, Option<Uuid>), GameError>;
+    async fn recent_players(
+        &self,
+        account_id: Uuid,
+        limit: usize,
+    ) -> Result<Vec<RecentPlayer>, GameError>;
     async fn create_player_report(&self, report: &NewPlayerReport) -> Result<(), GameError>;
     async fn moderation_cases(
         &self,

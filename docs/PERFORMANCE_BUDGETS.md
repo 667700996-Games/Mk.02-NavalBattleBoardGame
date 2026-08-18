@@ -13,11 +13,11 @@ code-split entry JavaScript and CSS. The current production artifact is:
 
 | Category | Measured bytes | Total budget |
 | --- | ---: | ---: |
-| JavaScript | 353,327 | 354,000 |
-| CSS | 200,968 | 201,500 |
-| WOFF2 fonts | 505,756 | 1,200,000 |
-| Images | 2,137,055 | 2,200,000 |
-| Audio | 0 | 4,000,000 |
+| JavaScript | 429,740 | 435,000 |
+| CSS | 248,299 | 255,000 |
+| WOFF2 fonts | 633,804 | 1,200,000 |
+| Images | 2,228,129 | 2,250,000 |
+| Audio | 424,592 | 4,000,000 |
 
 The image total includes both static Open Graph images; route transfer is measured separately and
 does not fetch them. Font generation and the tighter Korean subset limit are documented in
@@ -57,6 +57,25 @@ transfer. Its entry is measured at 8,954 JavaScript and 4,358 CSS bytes and is c
 15,000 / 8,500 caps. Complete-artifact ceilings moved only to 354,000 / 201,500 bytes, leaving 673 /
 532 bytes of headroom; player device-tier transfer limits remain unchanged.
 
+The account social graph and its separately loaded `/social` route bring the verified complete
+artifact to 407,514 JavaScript and 209,311 CSS bytes. The route itself measures 14,593 JavaScript
+and 4,388 CSS bytes against explicit 15,500 / 9,000 byte caps. The localized catalogs total 125,115
+bytes against a 135,000 byte cap. The lobby receives only its small navigation link, and the
+landing-to-result runtime ceilings remain unchanged.
+
+The final presentation/audio pass adds the approved ocean WebP, five persisted cosmetic groups,
+three effects tiers, a file-backed Web Audio director, five mixer stages and their localized copy.
+The measured adapter artifact is 429,740 JavaScript, 248,299 CSS, 633,804 font, 2,228,129 image and
+424,592 audio bytes; the largest Korean locale chunk is 67,746 bytes. The generated font CSS grew
+by 23,171 raw bytes when the selected Korean faces gained exact Unicode ranges; this prevents the
+browser from probing every fallback face and keeps the stricter runtime font ceiling unchanged.
+Tight installation ceilings are therefore 435,000 JavaScript, 255,000 CSS, 2,250,000 images,
+4,000,000 aggregate audio and 70,000 per locale chunk. Audio remains gesture-gated and cached. The
+measured desktop gameplay journey transfers 363,071 JavaScript and 297,628 audio bytes, so the final
+presentation-aware ceilings are 370,000 JavaScript and 500,000 audio bytes. CSS, font, image, heap,
+CPU, frame and WebSocket limits remain unchanged. Sequential idle warming reduced first-combat
+decode pressure from a 51.3 ms to 33.4 ms desktop frame p95, inside the existing 34 ms limit.
+
 ## Runtime gate
 
 `npm run test:performance` builds and serves the production adapter, then completes a real practice
@@ -72,16 +91,16 @@ long tasks, animation-frame intervals, and WebSocket frames.
 | Mobile | 412×915 | 3× | 67 ms | 8,000 ms | 1,000 ms |
 | Low mobile | 360×640 | 6× | 100 ms | 12,000 ms | 2,000 ms |
 
-All tiers also cap route JavaScript at 320 KB, CSS at 185 KB, fonts at 500 KB, images at 1.2 MB,
+All tiers also cap route JavaScript at 370 KB, CSS at 185 KB, fonts at 500 KB, images at 1.2 MB,
 audio at 500 KB, JavaScript heap at 64 MiB, and WebSocket traffic at 75 KB for the journey.
 
-The August 18, 2026 reference run passed all tiers:
+The August 19, 2026 reference run passed all tiers:
 
 | Tier | JS / CSS / fonts | Heap | CPU tasks | Long tasks | Frame p50 / p95 | WebSocket |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| Desktop | 261,414 / 146,037 / 429,840 B | 13.7 MiB | 1,246 ms | 0 ms | 16.7 / 33.4 ms | 60,392 B |
-| Mobile | 261,414 / 146,037 / 429,840 B | 10.0 MiB | 2,781 ms | 0 ms | 16.7 / 18.5 ms | 69,274 B |
-| Low mobile | 261,414 / 146,037 / 429,840 B | 12.6 MiB | 5,565 ms | 0 ms | 16.7 / 18.6 ms | 64,562 B |
+| Desktop | 363,071 / 174,537 / 429,840 B | 11.5 MiB | 1,073 ms | 0 ms | 16.7 / 33.3 ms | 64,595 B |
+| Mobile | 363,071 / 174,537 / 429,840 B | 12.3 MiB | 2,415 ms | 0 ms | 16.7 / 18.4 ms | 64,897 B |
+| Low mobile | 363,071 / 174,537 / 429,840 B | 9.1 MiB | 4,837 ms | 0 ms | 16.7 / 18.6 ms | 64,556 B |
 
 Large translucent surfaces formerly used nested `backdrop-filter` blurs. The reference desktop
 sequence measured 66.7 ms frame p95 before those redundant filters were removed and 33.7 ms in the
@@ -89,9 +108,9 @@ five-hit reference run, while the existing opaque gradients, borders, and shadow
 visual hierarchy.
 
 Resolved hit and miss markers also used to repaint their glow or water ring indefinitely. Those
-effects now run twice and settle into the same readable final marker; reduced-motion users receive
-the settled state immediately. Three consecutive desktop reference runs measured 33.4, 33.4, and
-33.5 ms frame p95 before the full three-tier gate above passed without changing any runtime limit.
+effects now run once and settle into the same readable final marker; reduced-motion users receive
+the settled state immediately. Three consecutive desktop reference runs measured 33.4 ms frame p95
+before the full three-tier gate above passed without changing any runtime limit.
 
 ## Interpretation and release use
 

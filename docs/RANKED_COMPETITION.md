@@ -82,7 +82,7 @@ correctness boundary.
 Account export contains current rating, all seasonal standings, per-match deltas, ranked rewards,
 and leaderboard visibility. Verified account deletion removes every account-bound ranked row by
 explicit deletion or foreign-key cascade; anonymous settlement markers retain no account identity.
-Restore verification checks all 20 migrations, queue profiles, ranked and leaderboard table counts,
+Restore verification checks all 21 migrations, queue profiles, ranked and leaderboard table counts,
 references, and deletion tombstones.
 
 Acceptance evidence includes domain and memory-store tests, API profile/snapshot contracts, a fresh

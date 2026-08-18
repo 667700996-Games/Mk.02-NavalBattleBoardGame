@@ -173,10 +173,10 @@
       fireSequence = { ...fireSequence, stage: 'IMPACT' };
       setTimeout(() => {
         fireSequence = null;
-      }, 880);
+      }, 520);
     }
     if (impactTimer) clearTimeout(impactTimer);
-    impactTimer = setTimeout(() => (combatEvent = null), 1_100);
+    impactTimer = setTimeout(() => (combatEvent = null), 760);
   });
 
   $effect(() => {
@@ -194,7 +194,7 @@
       turnPulse = true;
       sounds.turn();
       if (turnPulseTimer) clearTimeout(turnPulseTimer);
-      turnPulseTimer = setTimeout(() => (turnPulse = false), 620);
+      turnPulseTimer = setTimeout(() => (turnPulse = false), 420);
     }
     observedTurnPlayer = playerId;
   });
@@ -1158,7 +1158,8 @@
     font-size: 10px;
   }
   .turn-banner--pulse {
-    animation: command-shift 620ms var(--ease-out) both;
+    animation: command-shift 420ms var(--ease-out) both;
+    will-change: transform, opacity;
   }
   .fire-sequence {
     position: relative;
@@ -1187,6 +1188,7 @@
     border-radius: 50%;
     color: var(--tactical);
     animation: fire-reticle 620ms ease-in-out infinite;
+    will-change: transform, opacity;
   }
   .fire-sequence div {
     display: grid;
@@ -1228,14 +1230,12 @@
   }
   .fire-sequence--impact .fire-sequence__reticle {
     color: var(--critical);
-    animation: fire-impact 420ms ease-out both;
+    animation: fire-impact 320ms ease-out both;
   }
   @keyframes command-shift {
-    0% {
-      box-shadow: 0 0 0 rgba(83, 233, 232, 0);
-    }
-    35% {
-      box-shadow: 0 0 32px rgba(83, 233, 232, 0.22);
+    from {
+      transform: translateY(-2px);
+      opacity: 0.72;
     }
   }
   @keyframes fire-sequence-in {
@@ -1257,7 +1257,7 @@
   @keyframes fire-impact {
     50% {
       transform: scale(1.28);
-      filter: drop-shadow(0 0 10px currentColor);
+      opacity: 0.62;
     }
   }
   @keyframes timer-pulse {

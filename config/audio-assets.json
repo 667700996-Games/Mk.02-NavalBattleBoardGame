@@ -1,0 +1,287 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-08-19",
+  "provenance": "Original procedural masters rendered offline for MK.01; no third-party samples.",
+  "assets": [
+    {
+      "id": "music-command-loop",
+      "path": "apps/web/static/audio/music-command-loop.mp3",
+      "bus": "music",
+      "role": "music",
+      "loop": true,
+      "durationSeconds": 18,
+      "bytes": 144428,
+      "sha256": "3870d1136e9360b5be1ee51a9684bd043e177bdbed5a6bd7f82a96e20e6bf308"
+    },
+    {
+      "id": "ambience-ocean-loop",
+      "path": "apps/web/static/audio/ambience-ocean-loop.mp3",
+      "bus": "ambience",
+      "role": "ambience",
+      "loop": true,
+      "durationSeconds": 18,
+      "bytes": 144428,
+      "sha256": "16b1292f84e91089ba9ba6d85d2e192d8fcb4dd338767e2396843dbd28402a50"
+    },
+    {
+      "id": "ui-hover",
+      "path": "apps/web/static/audio/ui-hover.mp3",
+      "bus": "effects",
+      "role": "ui",
+      "loop": false,
+      "durationSeconds": 0.12,
+      "bytes": 1388,
+      "sha256": "f1fa1fa92e2aab3f7e7acb7578b8cf0f700c34bddc9c1d9bf095dec106ecc49a"
+    },
+    {
+      "id": "ui-select",
+      "path": "apps/web/static/audio/ui-select.mp3",
+      "bus": "effects",
+      "role": "ui",
+      "loop": false,
+      "durationSeconds": 0.2,
+      "bytes": 2156,
+      "sha256": "06dbb4fb125c338a3df7c135419bb2905f68558d98184875a055e8dd9e561b6f"
+    },
+    {
+      "id": "ui-confirm",
+      "path": "apps/web/static/audio/ui-confirm.mp3",
+      "bus": "effects",
+      "role": "ui",
+      "loop": false,
+      "durationSeconds": 0.38,
+      "bytes": 3500,
+      "sha256": "aa6b3ff1497f66a87385c144e2129975d6106067cdc1664c4b513c9a4ea98b9a"
+    },
+    {
+      "id": "ui-cancel",
+      "path": "apps/web/static/audio/ui-cancel.mp3",
+      "bus": "effects",
+      "role": "ui",
+      "loop": false,
+      "durationSeconds": 0.3,
+      "bytes": 2924,
+      "sha256": "de1c0712285b9fe266515fa7e5f6c4dcaa5d89057ad289ea341efe88c653b8e8"
+    },
+    {
+      "id": "ui-connected",
+      "path": "apps/web/static/audio/ui-connected.mp3",
+      "bus": "effects",
+      "role": "ui",
+      "loop": false,
+      "durationSeconds": 0.36,
+      "bytes": 3308,
+      "sha256": "b3c63ead86133a71693e3095d1db26046fcd25a77ee795668d32b942ef634e8a"
+    },
+    {
+      "id": "ui-chat",
+      "path": "apps/web/static/audio/ui-chat.mp3",
+      "bus": "effects",
+      "role": "ui",
+      "loop": false,
+      "durationSeconds": 0.22,
+      "bytes": 2348,
+      "sha256": "d9609138ca7441763888e2ce9614b0208ef5a40a6e2e851586f55dd04a5b02fe"
+    },
+    {
+      "id": "ui-target-lock",
+      "path": "apps/web/static/audio/ui-target-lock.mp3",
+      "bus": "effects",
+      "role": "ui",
+      "loop": false,
+      "durationSeconds": 0.32,
+      "bytes": 3116,
+      "sha256": "abe711565e727ff529482076aaf9b39cc82ad2f0e20b564eb3a1062a24e566a9"
+    },
+    {
+      "id": "ui-radar",
+      "path": "apps/web/static/audio/ui-radar.mp3",
+      "bus": "effects",
+      "role": "ui",
+      "loop": false,
+      "durationSeconds": 0.45,
+      "bytes": 4076,
+      "sha256": "4e9104bcbbc5ed2e39a3a0f51c4850ce645cc5a118875e96a83184fc0a28a5c2"
+    },
+    {
+      "id": "ui-sonar",
+      "path": "apps/web/static/audio/ui-sonar.mp3",
+      "bus": "effects",
+      "role": "ui",
+      "loop": false,
+      "durationSeconds": 0.8,
+      "bytes": 6956,
+      "sha256": "9abf0e28b073ee1ff3f92dec5a5aa0f48ac6b33b91eda0c5049842df3d5d7756"
+    },
+    {
+      "id": "ui-place",
+      "path": "apps/web/static/audio/ui-place.mp3",
+      "bus": "effects",
+      "role": "ui",
+      "loop": false,
+      "durationSeconds": 0.34,
+      "bytes": 3308,
+      "sha256": "5a1d0fbb3fac4254760d7522b89fccb95da4dd7b0a4e732c0d9258ad63ca044e"
+    },
+    {
+      "id": "ui-rotate",
+      "path": "apps/web/static/audio/ui-rotate.mp3",
+      "bus": "effects",
+      "role": "ui",
+      "loop": false,
+      "durationSeconds": 0.28,
+      "bytes": 2732,
+      "sha256": "1bb2eb2f18ec2a225da3b222f2fdc7ebd257f7a871a40d2b11f91b7f4d4e268e"
+    },
+    {
+      "id": "weapon-fire",
+      "path": "apps/web/static/audio/weapon-fire.mp3",
+      "bus": "effects",
+      "role": "weapon",
+      "loop": false,
+      "durationSeconds": 0.62,
+      "bytes": 5420,
+      "sha256": "f6e464ed6583fa568953fafc26d113fa66fd55ecbbae825b33755cd66581b31f"
+    },
+    {
+      "id": "impact-miss",
+      "path": "apps/web/static/audio/impact-miss.mp3",
+      "bus": "effects",
+      "role": "impact",
+      "loop": false,
+      "durationSeconds": 0.72,
+      "bytes": 6188,
+      "sha256": "3c69b9a16dbe0a6d91c74c4bdb526602e0cb094c0f84ee469ccd4abe75e671ab"
+    },
+    {
+      "id": "impact-hit",
+      "path": "apps/web/static/audio/impact-hit.mp3",
+      "bus": "effects",
+      "role": "impact",
+      "loop": false,
+      "durationSeconds": 0.72,
+      "bytes": 6188,
+      "sha256": "d0cfe4f66e30b9679e8d08ecd3f3c57e7298c013f3aff98deae0892b94e762ad"
+    },
+    {
+      "id": "vessel-sinking",
+      "path": "apps/web/static/audio/vessel-sinking.mp3",
+      "bus": "effects",
+      "role": "sinking",
+      "loop": false,
+      "durationSeconds": 1.4,
+      "bytes": 11756,
+      "sha256": "a1ac6593583f09f2d1e655a27d69ae8298c7ca8f9c57572c237a299fc153ee88"
+    },
+    {
+      "id": "cue-turn",
+      "path": "apps/web/static/audio/cue-turn.mp3",
+      "bus": "voice",
+      "role": "accessibility",
+      "loop": false,
+      "durationSeconds": 0.34,
+      "bytes": 3308,
+      "sha256": "542fa43baabe39e2ecd220d17d43a9b39d76194fb0a6b45915b0e140aefe9a57"
+    },
+    {
+      "id": "cue-ready",
+      "path": "apps/web/static/audio/cue-ready.mp3",
+      "bus": "voice",
+      "role": "accessibility",
+      "loop": false,
+      "durationSeconds": 0.42,
+      "bytes": 3884,
+      "sha256": "fee01e0bff5c227971cf6b566ae2c84e901b2fc9f135f18fded7eb9ddaea2e1c"
+    },
+    {
+      "id": "cue-start",
+      "path": "apps/web/static/audio/cue-start.mp3",
+      "bus": "voice",
+      "role": "accessibility",
+      "loop": false,
+      "durationSeconds": 0.65,
+      "bytes": 5804,
+      "sha256": "52214192b7f5b9e7042e5128cc53f2d6c96f910cdd139de0a3fe5c83cd999b5e"
+    },
+    {
+      "id": "cue-countdown",
+      "path": "apps/web/static/audio/cue-countdown.mp3",
+      "bus": "voice",
+      "role": "accessibility",
+      "loop": false,
+      "durationSeconds": 0.22,
+      "bytes": 2348,
+      "sha256": "888c566c9c00399d48c2d39850200b1ed84bc079cf5ca1e7ca3d1ed71da59c82"
+    },
+    {
+      "id": "cue-hit",
+      "path": "apps/web/static/audio/cue-hit.mp3",
+      "bus": "voice",
+      "role": "accessibility",
+      "loop": false,
+      "durationSeconds": 0.34,
+      "bytes": 3308,
+      "sha256": "9f475250db30e3bb79dabe450c598f0e242e2cfd352d52d5ffb7dff780a4d8e7"
+    },
+    {
+      "id": "cue-miss",
+      "path": "apps/web/static/audio/cue-miss.mp3",
+      "bus": "voice",
+      "role": "accessibility",
+      "loop": false,
+      "durationSeconds": 0.38,
+      "bytes": 3500,
+      "sha256": "4b5f0fdbaf02410770fe1dc87f41d91378f3f96a5d363b5875a86c0a3057b23c"
+    },
+    {
+      "id": "cue-sunk",
+      "path": "apps/web/static/audio/cue-sunk.mp3",
+      "bus": "voice",
+      "role": "accessibility",
+      "loop": false,
+      "durationSeconds": 0.7,
+      "bytes": 6188,
+      "sha256": "3738bfe497bf94f144160662b92b4aaebfe537b54c74736751298ca10df73694"
+    },
+    {
+      "id": "victory",
+      "path": "apps/web/static/audio/victory.mp3",
+      "bus": "effects",
+      "role": "victory",
+      "loop": false,
+      "durationSeconds": 1.6,
+      "bytes": 13292,
+      "sha256": "ef940d4c9434fb079a2b5a60387548004005075c4f85450afe1ab66758f66c7b"
+    },
+    {
+      "id": "defeat",
+      "path": "apps/web/static/audio/defeat.mp3",
+      "bus": "effects",
+      "role": "defeat",
+      "loop": false,
+      "durationSeconds": 1.6,
+      "bytes": 13292,
+      "sha256": "107826a9284f31807cfe5360a113c133e6a29b59c06072004505c8def7e28c98"
+    },
+    {
+      "id": "cue-victory",
+      "path": "apps/web/static/audio/cue-victory.mp3",
+      "bus": "voice",
+      "role": "accessibility",
+      "loop": false,
+      "durationSeconds": 0.9,
+      "bytes": 7724,
+      "sha256": "02be73889417c1f251bd2ebb3f0d801be73bd36890cc3923cf370dd6f9d5ad73"
+    },
+    {
+      "id": "cue-defeat",
+      "path": "apps/web/static/audio/cue-defeat.mp3",
+      "bus": "voice",
+      "role": "accessibility",
+      "loop": false,
+      "durationSeconds": 0.9,
+      "bytes": 7724,
+      "sha256": "fece57b543c0fdaf6e41c6eccb7968eeff63a2f9b11eba077bb2dc85f9fa9162"
+    }
+  ]
+}

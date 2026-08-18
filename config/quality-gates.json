@@ -24,7 +24,7 @@
       "command": "npm run test:visual",
       "source": "apps/web/e2e/visual-regression.spec.ts",
       "threshold": {
-        "approvedBaselines": 4,
+        "approvedBaselines": 8,
         "maximumDiffPixelRatio": 0.01,
         "viewports": 2
       }

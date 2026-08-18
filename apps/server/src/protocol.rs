@@ -9,7 +9,7 @@ use crate::{
         LiveContentPayload, LiveContentRevision, MatchRules, MatchmakingPool, MatchmakingQuality,
         MatchmakingRegion, MatchmakingSearchWindow, ModerationAction, ModerationActionKind,
         PlayerAccount, PlayerReadyRecord, PlayerReportReceipt, RankedLeaderboardPage,
-        ReportCategory, ReportStatus, RoomSummary, RoomVisibility, ShipPlacement,
+        ReportCategory, ReportStatus, RoomSummary, RoomVisibility, ShipPlacement, SocialOverview,
         SocialRelationship, SupportAction, SurrenderRecord, TurnExpiredRecord,
     },
     error::GameError,
@@ -173,6 +173,62 @@ pub struct SocialRelationshipInput {
 #[serde(rename_all = "camelCase")]
 pub struct SocialRelationshipsResponse {
     pub relationships: Vec<SocialRelationship>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SocialPrivacyInput {
+    pub allow_friend_requests: bool,
+    pub show_presence: bool,
+    pub allow_game_invites: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(
+    tag = "action",
+    rename_all = "SCREAMING_SNAKE_CASE",
+    rename_all_fields = "camelCase"
+)]
+pub enum SocialActionInput {
+    FriendRequest {
+        target_handle: String,
+    },
+    FriendRespond {
+        target_account_id: Uuid,
+        request_id: Uuid,
+        accept: bool,
+    },
+    FriendRemove {
+        target_account_id: Uuid,
+    },
+    PartyInvite {
+        target_account_id: Uuid,
+    },
+    PartyRespond {
+        target_account_id: Uuid,
+        party_id: Uuid,
+        accept: bool,
+    },
+    PartyLeave {
+        target_account_id: Uuid,
+    },
+    GameInvite {
+        target_account_id: Uuid,
+        room_id: Uuid,
+    },
+    GameInviteRespond {
+        target_account_id: Uuid,
+        invite_id: Uuid,
+        accept: bool,
+    },
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SocialActionResponse {
+    pub overview: SocialOverview,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub join_code: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]

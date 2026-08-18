@@ -8,6 +8,7 @@
   import { ApiError, api } from '$lib/api';
   import { installFunnelAbandonmentTracking } from '$lib/funnel';
   import { installRealUserMonitoring } from '$lib/performance';
+  import { installAudioDirector } from '$lib/sound';
   import {
     dismissHudNotification,
     gameError,
@@ -40,9 +41,11 @@
   });
 
   onMount(() => {
+    document.documentElement.dataset.hydrated = 'true';
     initializeLocale();
     const removeFunnelTracking = installFunnelAbandonmentTracking();
     const removePerformanceTracking = installRealUserMonitoring();
+    const removeAudioDirector = installAudioDirector();
     const keyboardKeys = new Set([
       'Tab',
       'Enter',
@@ -77,8 +80,10 @@
       .then((current) => session.set(current))
       .catch(() => session.set(null));
     return () => {
+      delete document.documentElement.dataset.hydrated;
       removeFunnelTracking();
       removePerformanceTracking();
+      removeAudioDirector();
       clearInterval(timer);
       window.removeEventListener('keydown', onKeydown, true);
       window.removeEventListener('pointerdown', onPointerdown, true);
@@ -114,6 +119,12 @@
     document.documentElement.dataset.motion = $preferences.reducedMotion ? 'reduced' : 'full';
     document.documentElement.dataset.contrast = $preferences.highContrast ? 'high' : 'standard';
     document.documentElement.dataset.colorVision = $preferences.colorVision;
+    document.documentElement.dataset.effectQuality = $preferences.effectQuality;
+    document.documentElement.dataset.fleetSkin = $preferences.cosmetics.fleetSkin;
+    document.documentElement.dataset.boardTheme = $preferences.cosmetics.boardTheme;
+    document.documentElement.dataset.effectTheme = $preferences.cosmetics.effectTheme;
+    document.documentElement.dataset.profileEmblem = $preferences.cosmetics.profileEmblem;
+    document.documentElement.dataset.presentationFrame = $preferences.cosmetics.presentationFrame;
     document.documentElement.lang = $locale === 'en-XA' ? 'en' : $locale;
   });
 </script>

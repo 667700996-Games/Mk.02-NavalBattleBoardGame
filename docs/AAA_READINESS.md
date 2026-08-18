@@ -135,8 +135,9 @@ The program is complete only when all gates below are satisfied in a production-
   stable column set, so candidate history, account identity, and deletion paths cannot miss a match
   completed during the mixed window. The self-testing migration policy rejects destructive data,
   DDL, defaults, type, RLS, and permission changes and guarantees new migration files invalidate the
-  embedded release build. The clean 12-case service run passed in 10.77 seconds, and the encrypted
-  restore drill reapplied all 20 migrations with zero resurrected personal rows.
+  embedded release build. The current clean 13-case service run passed in 10.78 seconds, and the encrypted
+  restore drill reapplied all 20 migrations then present with zero resurrected personal rows; the
+  current verifier derives the 21-migration expectation from the checksummed manifest.
 
 ## Gate C — Game product and player retention
 
@@ -170,7 +171,7 @@ The program is complete only when all gates below are satisfied in a production-
   season; only active seasons accept queues, and season keys prevent cross-season pairing. The
   PostgreSQL result transaction locks both standings, inserts one room settlement marker, updates
   rating projections, and writes unique match/placement/season rewards atomically. Memory/domain/
-  API tests plus a fresh 20-migration PostgreSQL 16 database and the thirteen-test PostgreSQL/Redis
+  API tests plus a fresh 21-migration PostgreSQL 16 database and the thirteen-test PostgreSQL/Redis
   suite prove spoof resistance, idempotent settlement, five placements, rollover rewards, export,
   deletion, restore verification, and mixed-version queue behavior. The stats view exposes the
   active provisional/tier rating and multi-browser E2E covers the player flow.
@@ -198,7 +199,7 @@ The program is complete only when all gates below are satisfied in a production-
   becomes V1 rather than the latest default. Unknown or altered active pins fail before execution or
   persistence. Composite database foreign keys prevent version/checksum reuse, a trigger rejects
   catalog edits/deletes, and restore verification compares catalog, room, game, and result copies.
-  Domain/API tests, a fresh 20-migration PostgreSQL 16 database, the thirteen-test PostgreSQL/Redis
+  Domain/API tests, a fresh 21-migration PostgreSQL 16 database, the thirteen-test PostgreSQL/Redis
   suite, and multi-browser full-match replay cover legacy recovery, tampering, immutable history,
   exact UI interpretation, and rollback-safe retention.
 
@@ -207,7 +208,7 @@ The program is complete only when all gates below are satisfied in a production-
 - [x] Profile progression, achievements, daily/weekly missions, and meaningful non-pay-to-win rewards
       exist.
 - [x] Seasons, events, content configuration, feature flags, and safe live tuning are supported.
-- [ ] Cosmetics cover fleet, board, effects, profile, and presentation without leaking hidden state.
+- [x] Cosmetics cover fleet, board, effects, profile, and presentation without leaking hidden state.
 - [x] Economy and reward issuance are transactional, idempotent, auditable, and rollback-safe.
 - Evidence: profile XP/level/rank and achievements are deterministic projections of the
   authoritative result ledger; daily/weekly mission rewards use a unique account/source/period
@@ -218,10 +219,16 @@ The program is complete only when all gates below are satisfied in a production-
   public/profile APIs and the responsive stats view expose only the active projection. Memory,
   API, accessibility, six-profile full-match, and real PostgreSQL 16/Redis multi-instance tests
   cover conflicting publishers, scheduled activation, kill switches, history, and rollback.
+- Evidence: five locally persisted cosmetic groups cover three fleet finishes, ocean theatres,
+  impact signatures, profile emblems and interface frames. They affect only HTML data attributes and
+  presentation CSS; the server snapshot remains the sole source of ships and attacks. High, low and
+  minimal effects tiers retain the same coordinate, glyph and ARIA semantics. The dedicated
+  Chromium/Firefox/WebKit journey proves persistence, actual hull styling and 100 unrevealed target
+  cells with no ship names after every cosmetic is changed.
 
 ### C4. Social, spectating, and replay
 
-- [ ] Friends, parties, direct invites, recent players, presence, privacy, mute, and block exist.
+- [x] Friends, parties, direct invites, recent players, presence, privacy, mute, and block exist.
 - [x] Spectators receive delayed, visibility-filtered authoritative state.
 - [x] Deterministic replays include ruleset/protocol versions and cannot expose hidden information
       before a match is complete.
@@ -243,23 +250,48 @@ The program is complete only when all gates below are satisfied in a production-
   29/30-second boundary and result delay, the authenticated HTTP test scans serialized output for
   hidden fields, and isolated host/guest/viewer E2E passes in Chromium, Firefox, and WebKit with two
   fleet-free responsive grids. `SPECTATING.md` fixes the privacy and timing contract.
+- Evidence: account-backed mirrored relationships now cover request/accept/remove friends, a
+  deliberately bounded two-person party, 15-minute direct private-room invitations, the 20 most
+  recent account opponents, and friend-only `ONLINE` / `IN_GAME` presence. Independent privacy
+  controls gate requests, presence, and game invites; either-direction blocking clears the social
+  pair while retaining the existing chat and matchmaking safety contract. Memory pair writes are
+  serialized and PostgreSQL writes both directions transactionally in a new additive table that
+  old rolling instances do not touch. Export, deletion, tombstone verification, API integration,
+  and Chromium/Firefox/WebKit WCAG-responsive journeys are covered. `SOCIAL_SYSTEM.md` fixes the
+  state, privacy, expiry, and data-lifecycle contracts.
 
 ## Gate D — Presentation and experience
 
 ### D1. Art, animation, and VFX
 
-- [ ] A production art bible defines shape, color, motion, typography, readability, and asset tiers.
-- [ ] Ships, ocean, targeting, hits, misses, sinking, victory, defeat, and transitions use final art.
-- [ ] Effects preserve board readability and have reduced-motion and low-performance alternatives.
-- [ ] Visual quality is verified through approved golden captures across supported viewports.
+- [x] A production art bible defines shape, color, motion, typography, readability, and asset tiers.
+- [x] Ships, ocean, targeting, hits, misses, sinking, victory, defeat, and transitions use final art.
+- [x] Effects preserve board readability and have reduced-motion and low-performance alternatives.
+- [x] Visual quality is verified through approved golden captures across supported viewports.
+- Evidence: `ART_DIRECTION.md` owns the launch shape, material, semantic color, motion, typography,
+  readability, provenance and high/low/minimal tier contracts. Original vector ship silhouettes,
+  persistent shaped attack markers, acquire/fire/impact and outcome compositions are joined by the
+  approved 768 px orthographic ocean WebP. Minimal mode avoids the texture and every expensive glow;
+  low mode reduces blur/pulses, while reduced motion wins over all themes. Eight deterministic
+  desktop/mobile landing, lobby, live-hit battle and defeat-result captures pass the one-percent
+  Playwright golden gate; the production three-tier journey transfers only the 91,074-byte board art
+  and holds 33.3/18.4/18.6 ms frame p95 across 1×/3×/6× CPU profiles.
 
 ### D2. Audio and haptics
 
-- [ ] Final music, ambience, UI, weapon, impact, sinking, victory, and defeat assets replace prototype
+- [x] Final music, ambience, UI, weapon, impact, sinking, victory, and defeat assets replace prototype
       oscillator tones.
-- [ ] Music, effects, ambience, voice, and master volume are independently adjustable.
-- [ ] Audio handles focus, backgrounding, interruptions, device changes, and accessibility cues.
-- [ ] Supported mobile devices receive intentional, optional haptic feedback.
+- [x] Music, effects, ambience, voice, and master volume are independently adjustable.
+- [x] Audio handles focus, backgrounding, interruptions, device changes, and accessibility cues.
+- [x] Supported mobile devices receive intentional, optional haptic feedback.
+- Evidence: `AUDIO_HAPTICS.md` owns 28 original file-backed 48 kHz masters, five smoothed/persisted
+  mixer stages, autoplay-safe lazy start, sequential idle warming, focus/visibility/page lifecycle,
+  output-device rebuild, redundant combat earcons and bounded coarse-pointer vibration patterns.
+  The SHA-256 manifest and lint gate reject missing/changed assets, runtime oscillators, absent roles
+  and payload regression; all audio is 424,592 bytes. Unit tests prove routing, clamping and pattern
+  bounds. Chromium, Firefox and WebKit decode music, ambience and UI masters; Chromium additionally
+  proves real requests, five slider persistence, cue/haptic toggles, suspend/resume and device-change
+  revision. The production journey measures 297,628–406,900 audio bytes below its 500 KB ceiling.
 
 ### D3. UX, accessibility, localization
 
@@ -304,9 +336,9 @@ The program is complete only when all gates below are satisfied in a production-
 - [x] Core Web Vitals and battle interaction latency are captured from real users by release.
 - [x] Low-end mobile play remains readable and responsive during the heaviest effects sequence.
 - Evidence: `check-font-subsets.mjs` scans all production Rust/Svelte/TypeScript copy, proves every
-  static Korean glyph maps to one of 28 disjoint 400/700 WOFF2 slices, rejects duplicate selection
-  and stale generated CSS, and caps the Korean payload at 450 KB. The production artifact fell from
-  1,091,828 to 483,304 WOFF2 bytes (55.7%) while the unchanged JS/CSS/font budgets pass. The browser
+  static Korean glyph maps to one of 40 disjoint 400/700 WOFF2 slices, rejects duplicate selection
+  and stale generated CSS, and caps the Korean payload at 570 KB. The production artifact fell from
+  1,091,828 to 633,804 WOFF2 bytes (41.9%) while the installation and route-transfer budgets pass. The browser
   transfer test rejects full Korean faces, WOFF/TTF, duplicate requests, missing regular/bold faces,
   and a route font transfer above 500 KB. Dynamic player copy uses the documented system fallback.
   `performance-budgets.json` is the shared artifact/runtime authority for JavaScript, CSS, fonts,
@@ -316,8 +348,8 @@ The program is complete only when all gates below are satisfied in a production-
   reference run passed 3/3 with zero long tasks; low mobile held 18.6 ms frame p95 under 6× CPU
   throttle while retaining a 14 px status heading, 24 px board-cell floor, 40 px fire-control floor,
   and no horizontal overflow. Its report attaches 360×640 sunk-carrier and unobscured result
-  captures. Desktop frame p95 improved from 66.7 to 33.7 ms after redundant full-surface backdrop
-  filters were removed. The browser now reports lifecycle LCP, maximum-session CLS, p98 INP, and
+  captures. Desktop frame p95 improved from 66.7 to 33.3 ms after redundant full-surface filters and
+  persistent repainting effects were removed. The browser now reports lifecycle LCP, maximum-session CLS, p98 INP, and
   request-matched attack-result latency into fixed route/device Prometheus histograms. No identity,
   URL parameter, device model, or request ID is accepted or retained. API integration rejects
   unknown/high-cardinality dimensions and out-of-range values; a real Chromium practice attack
@@ -344,8 +376,8 @@ The program is complete only when all gates below are satisfied in a production-
   realtime, or global-state modules. The room route continues to delegate waiting, placement,
   battle, result, and chat responsibilities. `architecture:check` now requires all of these modules,
   enforces server/room/route/component limits and presentation dependency direction, and assigns all
-  290 critical files to exactly one owner boundary. Full Rust/web checks, lint, 104 Rust tests, 36 web
-  unit tests, a warning-free production build, and the multi-browser/mobile E2E release matrix pass.
+  353 critical files to exactly one owner boundary. Full Rust/web checks, lint, the Rust/web unit
+  portfolio, a warning-free production build, and the multi-browser/mobile E2E release matrix pass.
 - Evidence: `PROTOCOL_COMPATIBILITY.md` fixes explicit HTTP/WebSocket negotiation, the frozen
   headerless V2 fallback, current-plus-one-prior support, server-first rollout, rollback, a minimum
   30-day window, seven zero-traffic days, and active-match drain before retirement. Every API
@@ -357,7 +389,7 @@ The program is complete only when all gates below are satisfied in a production-
   deserializes every frozen command. API and real loopback WebSocket integration tests prove old
   headerless V2, explicit V2 selection, unsupported/malformed rejection, and bounded version
   metrics. A 13th Grafana panel plus a volume-gated rejection alert enforce the canary gate. The
-  complete Rust/web checks, lint, 104 Rust tests, 36 web unit tests, production build, and 33 executed
+  complete Rust/web checks, lint, the Rust/web unit portfolio, production build, and all 52 applicable
   multi-browser/mobile E2E cases passed; all six full-game profiles completed and recovered after
   refresh with the negotiated V2 socket.
 - Evidence: `ARCHITECTURE.md` records the authority/dependency map, runtime flows, seven path
@@ -366,13 +398,13 @@ The program is complete only when all gates below are satisfied in a production-
   protocol/schema/balance/content history. The dated baseline review covers every decision and
   boundary, passes authority/dependency/durability/compatibility/ownership review, and keeps
   `ARCH-001`/`ARCH-002` open with owners and measurable acceptance instead of hiding decomposition
-  debt. The machine-readable ownership policy maps 290 critical files to exactly one boundary and
+  debt. The machine-readable ownership policy maps 353 critical files to exactly one boundary and
   six roles; CODEOWNERS uses a verified GitHub account, while the PR template requires boundary,
   owner, ADR, compatibility, rollback, and independent high-risk review evidence. The executable
   gate rejects uncovered/overlapping ownership, missing ADR/review/CODEOWNERS data, and forbidden
   domain→transport/store, store→transport, or pure browser-game→network/global-state dependencies.
-  CI runs it explicitly and through lint; architecture, full check/lint, 104 Rust tests, and 36 web
-  unit tests passed.
+  CI runs it explicitly and through lint; architecture, full check/lint, and the Rust/web unit
+  portfolio passed.
 
 ### E2. Automated quality gates
 
@@ -390,7 +422,7 @@ The program is complete only when all gates below are satisfied in a production-
   PostgreSQL remains authoritative when the optional Redis cache cannot connect. The dedicated CI
   job uses health-checked PostgreSQL 16 and Redis 7 containers, requires both URLs so no test can
   silently skip, serializes the thirteen shared-database cases, and blocks browser and backup jobs.
-  Its post-suite restore verifier checks all 20 migrations and retained snapshots, then uploads a
+  Its post-suite restore verifier checks all 21 migrations and retained snapshots, then uploads a
   90-day JSON evidence artifact. `DISTRIBUTED_INTEGRATION.md` fixes the local reproduction, covered
   boundaries, acceptance rules, and failure triage.
 - Evidence: `config/quality-gates.json` assigns component, WCAG 2.2 AA, desktop/mobile golden,
@@ -406,7 +438,7 @@ The program is complete only when all gates below are satisfied in a production-
   and an exact-snapshot PostgreSQL recovery in 2.107 seconds.
 - Evidence: Vitest instruments six behavior-bearing protocol, RUM, placement, replay, and extracted
   lobby files and enforces both aggregate and file-specific floors; the measured reference is
-  94.93% statements, 90.88% branches, 91.76% functions, and 97.19% lines. Rust source coverage
+  97.58% statements, 93.43% branches, 96.25% functions, and 99.20% lines. Rust source coverage
   enforces 60% aggregate line/function floors plus eleven
   higher-risk file targets, with the service-backed CI job refusing to skip PostgreSQL/Redis cases.
   The first baseline measured 65.34% lines and 65.49% functions without those services, while core

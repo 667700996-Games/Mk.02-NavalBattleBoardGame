@@ -36,9 +36,9 @@ use crate::{
         PublishLiveContentInput, RankedLeaderboardQuery, RankedLeaderboardResponse,
         RankedLeaderboardVisibilityInput, RankedLeaderboardVisibilityResponse,
         RollbackLiveContentInput, RoomCreatedResponse, RoomListResponse, RumMetricInput,
-        SessionResponse, SocialRelationshipInput, SocialRelationshipsResponse,
-        SpectatableRoomsResponse, SupportAccountQuery, SupportActionResponse,
-        SupportSessionRevocationInput,
+        SessionResponse, SocialActionInput, SocialActionResponse, SocialPrivacyInput,
+        SocialRelationshipInput, SocialRelationshipsResponse, SpectatableRoomsResponse,
+        SupportAccountQuery, SupportActionResponse, SupportSessionRevocationInput,
     },
     store::GameHistoryItem,
 };
@@ -76,6 +76,9 @@ pub fn router() -> Router<AppState> {
             "/social/relationships",
             get(social_relationships).post(update_social_relationship),
         )
+        .route("/social/overview", get(social_overview))
+        .route("/social/privacy", put(update_social_privacy))
+        .route("/social/actions", post(apply_social_action))
         .route("/reports", post(report_player))
         .route("/admin/moderation/reports", get(moderation_reports))
         .route("/admin/support/accounts", get(support_account))
@@ -449,6 +452,50 @@ async fn update_social_relationship(
             )
             .await?,
     ))
+}
+
+async fn social_overview(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+) -> Result<Json<crate::domain::SocialOverview>, GameError> {
+    let session = authenticate(&state, &jar, &headers).await?;
+    Ok(Json(state.social_overview(&session).await?))
+}
+
+async fn update_social_privacy(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+    input: Result<Json<SocialPrivacyInput>, JsonRejection>,
+) -> Result<Json<crate::domain::SocialOverview>, GameError> {
+    let input = parse_json(input)?;
+    let session = authenticate(&state, &jar, &headers).await?;
+    Ok(Json(
+        state
+            .update_social_privacy(
+                &session,
+                input.allow_friend_requests,
+                input.show_presence,
+                input.allow_game_invites,
+            )
+            .await?,
+    ))
+}
+
+async fn apply_social_action(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+    input: Result<Json<SocialActionInput>, JsonRejection>,
+) -> Result<Json<SocialActionResponse>, GameError> {
+    let action = parse_json(input)?;
+    let session = authenticate(&state, &jar, &headers).await?;
+    let (overview, join_code) = state.apply_social_action(&session, action).await?;
+    Ok(Json(SocialActionResponse {
+        overview,
+        join_code,
+    }))
 }
 
 async fn report_player(

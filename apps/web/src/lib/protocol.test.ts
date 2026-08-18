@@ -7,11 +7,14 @@ import {
   isCompatibleGameSnapshot,
   isCompatibleProtocolEnvelope,
   isCompatibleServerEvent,
+  isCompatibleSpectatorSnapshot,
+  legacyProtocolCompatibility,
   PROTOCOL_CAPABILITIES,
   PROTOCOL_CAPABILITIES_HEADER,
   PROTOCOL_MAX_VERSION_HEADER,
   PROTOCOL_MIN_VERSION_HEADER,
   PROTOCOL_VERSION_HEADER,
+  serverProtocolMismatchMessage,
   supportsProtocolCapability,
   websocketProtocol
 } from './protocol';
@@ -37,6 +40,16 @@ const currentSnapshot = {
   roomVersion: 1,
   players: [],
   room: { status: 'WAITING_FOR_OPPONENT' }
+};
+
+const currentSpectatorSnapshot = {
+  protocolVersion: GAME_PROTOCOL_VERSION,
+  balance: currentSnapshot.balance,
+  room: { status: 'PLAYING' },
+  phase: 'DELAYED',
+  delaySeconds: 30,
+  players: [{ displayName: 'Alpha' }, { displayName: 'Bravo' }],
+  timeline: []
 };
 
 describe('game protocol compatibility', () => {
@@ -100,6 +113,57 @@ describe('game protocol compatibility', () => {
     ).toBe(false);
   });
 
+  it('rejects every malformed compatibility window and returns an isolated legacy fallback', () => {
+    const valid = {
+      currentVersion: 2,
+      minimumSupportedVersion: 2,
+      maximumSupportedVersion: 2,
+      legacyDefaultVersion: 2,
+      compatibilityWindowDays: 30,
+      capabilities: [...PROTOCOL_CAPABILITIES]
+    };
+    const invalid = [
+      null,
+      { ...valid, capabilities: 'not-an-array' },
+      { ...valid, currentVersion: 1.5 },
+      { ...valid, minimumSupportedVersion: 1.5 },
+      { ...valid, maximumSupportedVersion: 2.5 },
+      { ...valid, legacyDefaultVersion: 1.5 },
+      { ...valid, compatibilityWindowDays: 30.5 },
+      { ...valid, minimumSupportedVersion: 3, currentVersion: 3, maximumSupportedVersion: 3 },
+      { ...valid, maximumSupportedVersion: 1 },
+      { ...valid, currentVersion: 1 },
+      { ...valid, currentVersion: 3 },
+      { ...valid, legacyDefaultVersion: 1 },
+      { ...valid, legacyDefaultVersion: 3 },
+      { ...valid, compatibilityWindowDays: 29 },
+      { ...valid, capabilities: [3] },
+      { ...valid, capabilities: ['balance-pin-v1', 'balance-pin-v1'] }
+    ];
+    for (const candidate of invalid) expect(acceptProtocolCompatibility(candidate)).toBe(false);
+
+    const first = legacyProtocolCompatibility();
+    first.capabilities.length = 0;
+    expect(legacyProtocolCompatibility().capabilities).toEqual(PROTOCOL_CAPABILITIES);
+    expect(serverProtocolMismatchMessage()).toBeTruthy();
+  });
+
+  it('rejects malformed or incompatible explicit protocol headers independently', () => {
+    const headers = (selected: string, minimum: string, maximum: string) =>
+      new Headers({
+        [PROTOCOL_VERSION_HEADER]: selected,
+        [PROTOCOL_MIN_VERSION_HEADER]: minimum,
+        [PROTOCOL_MAX_VERSION_HEADER]: maximum
+      });
+    expect(acceptProtocolHeaders(headers('2', '2', '2'))).toBe(true);
+    expect(acceptProtocolHeaders(headers('invalid', '2', '2'))).toBe(false);
+    expect(acceptProtocolHeaders(headers('2', 'invalid', '2'))).toBe(false);
+    expect(acceptProtocolHeaders(headers('2', '2', 'invalid'))).toBe(false);
+    expect(acceptProtocolHeaders(headers('3', '2', '3'))).toBe(false);
+    expect(acceptProtocolHeaders(headers('2', '3', '3'))).toBe(false);
+    expect(acceptProtocolHeaders(headers('2', '1', '1'))).toBe(false);
+  });
+
   it('rejects legacy WAITING and auto-PLACEMENT snapshots', () => {
     expect(
       isCompatibleGameSnapshot({
@@ -147,13 +211,118 @@ describe('game protocol compatibility', () => {
         }
       })
     ).toBe(false);
+
+    const invalidBalances = [
+      null,
+      { ...currentSnapshot.balance, manifest: null },
+      { ...currentSnapshot.balance, rulesetVersion: 1.5 },
+      { ...currentSnapshot.balance, checksum: 3 },
+      {
+        ...currentSnapshot.balance,
+        manifest: { ...currentSnapshot.balance.manifest, schemaVersion: 2 }
+      },
+      {
+        ...currentSnapshot.balance,
+        manifest: { ...currentSnapshot.balance.manifest, boardSize: 9.5 }
+      },
+      {
+        ...currentSnapshot.balance,
+        manifest: { ...currentSnapshot.balance.manifest, boardSize: 4 }
+      },
+      {
+        ...currentSnapshot.balance,
+        manifest: { ...currentSnapshot.balance.manifest, boardSize: 21 }
+      },
+      {
+        ...currentSnapshot.balance,
+        manifest: { ...currentSnapshot.balance.manifest, fleet: null }
+      },
+      {
+        ...currentSnapshot.balance,
+        manifest: { ...currentSnapshot.balance.manifest, fleet: [] }
+      },
+      {
+        ...currentSnapshot.balance,
+        manifest: { ...currentSnapshot.balance.manifest, consecutiveTimeoutForfeit: 2.5 }
+      }
+    ];
+    for (const balance of invalidBalances) {
+      expect(isCompatibleGameSnapshot({ ...currentSnapshot, balance })).toBe(false);
+    }
+  });
+
+  it('rejects malformed snapshot identity, state, and player fields', () => {
+    const invalidSnapshots = [
+      null,
+      { ...currentSnapshot, protocolVersion: 3 },
+      { ...currentSnapshot, room: null },
+      { ...currentSnapshot, room: { status: 'UNKNOWN' } },
+      { ...currentSnapshot, roomId: 3 },
+      { ...currentSnapshot, roomState: 3 },
+      { ...currentSnapshot, hostPlayerId: 3 },
+      { ...currentSnapshot, gameId: 3 },
+      { ...currentSnapshot, canStartGame: 'false' },
+      { ...currentSnapshot, roomVersion: '1' },
+      { ...currentSnapshot, players: null }
+    ];
+    for (const snapshot of invalidSnapshots) {
+      expect(isCompatibleGameSnapshot(snapshot)).toBe(false);
+    }
+  });
+
+  it('accepts only delayed, bounded spectator projections without hidden fleet fields', () => {
+    expect(isCompatibleSpectatorSnapshot(currentSpectatorSnapshot)).toBe(true);
+    const invalidSnapshots = [
+      null,
+      { ...currentSpectatorSnapshot, protocolVersion: 3 },
+      { ...currentSpectatorSnapshot, room: null },
+      { ...currentSpectatorSnapshot, room: { status: 'UNKNOWN' } },
+      { ...currentSpectatorSnapshot, balance: null },
+      { ...currentSpectatorSnapshot, phase: 'UNKNOWN' },
+      { ...currentSpectatorSnapshot, delaySeconds: 15.5 },
+      { ...currentSpectatorSnapshot, delaySeconds: 14 },
+      { ...currentSpectatorSnapshot, players: null },
+      { ...currentSpectatorSnapshot, players: [{}] },
+      { ...currentSpectatorSnapshot, timeline: null },
+      { ...currentSpectatorSnapshot, ownBoard: [] },
+      { ...currentSpectatorSnapshot, targetBoard: [] },
+      { ...currentSpectatorSnapshot, revealedBoard: [] },
+      { ...currentSpectatorSnapshot, placement: [] },
+      { ...currentSpectatorSnapshot, pendingPlacements: [] }
+    ];
+    for (const snapshot of invalidSnapshots) {
+      expect(isCompatibleSpectatorSnapshot(snapshot)).toBe(false);
+    }
   });
 
   it('rejects unknown WebSocket envelopes before state mutation', () => {
+    expect(isCompatibleProtocolEnvelope(null)).toBe(false);
+    expect(isCompatibleServerEvent(null)).toBe(false);
     expect(isCompatibleServerEvent({ type: 'root:override', payload: {} })).toBe(false);
+    expect(isCompatibleServerEvent({ type: 'heartbeat' })).toBe(false);
+    expect(isCompatibleServerEvent({ type: 'heartbeat', payload: null })).toBe(false);
     expect(isCompatibleServerEvent({ type: 'heartbeat', payload: { serverTime: 'now' } })).toBe(
       true
     );
     expect(isCompatibleServerEvent({ type: 'game:snapshot', payload: currentSnapshot })).toBe(true);
+    expect(isCompatibleServerEvent({ type: 'game:snapshot', payload: {} })).toBe(false);
+    expect(
+      isCompatibleServerEvent({
+        type: 'room:created',
+        payload: { inviteUrl: '/join/ABC123', snapshot: currentSnapshot }
+      })
+    ).toBe(true);
+    expect(
+      isCompatibleServerEvent({
+        type: 'room:created',
+        payload: { inviteUrl: 3, snapshot: currentSnapshot }
+      })
+    ).toBe(false);
+    expect(
+      isCompatibleServerEvent({
+        type: 'room:created',
+        payload: { inviteUrl: '/join/ABC123', snapshot: {} }
+      })
+    ).toBe(false);
   });
 });

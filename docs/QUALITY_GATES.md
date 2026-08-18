@@ -11,7 +11,7 @@ source, command, owner, threshold, golden, corpus seed, risk target, known-gap r
 | ----------------- | ------------------- | --------------------------------------------- | ------------------------------------------------------------------------------------------------ |
 | Component         | Web experience      | Four lobby presentation-state tests           | Any behavior test fails or the minimum drops below four                                          |
 | Accessibility     | Web experience      | WCAG 2.2 AA browser flow                      | Any axe violation across at least 12 audited states                                              |
-| Visual regression | Web experience      | Four approved desktop/mobile Chromium goldens | More than 1% changed pixels at a 0.2 pixel threshold                                             |
+| Visual regression | Web experience      | Eight approved desktop/mobile Chromium goldens | More than 1% changed pixels at a 0.2 pixel threshold                                             |
 | Property          | Game integrity      | 4,096 placements, 256 attack permutations     | Any boundary, uniqueness, hit-accounting, or terminal-state invariant fails                      |
 | Fuzz              | Service platform    | 20-second seeded libFuzzer run                | Any crash, sanitizer finding, or two-second input timeout                                        |
 | Load              | Service platform    | Eight-VU authenticated HTTP/WebSocket journey | Failure rate ≥1%, p95 ≥250 ms, or p99 ≥600 ms                                                    |
@@ -40,7 +40,7 @@ not execute browser event handlers. Vitest emits text, LCOV, and JSON summaries 
 same values itself.
 
 `npm run test:coverage:rust` runs all Rust tests serially under `cargo-llvm-cov` and emits a JSON
-summary. CI supplies mandatory PostgreSQL and Redis URLs, so the twelve service-backed tests cannot
+summary. CI supplies mandatory PostgreSQL and Redis URLs, so the thirteen service-backed tests cannot
 silently skip. The registry requires at least 60% total line and function coverage plus individual
 floors for the API/router/safety boundary, immutable balance, board/game/matchmaking/room rules,
 protocol parsing, rate limiting, and the memory authority implementation. A global number alone
@@ -59,8 +59,8 @@ Both gaps have an owner, compensating suite, and September 17, 2026 review date 
 New gaps require the same fields; removing a gap requires a report proving the behavior is now
 measured.
 
-The August 18, 2026 web reference passed at 94.93% statements, 90.88% branches, 91.76%
-functions, and 97.19% lines. The service-free Rust reference passed at 65.34% lines and 65.49%
+The August 19, 2026 web reference passed at 97.58% statements, 93.43% branches, 96.25%
+functions, and 99.20% lines. The service-free Rust reference passed at 64.98% lines and 65.49%
 functions before CI adds real PostgreSQL/Redis execution. The same-day eight-VU load reference
 completed 797 authenticated HTTP/WebSocket journeys with 3,993/3,993 checks, zero request or
 workflow failures, and a 2.25 ms critical-API p95 against the 250 ms limit. The PostgreSQL-reset
