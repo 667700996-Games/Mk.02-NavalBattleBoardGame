@@ -314,6 +314,13 @@ impl GameStore for MemoryStore {
             .map(|session| (session.id, session.token_hash.clone()))
             .collect();
         let session_ids: Vec<_> = sessions.iter().map(|(id, _)| *id).collect();
+        let deleted_names: Vec<_> = std::iter::once(account.handle.clone())
+            .chain(sessions.iter().filter_map(|(_, token_hash)| {
+                self.sessions_by_hash
+                    .get(token_hash)
+                    .map(|session| session.nickname.clone())
+            }))
+            .collect();
         let mut identities = session_ids.clone();
         identities.push(account_id);
         let affected_room_ids: Vec<_> = self
@@ -345,28 +352,11 @@ impl GameStore for MemoryStore {
                 let belongs_to_deleted_player = message
                     .player_id
                     .is_some_and(|player_id| deleted_player_ids.contains(&player_id))
-                    || message.nickname == account.handle
-                    || sessions
-                        .iter()
-                        .filter_map(|(session_id, _)| {
-                            self.session_hash_by_id
-                                .get(session_id)
-                                .and_then(|hash| self.sessions_by_hash.get(hash.value()))
-                                .map(|session| session.nickname == message.nickname)
-                        })
-                        .any(|matches| matches);
-                for deleted_name in std::iter::once(&account.handle).chain(sessions.iter().filter_map(
-                    |(session_id, _)| {
-                        self.session_hash_by_id
-                            .get(session_id)
-                            .and_then(|hash| self.sessions_by_hash.get(hash.value()))
-                            .map(|session| session.nickname.clone())
-                    },
-                )) {
+                    || deleted_names.contains(&message.nickname);
+                for deleted_name in &deleted_names {
                     message.content = message.content.replace(deleted_name, "Deleted Commander");
                 }
-                if belongs_to_deleted_player
-                {
+                if belongs_to_deleted_player {
                     message.nickname = "Deleted Commander".to_string();
                     if message.message_type == ChatMessageType::Text {
                         message.content = "[deleted]".to_string();

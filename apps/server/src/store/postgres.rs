@@ -325,6 +325,20 @@ impl GameStore for PostgresRedisStore {
         .bind(next_token_hash)
         .execute(&mut *transaction)
         .await?;
+        sqlx::query(
+            "UPDATE game_result_participants SET account_id=$2 WHERE session_id=$1 AND account_id IS NULL",
+        )
+        .bind(session_id)
+        .bind(account.id)
+        .execute(&mut *transaction)
+        .await?;
+        sqlx::query(
+            "UPDATE game_results SET participant_account_ids=array_append(participant_account_ids,$2) WHERE $1=ANY(participant_session_ids) AND NOT ($2=ANY(participant_account_ids))",
+        )
+        .bind(session_id)
+        .bind(account.id)
+        .execute(&mut *transaction)
+        .await?;
         transaction.commit().await?;
         Ok(())
     }

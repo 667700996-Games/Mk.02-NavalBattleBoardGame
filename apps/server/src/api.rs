@@ -22,12 +22,12 @@ use crate::{
     domain::{GameSnapshot, IntegritySignalPage, ModerationCasePage, PlayerProgression},
     error::GameError,
     protocol::{
-        AccountLoginInput, AccountSessionsResponse, AccountUpgradeInput, AccountUpgradeResponse,
-        CreatePracticeInput, CreateRoomInput, CreateSessionInput, HealthResponse,
-        IntegritySignalQuery, JoinRoomInput, MatchmakingResponse, ModerationActionInput,
-        ModerationActionResponse, ModerationReportQuery, PlayerReportInput, PlayerReportResponse,
-        RoomCreatedResponse, RoomListResponse, SessionResponse, SocialRelationshipInput,
-        SocialRelationshipsResponse,
+        AccountDeletionInput, AccountDeletionResponse, AccountLoginInput, AccountSessionsResponse,
+        AccountUpgradeInput, AccountUpgradeResponse, CreatePracticeInput, CreateRoomInput,
+        CreateSessionInput, HealthResponse, IntegritySignalQuery, JoinRoomInput,
+        MatchmakingResponse, ModerationActionInput, ModerationActionResponse,
+        ModerationReportQuery, PlayerReportInput, PlayerReportResponse, RoomCreatedResponse,
+        RoomListResponse, SessionResponse, SocialRelationshipInput, SocialRelationshipsResponse,
     },
     store::GameHistoryItem,
 };
@@ -40,6 +40,8 @@ pub fn router() -> Router<AppState> {
         .route("/sessions", post(create_session))
         .route("/accounts/upgrade", post(upgrade_account))
         .route("/accounts/login", post(login_account))
+        .route("/accounts", delete(delete_account))
+        .route("/accounts/export", get(export_account_data))
         .route("/accounts/sessions", get(account_sessions))
         .route(
             "/accounts/sessions/{session_id}",
@@ -243,6 +245,37 @@ async fn account_sessions(
         current_session_id: session.id,
         sessions: state.account_sessions(&session).await?,
     }))
+}
+
+async fn export_account_data(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, GameError> {
+    let session = authenticate(&state, &jar, &headers).await?;
+    Ok(Json(state.export_account_data(&session).await?))
+}
+
+async fn delete_account(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+    input: Result<Json<AccountDeletionInput>, JsonRejection>,
+) -> Result<impl IntoResponse, GameError> {
+    let input = parse_json(input)?;
+    let session = authenticate(&state, &jar, &headers).await?;
+    let (request_id, deleted_at, stats) = state
+        .delete_account(&session, input.recovery_key, input.confirmation)
+        .await?;
+    let removal_cookie = Cookie::build(("mk01_session", "")).path("/").build();
+    Ok((
+        jar.remove(removal_cookie),
+        Json(AccountDeletionResponse {
+            request_id,
+            deleted_at,
+            stats,
+        }),
+    ))
 }
 
 async fn revoke_account_session(

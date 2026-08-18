@@ -55,6 +55,21 @@ pub struct AccountSessionsResponse {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AccountDeletionInput {
+    pub recovery_key: String,
+    pub confirmation: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountDeletionResponse {
+    pub request_id: Uuid,
+    pub deleted_at: DateTime<Utc>,
+    pub stats: crate::store::AccountDeletionStats,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SocialRelationshipInput {
     pub room_id: Uuid,
     pub target_player_id: Uuid,

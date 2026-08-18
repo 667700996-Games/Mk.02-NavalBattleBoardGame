@@ -58,8 +58,8 @@ use crate::{
     protocol::{CreateRoomInput, ProtocolError, ServerEvent},
     rate_limit::FixedWindowRateLimiter,
     store::{
-        GameHistoryItem, GameStore, MatchmakingQueueStats, MemoryStore, MissionReward,
-        PostgresRedisStore,
+        AccountDeletionStats, GameHistoryItem, GameStore, MatchmakingQueueStats, MemoryStore,
+        MissionReward, PostgresRedisStore,
     },
     ws,
 };
@@ -886,6 +886,113 @@ impl AppState {
         self.store
             .sessions_for_account(session.account_id.ok_or(GameError::Unauthorized)?)
             .await
+    }
+
+    pub async fn export_account_data(
+        &self,
+        session: &UserSession,
+    ) -> Result<serde_json::Value, GameError> {
+        let account_id = session.account_id.ok_or(GameError::Unauthorized)?;
+        let request_id = Uuid::new_v4();
+        let generated_at = Utc::now();
+        let subject_fingerprint = hash_token(&format!("{account_id}:{request_id}"));
+        self.store
+            .export_account_data(account_id, request_id, &subject_fingerprint, generated_at)
+            .await
+    }
+
+    pub async fn delete_account(
+        &self,
+        session: &UserSession,
+        recovery_key: String,
+        confirmation: String,
+    ) -> Result<(Uuid, chrono::DateTime<Utc>, AccountDeletionStats), GameError> {
+        let account_id = session.account_id.ok_or(GameError::Unauthorized)?;
+        if confirmation != "DELETE"
+            || recovery_key.len() != 43
+            || !recovery_key
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
+        {
+            return Err(GameError::InvalidRequest);
+        }
+        self.store
+            .account_by_credentials(account_id, &hash_token(&recovery_key))
+            .await?
+            .ok_or(GameError::Unauthorized)?;
+
+        let account_sessions = self.store.sessions_for_account(account_id).await?;
+        let session_ids: HashSet<_> = account_sessions.iter().map(|item| item.id).collect();
+        let mut known_room_ids: HashSet<_> = account_sessions
+            .iter()
+            .filter_map(|item| item.current_room_id)
+            .collect();
+        let cached_rooms: Vec<_> = self
+            .rooms
+            .iter()
+            .map(|entry| (*entry.key(), entry.value().clone()))
+            .collect();
+        for (room_id, room) in cached_rooms {
+            if room
+                .lock()
+                .await
+                .players
+                .iter()
+                .any(|player| session_ids.contains(&player.session_id))
+            {
+                known_room_ids.insert(room_id);
+            }
+        }
+
+        for account_session in &account_sessions {
+            let _ = self.cancel_matchmaking(account_session.id).await;
+            if let Some(room_id) = account_session.current_room_id {
+                let session_to_remove = UserSession {
+                    id: account_session.id,
+                    account_id: Some(account_id),
+                    nickname: account_session.nickname.clone(),
+                    token_hash: String::new(),
+                    created_at: account_session.created_at,
+                    last_seen_at: account_session.last_seen_at,
+                    current_room_id: Some(room_id),
+                };
+                match self.leave_room(&session_to_remove, room_id).await {
+                    Ok(room) => {
+                        self.broadcast_snapshots(&room, SnapshotEvent::PlayerLeft)
+                            .await;
+                        self.broadcast_latest_chat_message(&room).await;
+                    }
+                    Err(GameError::RoomNotFound) => {
+                        self.store
+                            .update_session_room(account_session.id, None)
+                            .await?;
+                    }
+                    Err(error) => return Err(error),
+                }
+            }
+            self.close_session_everywhere(account_session.id, GameError::Unauthorized)
+                .await;
+        }
+
+        let request_id = Uuid::new_v4();
+        let deleted_at = Utc::now();
+        let subject_fingerprint = hash_token(&format!("{account_id}:{request_id}"));
+        let known_room_ids: Vec<_> = known_room_ids.into_iter().collect();
+        let stats = self
+            .store
+            .delete_account_data(
+                account_id,
+                request_id,
+                &subject_fingerprint,
+                &known_room_ids,
+                deleted_at,
+            )
+            .await?;
+        for room_id in known_room_ids {
+            self.rooms.remove(&room_id);
+            self.cancel_turn_expiry(room_id);
+        }
+        Ok((request_id, deleted_at, stats))
     }
 
     pub async fn progression(&self, session: &UserSession) -> Result<PlayerProgression, GameError> {
