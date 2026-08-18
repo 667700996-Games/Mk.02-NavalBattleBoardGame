@@ -24,7 +24,8 @@ a new forward migration.
 - Run migrations before the canary starts and record their versions in the release evidence.
 - Balance rulesets are append-only catalog rows. Never update/delete an old manifest or reuse its
   version/checksum; follow `BALANCE_VERSIONING.md` and drain active rooms before changing current.
-- Execute PostgreSQL/Redis integration tests and the active-match rolling-replacement test.
+- Execute `npm run test:distributed`; CI requires real PostgreSQL/Redis URLs, serializes the suite,
+  and retains its post-test `--verify-restore` report as described in `DISTRIBUTED_INTEGRATION.md`.
 - Hold the canary while stable and candidate instances both read/write the expanded schema.
 - Abort on migration error, lock/replication SLO breach, stale room commit, or snapshot decode error.
 - Roll back application artifacts first. Database rollback is a forward fix unless an independently

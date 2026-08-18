@@ -302,7 +302,7 @@ The program is complete only when all gates below are satisfied in a production-
 
 - [x] CI runs formatting, linting, type checks, unit, integration, contract, E2E, build, audit, and
       artifact checks on every change.
-- [ ] PostgreSQL and Redis integration tests exercise migrations, recovery, cache failure, and
+- [x] PostgreSQL and Redis integration tests exercise migrations, recovery, cache failure, and
       concurrent writes.
 - [x] Full matches run on Chromium, Firefox, WebKit, and supported mobile profiles.
 - [ ] Component, accessibility, visual-regression, property, fuzz, load, soak, and chaos suites have
@@ -311,8 +311,12 @@ The program is complete only when all gates below are satisfied in a production-
 - Evidence: the service-backed integration suite applies embedded migrations, races revision-CAS
   writes, fences stale owners, completes distributed matchmaking atomically, fans events between
   two Redis-backed instances, recovers an active match through instance replacement, and proves
-  PostgreSQL remains authoritative when the optional Redis cache cannot connect. This gate remains
-  open until the corrected suite passes in CI with real PostgreSQL and Redis services.
+  PostgreSQL remains authoritative when the optional Redis cache cannot connect. The dedicated CI
+  job uses health-checked PostgreSQL 16 and Redis 7 containers, requires both URLs so no test can
+  silently skip, serializes the eleven shared-database cases, and blocks browser and backup jobs.
+  Its post-suite restore verifier checks all 18 migrations and retained snapshots, then uploads a
+  90-day JSON evidence artifact. `DISTRIBUTED_INTEGRATION.md` fixes the local reproduction, covered
+  boundaries, acceptance rules, and failure triage.
 
 ### E3. Release and service operations
 

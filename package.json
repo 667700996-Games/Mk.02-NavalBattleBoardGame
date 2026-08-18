@@ -22,6 +22,7 @@
     "lint": "cargo fmt --all -- --check && cargo clippy --workspace --all-targets -- -D warnings && npm run migrations:check && npm run security:drill && npm run observability:check && npm run fonts:check && npm --workspace @mk01/web run lint",
     "format": "cargo fmt --all && npm --workspace @mk01/web run format",
     "test": "npm run contract && cargo test --workspace && npm --workspace @mk01/web run test:unit",
+    "test:distributed": "cargo test -p mk01-server --test distributed_postgres -- --test-threads=1",
     "test:a11y": "npm --workspace @mk01/web run test:a11y",
     "test:e2e": "npm --workspace @mk01/web run test:e2e",
     "test:performance": "npm --workspace @mk01/web run test:performance"

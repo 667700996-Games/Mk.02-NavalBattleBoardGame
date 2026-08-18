@@ -12,6 +12,30 @@ concurrency:
 jobs:
   quality:
     runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.87"
+          components: rustfmt, clippy
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - run: npm run contract
+      - run: npm run lint
+      - run: npm run test
+      - run: npm run build
+      - run: npm run budget
+      - run: npm audit --audit-level=moderate
+
+  postgres-redis-integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
     services:
       postgres:
         image: postgres:16-alpine
@@ -38,49 +62,57 @@ jobs:
     env:
       TEST_DATABASE_URL: postgres://mk01:mk01@127.0.0.1:5432/mk01_test
       TEST_REDIS_URL: redis://127.0.0.1:6379/
+      REQUIRE_DISTRIBUTED_INTEGRATION: "true"
     steps:
       - uses: actions/checkout@v6
         with:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: '1.87'
-          components: rustfmt, clippy
+          toolchain: "1.87"
       - uses: actions/setup-node@v6
         with:
-          node-version: '22'
-          cache: npm
-      - run: npm ci
-      - run: npm run check
-      - run: npm run contract
-      - run: npm run lint
-      - run: npm run test
-      - run: npm run build
-      - run: npm run budget
-      - run: npm audit --audit-level=moderate
+          node-version: "22"
+      - name: Run serialized service-backed integration suite
+        run: npm run test:distributed
+      - name: Verify migrated database and preserved snapshots
+        env:
+          DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
+          STORAGE_MODE: postgres
+        run: |
+          mkdir -p .artifacts
+          cargo run -p mk01-server -- --verify-restore | tee .artifacts/distributed-database-verification.json
+          expected_migrations="$(awk 'NF { count += 1 } END { print count }' apps/server/migrations/checksums.sha256)"
+          jq -e --argjson expected "$expected_migrations" '.migrationsApplied == $expected and .rooms > 0 and .results > 0 and .balanceRulesets >= 1' .artifacts/distributed-database-verification.json
+      - uses: actions/upload-artifact@v6
+        with:
+          name: postgres-redis-integration-${{ github.sha }}
+          path: .artifacts/distributed-database-verification.json
+          retention-days: 90
+          if-no-files-found: error
 
   e2e:
     runs-on: ubuntu-latest
-    needs: quality
+    needs: [quality, postgres-redis-integration]
     steps:
       - uses: actions/checkout@v6
         with:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: '1.87'
+          toolchain: "1.87"
       - uses: actions/setup-node@v6
         with:
-          node-version: '22'
+          node-version: "22"
           cache: npm
       - run: npm ci
       - run: npx playwright install --with-deps chromium firefox webkit
       - run: npm run test:e2e
         env:
-          CI: 'true'
+          CI: "true"
       - run: npm run test:performance
         env:
-          CI: 'true'
+          CI: "true"
 
   observability-config:
     runs-on: ubuntu-latest
@@ -103,7 +135,7 @@ jobs:
 
   backup-restore-drill:
     runs-on: ubuntu-latest
-    needs: quality
+    needs: [quality, postgres-redis-integration]
     services:
       postgres:
         image: postgres:16-alpine
@@ -127,7 +159,7 @@ jobs:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: '1.87'
+          toolchain: "1.87"
       - name: Install PostgreSQL and GPG clients
         run: sudo apt-get update && sudo apt-get install -y postgresql-client gnupg
       - name: Build maintenance binary and seed a migration-complete source

@@ -225,10 +225,13 @@ or an unexpected reward is a correctness incident.
 The complete field bounds, CLI commands, scheduling semantics, review checklist, kill switches, and
 rollback procedure are in `LIVE_CONTENT_OPERATIONS.md`.
 
-CI's `rolling_instance_replacement_recovers_and_advances_an_active_match` test is the automated
-precondition for this drill: it writes an active match through one instance, marks a player
-disconnected, creates a replacement instance from the shared stores, reconnects inside the SLO,
-checks hidden-state filtering and protocol continuity, and commits the next authoritative attack.
+CI's fail-closed `postgres-redis-integration` job is the automated precondition for this drill. It
+uses health-checked real services, refuses missing URLs, runs the shared-database suite serially,
+and retains the post-suite database-verification artifact for 90 days. Its
+`rolling_instance_replacement_recovers_and_advances_an_active_match` test writes an active match
+through one instance, marks a player disconnected, creates a replacement instance from the shared
+stores, reconnects inside the SLO, checks hidden-state filtering and protocol continuity, and
+commits the next authoritative attack.
 The staging termination drill remains the required infrastructure-level proof before promotion.
 
 ## Dependency-failure drills

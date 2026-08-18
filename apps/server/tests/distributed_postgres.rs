@@ -26,10 +26,15 @@ use tokio::sync::mpsc;
 use uuid::Uuid;
 
 fn integration_urls() -> Option<(String, String)> {
-    Some((
-        std::env::var("TEST_DATABASE_URL").ok()?,
-        std::env::var("TEST_REDIS_URL").ok()?,
-    ))
+    let database_url = std::env::var("TEST_DATABASE_URL").ok();
+    let redis_url = std::env::var("TEST_REDIS_URL").ok();
+    let required = std::env::var("REQUIRE_DISTRIBUTED_INTEGRATION")
+        .is_ok_and(|value| matches!(value.as_str(), "1" | "true" | "TRUE"));
+    assert!(
+        !required || (database_url.is_some() && redis_url.is_some()),
+        "REQUIRE_DISTRIBUTED_INTEGRATION requires TEST_DATABASE_URL and TEST_REDIS_URL; refusing to skip the service-backed suite"
+    );
+    database_url.zip(redis_url)
 }
 
 fn session(nickname: &str) -> UserSession {
