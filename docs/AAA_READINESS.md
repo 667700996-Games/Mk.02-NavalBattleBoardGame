@@ -96,7 +96,7 @@ The program is complete only when all gates below are satisfied in a production-
 - [x] Secrets come from a managed secret store and never from committed/default production values.
 - [x] Dependency, license, secret, SAST, container, and infrastructure scans gate releases.
 - [x] Threat models cover account, room, WebSocket, matchmaking, moderation, and admin surfaces.
-- [ ] A vulnerability response runbook, ownership, severity model, and patch SLO are exercised.
+- [x] A vulnerability response runbook, ownership, severity model, and patch SLO are exercised.
 
 ### B4. Data lifecycle
 

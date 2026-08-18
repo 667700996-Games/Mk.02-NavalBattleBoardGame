@@ -1,0 +1,96 @@
+{
+  "schemaVersion": 1,
+  "id": "VRD-2026-08-18-01",
+  "exerciseType": "AUTOMATED_TABLETOP",
+  "title": "Stolen session token used against room WebSocket",
+  "scenario": "A valid player session token is observed from a new network and used to open a room WebSocket while the real player is active. No recovery-key or database compromise is assumed.",
+  "severity": "SEV-1",
+  "severityReason": "A stolen credential can expose personalized room state and may alter an authoritative match; hidden-information or winner integrity impact is SEV-1.",
+  "productionChange": false,
+  "owners": {
+    "incidentCommander": "repository-maintainer-on-call",
+    "securityLead": "application-security-owner",
+    "operationsLead": "service-operations-owner",
+    "gameIntegrityLead": "authoritative-gameplay-owner",
+    "communicationsLead": "player-support-owner"
+  },
+  "timeline": [
+    {
+      "phase": "DETECTED",
+      "at": "2026-08-18T00:00:00Z",
+      "evidence": "Synthetic alert: concurrent use of one session fingerprint from two networks."
+    },
+    {
+      "phase": "ACKNOWLEDGED",
+      "at": "2026-08-18T00:20:00Z",
+      "evidence": "SEV-1 declared, restricted record opened, five response roles assigned."
+    },
+    {
+      "phase": "MITIGATED",
+      "at": "2026-08-18T02:30:00Z",
+      "evidence": "Affected account sessions revoked, socket closed, matchmaking paused for the synthetic cohort, room revision preserved."
+    },
+    {
+      "phase": "PATCH_DEPLOYED",
+      "at": "2026-08-18T08:00:00Z",
+      "evidence": "Synthetic patch passed credential, origin, revocation and full-game regression gates and met the canary decision checklist."
+    },
+    {
+      "phase": "CLOSED",
+      "at": "2026-08-18T10:30:00Z",
+      "evidence": "No production exposure occurred; tabletop gaps and follow-ups were assigned."
+    }
+  ],
+  "controlsValidated": [
+    "evidence-preservation",
+    "credential-revocation",
+    "game-integrity-assessment",
+    "regression-test",
+    "canary-and-rollback",
+    "player-communication",
+    "postmortem"
+  ],
+  "controlEvidence": [
+    {
+      "control": "credential-revocation",
+      "command": "cargo test -p mk01-server --test api_flow guest_upgrade_login_session_listing_and_remote_revocation_preserve_identity",
+      "outcome": "PASSED"
+    },
+    {
+      "control": "regression-test",
+      "command": "cargo test -p mk01-server websocket_origin_must_be_allowlisted_or_use_bearer_auth",
+      "outcome": "PASSED"
+    },
+    {
+      "control": "game-integrity-assessment",
+      "command": "playwright test e2e/full-game.spec.ts --project=chromium --project=firefox --project=webkit --project=mobile-chrome --project=mobile-safari",
+      "outcome": "PASSED"
+    },
+    {
+      "control": "canary-and-rollback",
+      "command": "Automated tabletop decision checklist",
+      "outcome": "PASSED"
+    }
+  ],
+  "followUps": [
+    {
+      "id": "VRD-1",
+      "owner": "service-operations-owner",
+      "dueAt": "2026-09-30T00:00:00Z",
+      "status": "OPEN",
+      "action": "Run a human staging drill that proves pager delivery and role handoff."
+    },
+    {
+      "id": "VRD-2",
+      "owner": "player-support-owner",
+      "dueAt": "2026-09-30T00:00:00Z",
+      "status": "OPEN",
+      "action": "Exercise the private player-notification and status-page approval path."
+    }
+  ],
+  "limitations": [
+    "No production credential, player data, pager or public status channel was used.",
+    "Human paging, role handoff and external communication remain quarterly staging exercises."
+  ],
+  "result": "PASS"
+}

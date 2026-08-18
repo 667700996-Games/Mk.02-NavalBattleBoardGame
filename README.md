@@ -282,9 +282,11 @@ POSTGRES_PASSWORD='replace-this-local-password' docker compose up --build
 - DB/Redis 오류는 구조화 로그에만 원인을 남기고, 클라이언트에는 안전한 오류 코드와 추적 UUID만 보냅니다.
 - E2E는 모든 수신 WebSocket 프레임을 감사해 `targetBoard.ships`/`sessionId`가 없음을 확인합니다.
 
-취약점 제보 절차는 [SECURITY.md](SECURITY.md)를 참조하세요. SLO, 경보, 캐나리,
-의존성 장애, 백업 복구 훈련은 [운영 런북](docs/OPERATIONS.md)에서, 세션·채팅·
-리플레이·백업 보존은 [데이터 수명주기 정책](docs/DATA_LIFECYCLE.md)에서 관리합니다.
+취약점 제보 절차는 [SECURITY.md](SECURITY.md), 역할·심각도·패치 SLO·증거·훈련은
+[취약점 대응 런북](docs/VULNERABILITY_RESPONSE.md)을 참조하세요. 서비스 SLO, 경보,
+캐나리, 의존성 장애, 백업 복구 훈련은 [운영 런북](docs/OPERATIONS.md)에서,
+세션·채팅·리플레이·백업 보존은 [데이터 수명주기 정책](docs/DATA_LIFECYCLE.md)에서
+관리합니다.
 
 ## 테스트와 품질 검사
 
@@ -293,6 +295,7 @@ npm run check       # Rust check + Svelte/TypeScript check
 npm run lint        # rustfmt + clippy -D warnings + Prettier + ESLint
 npm run test        # Rust unit/integration + Vitest
 npm run contract    # Rust/TypeScript 버전·이벤트·생성 매니페스트 일치
+npm run security:drill # 취약점 대응 역할·타임라인·패치 SLO·증거 검증
 npx playwright install chromium firefox webkit
 npm run test:e2e    # Chromium/Firefox/WebKit 전체 경기 + 모바일 2종
 npm run build       # Rust release + SvelteKit adapter-node
@@ -301,9 +304,10 @@ npm run budget      # JS/CSS/WOFF2 파일·총량 제한과 기존 WOFF 차단
 
 Rust 테스트는 대기실 상태 머신, 멱등성, 버전 충돌, 배치, AI의 결정적·비반복 공격, 공격/만료 경쟁, 재시작 복구, 채팅 검증과 공개 정보 필터를 검증합니다. CI의 PostgreSQL/Redis 통합 테스트는 동시 CAS 쓰기에서 단 하나만 성공함, 권위 임대 만료 후 인수와 오래 멈춘 소유자의 펜싱, 분산 매칭의 원자적 확정, 두 AppState 사이 Pub/Sub 이벤트 전달을 검증합니다. Playwright는 Chromium·Firefox·WebKit과 Pixel 7·iPhone 13 프로필에서 독립 브라우저 2개의 전체 경기·변조 요청 거절·새로고침 복구·숨은 정보 비노출을 검증하고, 문서 CSP 아래의 실제 hydration과 모바일 오버플로를 검사합니다.
 
-Security workflow는 Rust·JavaScript/TypeScript·GitHub Actions CodeQL, PR 의존성 심사,
-RustSec/cargo-deny, 저장소·비밀·라이선스·Docker/IaC Trivy 스캔을 독립적으로
-실행합니다. Dependabot은 Cargo, npm, GitHub Actions, Docker 업데이트를 주간 점검합니다.
+Security workflow는 취약점 대응 모의훈련, Rust·JavaScript/TypeScript·GitHub Actions
+CodeQL, PR 의존성 심사, RustSec/cargo-deny, 저장소·비밀·라이선스·Docker/IaC Trivy
+스캔을 독립적으로 실행합니다. Dependabot은 Cargo, npm, GitHub Actions, Docker
+업데이트를 주간 점검합니다.
 
 ## 프로덕션 빌드·배포
 

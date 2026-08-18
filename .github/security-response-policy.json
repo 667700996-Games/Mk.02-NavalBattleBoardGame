@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "requiredRoles": [
+    "incidentCommander",
+    "securityLead",
+    "operationsLead",
+    "gameIntegrityLead",
+    "communicationsLead"
+  ],
+  "requiredTimelinePhases": [
+    "DETECTED",
+    "ACKNOWLEDGED",
+    "MITIGATED",
+    "PATCH_DEPLOYED",
+    "CLOSED"
+  ],
+  "requiredControls": [
+    "evidence-preservation",
+    "credential-revocation",
+    "game-integrity-assessment",
+    "regression-test",
+    "canary-and-rollback",
+    "player-communication",
+    "postmortem"
+  ],
+  "severities": {
+    "SEV-1": { "acknowledgeMinutes": 60, "mitigateMinutes": 240, "patchMinutes": 1440 },
+    "SEV-2": { "acknowledgeMinutes": 240, "mitigateMinutes": 1440, "patchMinutes": 4320 },
+    "SEV-3": { "acknowledgeMinutes": 1440, "mitigateMinutes": 7200, "patchMinutes": 20160 },
+    "SEV-4": { "acknowledgeMinutes": 7200, "mitigateMinutes": 20160, "patchMinutes": 43200 }
+  }
+}
