@@ -31,6 +31,8 @@ pub struct Settings {
     pub completed_room_retention: Duration,
     pub matchmaking_entry_ttl: Duration,
     pub retention_sweep_interval: Duration,
+    pub moderation_retention: Duration,
+    pub integrity_signal_retention: Duration,
     pub trust_proxy_headers: bool,
     pub distributed_coordination_required: bool,
     pub admin_token_hash: Option<String>,
@@ -112,6 +114,14 @@ impl Settings {
             retention_sweep_interval: Duration::from_secs(
                 env_u64("RETENTION_SWEEP_INTERVAL_SECONDS", 60 * 60).max(60),
             ),
+            moderation_retention: Duration::from_secs(env_u64(
+                "MODERATION_RETENTION_SECONDS",
+                60 * 60 * 24 * 365,
+            )),
+            integrity_signal_retention: Duration::from_secs(env_u64(
+                "INTEGRITY_SIGNAL_RETENTION_SECONDS",
+                60 * 60 * 24 * 180,
+            )),
             trust_proxy_headers: env_bool("TRUST_PROXY_HEADERS", false),
             distributed_coordination_required: env_bool("DISTRIBUTED_COORDINATION_REQUIRED", false),
             admin_token_hash: admin_token.as_deref().map(hash_secret),

@@ -42,6 +42,8 @@ fn test_settings() -> Settings {
         completed_room_retention: Duration::from_secs(60 * 60 * 24 * 90),
         matchmaking_entry_ttl: Duration::from_secs(600),
         retention_sweep_interval: Duration::from_secs(3_600),
+        moderation_retention: Duration::from_secs(60 * 60 * 24 * 365),
+        integrity_signal_retention: Duration::from_secs(60 * 60 * 24 * 180),
         trust_proxy_headers: false,
         distributed_coordination_required: false,
         admin_token_hash: Some(hash_token("integration-admin-token-32-characters-long")),

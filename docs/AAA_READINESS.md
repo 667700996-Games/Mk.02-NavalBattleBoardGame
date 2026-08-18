@@ -77,14 +77,18 @@ The program is complete only when all gates below are satisfied in a production-
 - [x] Players can mute, block, and report chat, names, and gameplay behavior.
 - [x] Operators can search evidence, warn, suspend, ban, reverse actions, and audit every action.
 - [x] Name/chat policy, spam controls, evasion handling, and appeal workflow are defined.
-- [ ] Anti-cheat telemetry detects impossible order, automation, collusion, and intentional stalling.
+- [x] Anti-cheat telemetry detects impossible order, automation, collusion, and intentional stalling.
 - Evidence: player safety controls filter live and retained chat, block future room/matchmaking
   pairing in either direction, and capture an authoritative evidence window. The token-protected
   operator console/API supports searchable queues and append-only actions; suspensions/bans close
   live connections and gate later login/authentication, while reversal restores access. API tests
   exercise reporting, unauthorized admin access, search, suspension, enforcement, reversal, warning,
   and audit history. Conduct, evasion, escalation, retention, and appeal rules are defined in
-  `docs/COMMUNITY_SAFETY.md`.
+  `docs/COMMUNITY_SAFETY.md`. Server-authoritative command rejection, WebSocket burst limits,
+  repeated short-match pairing, and authoritative timeout counts emit deduplicated integrity
+  signals with confidence, severity, evidence, occurrence count, Prometheus counters, and a private
+  operator search queue. Tests distinguish retryable version races from impossible orders and
+  exercise signal deduplication, private API filtering, third-match collusion, and stalling.
 
 ### B3. Application and supply-chain security
 

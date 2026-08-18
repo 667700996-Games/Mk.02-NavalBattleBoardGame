@@ -173,6 +173,7 @@ POSTGRES_PASSWORD='replace-this-local-password' docker compose up --build
 | `POST`        | `/reports`              | 서버 증거를 첨부한 플레이어 신고         |
 | `GET`         | `/admin/moderation/reports` | 토큰 보호 운영자 신고 검색 큐          |
 | `POST`        | `/admin/moderation/reports/{id}/actions` | 감사 가능한 경고·정지·차단·기각·취소 |
+| `GET`         | `/admin/integrity/signals` | 권위 명령·자동화·담합·지연 탐지 신호 검색 |
 | `POST`        | `/accounts/login`       | 계정 ID·복구 키 검증 후 새 세션 발급    |
 | `GET`         | `/accounts/sessions`    | 계정에 연결된 세션 목록                  |
 | `DELETE`      | `/accounts/sessions/{sessionId}` | 다른 기기의 세션 원격 해제       |

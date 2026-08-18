@@ -76,3 +76,14 @@ case closure unless a documented legal hold applies. Quarterly calibration sampl
 dismissed, and upheld cases for consistency and bias. Monthly metrics cover queue age, decision
 time, reversal rate, repeated offenders, spam rejection, and integrity-signal precision without
 publishing player identifiers. See `DATA_LIFECYCLE.md` for deletion and backup boundaries.
+
+## Game-integrity detection
+
+The integrity pipeline records evidence for four independent detectors without automatically
+punishing a player: authoritative impossible-order/identity violations, sustained WebSocket event
+bursts, three or more short surrender/disconnect matches by the same pair in seven days, and three
+or more authoritative turn timeouts. Signals include protocol/game/room context, severity,
+confidence, occurrence count, and UTC timestamps. Legitimate persistence revision conflicts and
+storage failures are explicitly excluded from the impossible-order detector. Operators correlate a
+signal with reports and replay evidence before enforcement; detector output alone cannot produce a
+permanent ban.

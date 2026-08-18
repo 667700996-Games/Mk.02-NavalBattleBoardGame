@@ -52,6 +52,8 @@ pub struct RetentionStats {
     pub sessions_deleted: u64,
     pub rooms_deleted: u64,
     pub matchmaking_entries_deleted: u64,
+    pub moderation_cases_deleted: u64,
+    pub integrity_signals_deleted: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -209,6 +211,8 @@ pub trait GameStore: Send + Sync {
         inactive_session_before: DateTime<Utc>,
         completed_room_before: DateTime<Utc>,
         abandoned_matchmaking_before: DateTime<Utc>,
+        closed_moderation_before: DateTime<Utc>,
+        integrity_signal_before: DateTime<Utc>,
     ) -> Result<RetentionStats, GameError>;
     fn kind(&self) -> &'static str;
 }
