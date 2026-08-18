@@ -3,12 +3,12 @@
     "javascript": {
       "extensions": [".js"],
       "perFileBytes": 100000,
-      "totalBytes": 320000
+      "totalBytes": 332000
     },
     "css": {
       "extensions": [".css"],
       "perFileBytes": 90000,
-      "totalBytes": 185000
+      "totalBytes": 192000
     },
     "fonts": {
       "extensions": [".woff2"],
@@ -24,6 +24,12 @@
       "extensions": [".ogg", ".mp3", ".m4a", ".wav"],
       "perFileBytes": 800000,
       "totalBytes": 4000000
+    }
+  },
+  "routeEntries": {
+    "/replay/[roomId]": {
+      "javascriptBytes": 20000,
+      "cssBytes": 10500
     }
   },
   "tiers": {

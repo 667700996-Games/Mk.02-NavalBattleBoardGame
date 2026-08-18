@@ -159,7 +159,16 @@ The program is complete only when all gates below are satisfied in a production-
 - [ ] Spectators receive delayed, visibility-filtered authoritative state.
 - [x] Deterministic replays include ruleset/protocol versions and cannot expose hidden information
       before a match is complete.
-- [ ] Post-match analysis can step through turns, compare decisions, and share a safe replay link.
+- [x] Post-match analysis can step through turns, compare decisions, and share a safe replay link.
+- Evidence: the participant-only replay now derives both players' authoritative accuracy, opening/
+  midgame/endgame splits, hit/miss streaks, sinks, timeouts, and hit-follow-up discipline. It ranks
+  finishing attacks, sinks, momentum streaks and cumulative time pressure as up to three decisive
+  moments that jump back to their timeline event, then emits sample-gated improvement tips. Copying
+  the current replay URL explicitly preserves participant-session authorization; non-participants
+  remain rejected by the server. Four deterministic analysis tests cover normal, low-accuracy,
+  surrender and timeout endings, while the six-profile full-match E2E checks both cards, all phase
+  meters, decisive-event navigation, the safe-link disclosure and horizontal overflow; Chromium
+  profiles additionally prove the clipboard value exactly matches the participant replay URL.
 
 ## Gate D — Presentation and experience
 

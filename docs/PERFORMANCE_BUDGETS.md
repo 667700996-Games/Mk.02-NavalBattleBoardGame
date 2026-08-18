@@ -7,20 +7,28 @@ review; a failing candidate must not raise a limit merely to make CI green.
 ## Artifact gate
 
 `npm run build && npm run budget` walks the complete SvelteKit client artifact. It enforces per-file
-and total raw-byte limits for JavaScript, CSS, WOFF2 fonts, images, and audio, and rejects legacy
-WOFF files. The current production artifact is:
+and total raw-byte limits for JavaScript, CSS, WOFF2 fonts, images, and audio, rejects legacy WOFF
+files, and resolves configured routes through SvelteKit's generated route dictionary to cap their
+code-split entry JavaScript and CSS. The current production artifact is:
 
 | Category | Measured bytes | Total budget |
 | --- | ---: | ---: |
-| JavaScript | 317,857 | 320,000 |
-| CSS | 184,601 | 185,000 |
-| WOFF2 fonts | 483,304 | 1,200,000 |
+| JavaScript | 329,778 | 332,000 |
+| CSS | 190,787 | 192,000 |
+| WOFF2 fonts | 505,756 | 1,200,000 |
 | Images | 2,137,055 | 2,200,000 |
 | Audio | 0 | 4,000,000 |
 
 The image total includes both static Open Graph images; route transfer is measured separately and
 does not fetch them. Font generation and the tighter Korean subset limit are documented in
 `FONT_DELIVERY.md`.
+
+The post-match analysis increased the complete artifact from 317,857 to 329,778 JavaScript bytes,
+184,601 to 190,787 CSS bytes, and 483,304 to 505,756 WOFF2 bytes. The feature is isolated in the
+unvisited replay route, whose entry measures 18,187 JavaScript and 9,779 CSS bytes and is capped at
+20,000 and 10,500 bytes respectively. The complete-artifact ceilings were raised only to admit this
+measured code-split feature; the critical gameplay runtime limits remain 320 KB JavaScript and
+185 KB CSS, so an increase on the landing-to-result journey still fails every device tier.
 
 ## Runtime gate
 
@@ -44,9 +52,9 @@ The August 18, 2026 reference run passed all tiers:
 
 | Tier | JS / CSS / fonts | Heap | CPU tasks | Long tasks | Frame p50 / p95 | WebSocket |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| Desktop | 256,584 / 144,713 / 429,840 B | 12.1 MiB | 1,238 ms | 0 ms | 16.7 / 33.7 ms | 54,588 B |
-| Mobile | 256,584 / 144,713 / 429,840 B | 9.3 MiB | 2,285 ms | 0 ms | 16.7 / 18.4 ms | 54,608 B |
-| Low mobile | 256,584 / 144,713 / 429,840 B | 12.1 MiB | 6,106 ms | 0 ms | 16.7 / 18.6 ms | 54,645 B |
+| Desktop | 256,712 / 144,945 / 429,840 B | 9.9 MiB | 960 ms | 0 ms | 16.7 / 33.4 ms | 50,575 B |
+| Mobile | 256,712 / 144,945 / 429,840 B | 13.4 MiB | 2,289 ms | 0 ms | 16.7 / 18.4 ms | 54,596 B |
+| Low mobile | 256,712 / 144,945 / 429,840 B | 12.4 MiB | 6,372 ms | 0 ms | 16.7 / 18.5 ms | 58,761 B |
 
 Large translucent surfaces formerly used nested `backdrop-filter` blurs. The reference desktop
 sequence measured 66.7 ms frame p95 before those redundant filters were removed and 33.7 ms in the
@@ -56,6 +64,8 @@ visual hierarchy.
 ## Interpretation and release use
 
 - Artifact totals prevent unvisited routes and social images from silently growing the release.
+- Route-entry totals prevent the larger post-match analysis from consuming its new headroom without
+  an explicit measured budget review.
 - Runtime transfer totals cover only resources actually loaded by the critical gameplay journey.
 - Task duration is cumulative renderer CPU time; long-task duration captures main-thread stalls of
   at least 50 ms; frame p95 covers repeated target lock, hit/sinking feedback, modal, and result

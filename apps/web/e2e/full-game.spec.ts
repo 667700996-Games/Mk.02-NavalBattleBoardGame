@@ -111,9 +111,12 @@ function auditFrames(page: Page, violations: string[]) {
 }
 
 test('two isolated browser sessions complete a secure game and recover after refresh', async ({
-  browser
+  browser,
+  browserName
 }) => {
-  const firstContext: BrowserContext = await browser.newContext();
+  const firstContext: BrowserContext = await browser.newContext(
+    browserName === 'chromium' ? { permissions: ['clipboard-read', 'clipboard-write'] } : undefined
+  );
   const secondContext: BrowserContext = await browser.newContext();
   const first = await firstContext.newPage();
   const second = await secondContext.newPage();
@@ -187,6 +190,32 @@ test('two isolated browser sessions complete a secure game and recover after ref
   const secondWon = await second.getByRole('heading', { name: '작전 승리' }).isVisible();
   expect(firstWon).not.toBe(secondWon);
   expect(violations).toEqual([]);
+
+  await first.getByRole('link', { name: '전투 복기' }).click();
+  await expect(first.getByRole('heading', { name: '전투 복기' })).toBeVisible();
+  const replayUrl = first.url();
+  const copyReplayLink = first.getByRole('button', { name: '복기 링크 복사' });
+  await expect(copyReplayLink).toBeVisible();
+  await expect(first.getByText('참가자 세션만 열람할 수 있습니다.')).toBeVisible();
+  await copyReplayLink.click();
+  if (browserName === 'chromium') {
+    await expect(first.getByText('참가자 전용 링크 복사됨')).toBeVisible();
+    expect(await first.evaluate(() => navigator.clipboard.readText())).toBe(replayUrl);
+  } else {
+    await expect(
+      first.getByText(/참가자 전용 링크 복사됨|주소창에서 링크를 복사해 주세요/)
+    ).toBeVisible();
+  }
+  await expect(first.getByRole('heading', { name: '전술 분석' })).toBeVisible();
+  await expect(first.locator('.analysis-card')).toHaveCount(2);
+  await expect(first.locator('.phase-accuracy progress')).toHaveCount(6);
+  await expect(first.getByRole('heading', { name: '결정적 전환점' })).toBeVisible();
+  await expect(first.getByText('다음 교전 개선 제안')).toHaveCount(2);
+  const finishingMoment = first.getByRole('button', { name: '승부를 끝낸 일격 사건 보기' });
+  await expect(finishingMoment).toBeVisible();
+  await finishingMoment.click();
+  await expect(first.locator('.event-log li.active')).toBeVisible();
+  await expectNoHorizontalOverflow(first);
 
   await firstContext.close();
   await secondContext.close();
