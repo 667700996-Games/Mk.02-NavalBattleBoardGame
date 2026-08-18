@@ -95,6 +95,7 @@ apps/
     src/routes/           시작, 로비, 참가, 방, 기록, 설정, 오류
     e2e/                  2-브라우저 전체 경기·모바일 테스트
 deploy/Caddyfile          로컬 Compose 게이트웨이
+ops/observability/        Prometheus 경보·Alertmanager 라우팅·Grafana 대시보드
 compose.yaml              PostgreSQL, Redis, server, web, gateway
 ```
 
@@ -285,6 +286,7 @@ POSTGRES_PASSWORD='replace-this-local-password' docker compose up --build
 취약점 제보 절차는 [SECURITY.md](SECURITY.md), 역할·심각도·패치 SLO·증거·훈련은
 [취약점 대응 런북](docs/VULNERABILITY_RESPONSE.md)을 참조하세요. 서비스 SLO, 경보,
 캐나리, 의존성 장애, 백업 복구 훈련은 [운영 런북](docs/OPERATIONS.md)에서,
+[서비스 사고 대응](docs/INCIDENT_RESPONSE.md)은 역할·상태 공지·사후분석 절차를,
 세션·채팅·리플레이·백업 보존은 [데이터 수명주기 정책](docs/DATA_LIFECYCLE.md)에서
 관리합니다.
 
@@ -296,6 +298,7 @@ npm run lint        # rustfmt + clippy -D warnings + Prettier + ESLint
 npm run test        # Rust unit/integration + Vitest
 npm run contract    # Rust/TypeScript 버전·이벤트·생성 매니페스트 일치
 npm run security:drill # 취약점 대응 역할·타임라인·패치 SLO·증거 검증
+npm run observability:check # 대시보드·경보·라우팅·사고 대응 계약 교차 검증
 npm run fonts:check # 정적 한국어 글리프의 WOFF2 서브셋·중복·용량 검증
 npx playwright install chromium firefox webkit
 npm run test:a11y   # WCAG 2.2 AA 전체 흐름 + 키보드·라이브 알림 검증

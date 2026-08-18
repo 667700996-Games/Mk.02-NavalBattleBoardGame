@@ -1,0 +1,56 @@
+{
+  "schemaVersion": 1,
+  "requiredRoles": [
+    "incidentCommander",
+    "operationsLead",
+    "gameIntegrityLead",
+    "communicationsLead",
+    "scribe"
+  ],
+  "severities": {
+    "SEV-1": {
+      "acknowledgeMinutes": 15,
+      "publicUpdateMinutes": 30,
+      "postmortemBusinessDays": 5
+    },
+    "SEV-2": {
+      "acknowledgeMinutes": 30,
+      "publicUpdateMinutes": 120,
+      "postmortemBusinessDays": 5
+    },
+    "SEV-3": {
+      "acknowledgeMinutes": 240,
+      "publicUpdateMinutes": 480,
+      "postmortemBusinessDays": 10
+    }
+  },
+  "requiredDashboardPanels": [
+    "Product API availability",
+    "Accepted command latency",
+    "Matchmaking latency and queue",
+    "Unexpected disconnects",
+    "Active-match recovery",
+    "Distributed correctness",
+    "Core Web Vitals",
+    "Battle interaction",
+    "New-player funnel",
+    "Retention and backup"
+  ],
+  "requiredAlerts": [
+    "Mk01AvailabilityFastBurn",
+    "Mk01AvailabilitySlowBurn",
+    "Mk01InstanceNotReady",
+    "Mk01CommandLatency",
+    "Mk01MatchmakingLatency",
+    "Mk01UnexpectedDisconnectRate",
+    "Mk01ActiveMatchRecovery",
+    "Mk01DistributedEventFailure",
+    "Mk01RoomMutationStalled",
+    "Mk01WebVitalRegression",
+    "Mk01BackupTooOld"
+  ],
+  "requiredTemplates": [
+    "docs/templates/STATUS_UPDATE.md",
+    "docs/templates/POSTMORTEM.md"
+  ]
+}

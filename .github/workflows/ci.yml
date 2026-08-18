@@ -82,6 +82,25 @@ jobs:
         env:
           CI: 'true'
 
+  observability-config:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Validate Prometheus alert rules with promtool
+        run: >-
+          docker run --rm --entrypoint /bin/promtool
+          -v "$PWD/ops/observability:/etc/mk01:ro"
+          prom/prometheus:v2.53.0
+          check rules /etc/mk01/prometheus-rules.json
+      - name: Validate Alertmanager routing with amtool
+        run: >-
+          docker run --rm --entrypoint /bin/amtool
+          -v "$PWD/ops/observability:/etc/mk01:ro"
+          prom/alertmanager:v0.27.0
+          check-config /etc/mk01/alertmanager.yml
+
   backup-restore-drill:
     runs-on: ubuntu-latest
     needs: quality

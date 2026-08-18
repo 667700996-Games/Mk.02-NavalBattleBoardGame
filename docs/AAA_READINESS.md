@@ -261,7 +261,7 @@ The program is complete only when all gates below are satisfied in a production-
 - [ ] Deployments include preflight, migration safety, canary analysis, rollback, and active-match
       compatibility gates.
 - [x] SLOs cover availability, matchmaking latency, command latency, disconnect rate, and recovery.
-- [ ] Dashboards, alerts, incident roles, status communication, runbooks, and postmortems exist.
+- [x] Dashboards, alerts, incident roles, status communication, runbooks, and postmortems exist.
 - [ ] Customer support and moderation tooling can act without direct database access.
 - Evidence: product API response-class counters exclude probes, metrics and telemetry; shared
   HTTP/WebSocket command histograms distinguish accepted and rejected work; durable matchmaking
@@ -270,6 +270,14 @@ The program is complete only when all gates below are satisfied in a production-
   disconnect boundary and ends after the authoritative save. Unit and API integration tests verify bounded
   Prometheus output, route exclusions, paired wait samples and the reconnect sample. `OPERATIONS.md`
   fixes the objectives, PromQL, minimum samples, and multi-window availability burn-rate gate.
+- Evidence: the provisioned Grafana dashboard contains ten stable SLO/player-experience panels;
+  eleven Prometheus alerts route pages and tickets through versioned Alertmanager policy; and every
+  alert links to a concrete operations runbook anchor. `INCIDENT_RESPONSE.md` defines severity,
+  five owned roles, escalation, evidence, communication cadence and closure. Public status and
+  blameless postmortem templates require next-update clocks, confirmed player impact, causal
+  analysis and owner/due-date/verification actions. `npm run observability:check` rejects missing or
+  identity-labelled signals, panels, alerts, roles, templates and routing; CI also runs official
+  `promtool check rules` and `amtool check-config` against the deployable files.
 
 ## Delivery order
 

@@ -1,0 +1,47 @@
+global:
+  resolve_timeout: 5m
+
+route:
+  receiver: mk01-ticket
+  group_by:
+    - service
+    - slo
+    - alertname
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 2h
+  routes:
+    - receiver: mk01-page
+      matchers:
+        - service="mk01"
+        - severity="page"
+      group_wait: 0s
+      repeat_interval: 30m
+    - receiver: mk01-ticket
+      matchers:
+        - service="mk01"
+        - severity="ticket"
+      repeat_interval: 24h
+
+receivers:
+  - name: mk01-page
+    webhook_configs:
+      - url: http://pager-router:8080/v1/alerts
+        send_resolved: true
+        max_alerts: 0
+  - name: mk01-ticket
+    webhook_configs:
+      - url: http://ticket-router:8080/v1/alerts
+        send_resolved: true
+        max_alerts: 0
+
+inhibit_rules:
+  - source_matchers:
+      - service="mk01"
+      - severity="page"
+    target_matchers:
+      - service="mk01"
+      - severity="ticket"
+    equal:
+      - service
+      - slo

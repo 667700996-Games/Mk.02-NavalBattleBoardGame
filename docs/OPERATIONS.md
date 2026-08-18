@@ -145,6 +145,16 @@ Ticket alerts cover a single-instance readiness failure, sustained rate-limit gr
 version conflicts, funnel or RUM threshold violations, bundle-budget regression attempts, and
 backup age above 12 hours.
 
+The deployable alert source is `ops/observability/prometheus-rules.json`; Alertmanager routing in
+the same directory sends `severity=page` to the on-call bridge and `severity=ticket` to the owned
+work queue. The versioned Grafana dashboard provides the required availability, command,
+matchmaking, disconnect, recovery, distributed-correctness, Web Vital, battle interaction, funnel,
+retention and backup panels. `npm run observability:check` cross-checks every expression against the
+application metric surface, while CI's official `promtool check rules` and `amtool check-config`
+jobs reject invalid PromQL and alert routing.
+Environment deployment must deliver a synthetic page and retain the receipt before production
+promotion; repository validation cannot prove pager-provider connectivity.
+
 The complete code-split artifact and the production gameplay journey share the versioned limits in
 `config/performance-budgets.json`. `npm run budget` gates JavaScript, CSS, WOFF2 fonts, images, and
 audio; `npm run test:performance` gates decoded route transfer, heap, CPU tasks, long tasks, frame
@@ -232,3 +242,9 @@ restricted and token hashes should be invalidated or replaced when the drill doe
 
 Correctness incidents involving hidden information, duplicated rewards, or an invalid winner are
 severity 1 even when aggregate availability remains high.
+
+`INCIDENT_RESPONSE.md` is the full operational state machine, escalation and evidence runbook.
+`templates/STATUS_UPDATE.md` fixes player-safe public update fields and next-update deadlines;
+`templates/POSTMORTEM.md` fixes blameless impact, timeline, causal analysis, recovery verification,
+and action ownership. SEV-1 updates occur every 30 minutes and SEV-2 every two hours until resolved,
+including when there is no material change.
