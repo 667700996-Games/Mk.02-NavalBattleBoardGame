@@ -64,6 +64,37 @@ export interface AccountSession {
   currentRoomId: string | null;
 }
 
+export interface AccountDeletionStats {
+  sessionsDeleted: number;
+  rewardsDeleted: number;
+  relationshipsDeleted: number;
+  reportsDeleted: number;
+  integritySignalsDeleted: number;
+  roomsAnonymized: number;
+}
+
+export interface AccountDeletionReceipt {
+  requestId: string;
+  deletedAt: string;
+  stats: AccountDeletionStats;
+}
+
+export interface AccountDataExport {
+  formatVersion: number;
+  requestId: string;
+  generatedAt: string;
+  account: PlayerAccount;
+  sessions: AccountSession[];
+  gameHistory: unknown[];
+  progressionRewards: unknown[];
+  socialRelationships: unknown[];
+  moderationReports: unknown[];
+  moderationActions: unknown[];
+  integritySignals: unknown[];
+  cacheCopies: string;
+  credentialsExcluded: true;
+}
+
 export interface AchievementProgress {
   id: string;
   title: string;

@@ -153,6 +153,8 @@ POSTGRES_PASSWORD='replace-this-local-password' docker compose up --build
 | `COMPLETED_ROOM_RETENTION_SECONDS`  | `7776000`                 | 종료·취소 방과 채팅·리플레이 보존 기간(90일)       |
 | `MATCHMAKING_ENTRY_TTL_SECONDS`     | `600`                     | 방치된 영속 매칭 대기열 보존 기간                |
 | `RETENTION_SWEEP_INTERVAL_SECONDS`  | `3600`                    | 만료 세션·방·대기열 정리 주기(최소 60초)        |
+| `MODERATION_RETENTION_SECONDS`      | `31536000`                | 종결된 신고·조치 증거 보존 기간(365일)          |
+| `INTEGRITY_SIGNAL_RETENTION_SECONDS` | `15552000`               | 부정행위 탐지 신호 보존 기간(180일)              |
 | `TRUST_PROXY_HEADERS`               | `false`                   | 신뢰 프록시 뒤에서만 전달 IP 헤더 사용             |
 | `DISTRIBUTED_COORDINATION_REQUIRED` | `false`                   | 운영 Redis 팬아웃·공유 제한을 필수 의존성으로 판정 |
 | `RUST_LOG`                          | info                      | `tracing` 로그 필터                                |
@@ -177,6 +179,8 @@ POSTGRES_PASSWORD='replace-this-local-password' docker compose up --build
 | `POST`        | `/accounts/login`       | 계정 ID·복구 키 검증 후 새 세션 발급    |
 | `GET`         | `/accounts/sessions`    | 계정에 연결된 세션 목록                  |
 | `DELETE`      | `/accounts/sessions/{sessionId}` | 다른 기기의 세션 원격 해제       |
+| `GET`         | `/accounts/export`      | 자격 증명을 제외한 계정 자료 JSON 내보내기 |
+| `DELETE`      | `/accounts`             | 복구 키와 명시적 확인 후 계정 자료 삭제·익명화 |
 | `GET`         | `/profile`              | XP·레벨·업적·현재 임무 진행도           |
 | `POST`        | `/profile/missions/{missionId}/claim` | 완료 임무 XP 멱등 지급     |
 | `POST`        | `/practice`             | 난이도별 서버 권위 AI 연습전 생성         |

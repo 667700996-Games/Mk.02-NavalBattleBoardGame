@@ -1,5 +1,7 @@
 import type {
   AiDifficulty,
+  AccountDataExport,
+  AccountDeletionReceipt,
   AccountSession,
   ApiErrorBody,
   GameSnapshot,
@@ -105,6 +107,12 @@ export const api = {
     request<{ currentSessionId: string; sessions: AccountSession[] }>('/accounts/sessions'),
   revokeAccountSession: (sessionId: string) =>
     request<void>(`/accounts/sessions/${sessionId}`, { method: 'DELETE' }),
+  exportAccountData: () => request<AccountDataExport>('/accounts/export'),
+  deleteAccount: (recoveryKey: string, confirmation: string) =>
+    request<AccountDeletionReceipt>('/accounts', {
+      method: 'DELETE',
+      body: JSON.stringify({ recoveryKey, confirmation })
+    }),
   profile: () => request<PlayerProgression>('/profile'),
   claimMission: (missionId: string) =>
     request<PlayerProgression>(`/profile/missions/${encodeURIComponent(missionId)}/claim`, {

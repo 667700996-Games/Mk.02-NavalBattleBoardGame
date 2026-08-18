@@ -499,6 +499,145 @@ async fn guest_upgrade_login_session_listing_and_remote_revocation_preserve_iden
 }
 
 #[tokio::test]
+async fn account_export_excludes_credentials_and_verified_deletion_anonymizes_rooms() {
+    let store = Arc::new(MemoryStore::default());
+    let app = build_router(AppState::with_store(test_settings(), store.clone()));
+    let (guest_cookie, _) = create_session(&app, "Privacy Captain").await;
+    let upgrade_response = send(
+        &app,
+        Request::builder()
+            .method("POST")
+            .uri("/api/accounts/upgrade")
+            .header(header::CONTENT_TYPE, "application/json")
+            .header(header::COOKIE, &guest_cookie)
+            .body(Body::from(
+                json!({ "handle": "Privacy Captain" }).to_string(),
+            ))
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(upgrade_response.status(), StatusCode::OK);
+    let account_cookie = upgrade_response.headers()[header::SET_COOKIE]
+        .to_str()
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap()
+        .to_string();
+    let upgraded = json_body(upgrade_response).await;
+    let account_id = upgraded["account"]["id"].as_str().unwrap().to_string();
+    let recovery_key = upgraded["recoveryKey"].as_str().unwrap().to_string();
+
+    let create_room_response = send(
+        &app,
+        Request::builder()
+            .method("POST")
+            .uri("/api/rooms")
+            .header(header::CONTENT_TYPE, "application/json")
+            .header(header::COOKIE, &account_cookie)
+            .body(Body::from(
+                json!({ "name": "Privacy operation", "visibility": "PRIVATE" }).to_string(),
+            ))
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(create_room_response.status(), StatusCode::CREATED);
+    let room = json_body(create_room_response).await;
+    let room_id = uuid::Uuid::parse_str(room["snapshot"]["room"]["id"].as_str().unwrap()).unwrap();
+
+    let export_response = send(
+        &app,
+        Request::builder()
+            .uri("/api/accounts/export")
+            .header(header::COOKIE, &account_cookie)
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(export_response.status(), StatusCode::OK);
+    let archive = json_body(export_response).await;
+    assert_eq!(archive["formatVersion"], 1);
+    assert_eq!(archive["account"]["id"], account_id);
+    assert_eq!(archive["credentialsExcluded"], true);
+    assert_eq!(archive["sessions"].as_array().unwrap().len(), 1);
+    let serialized_archive = archive.to_string();
+    assert!(!serialized_archive.contains(&recovery_key));
+    assert!(!serialized_archive.contains("tokenHash"));
+    assert!(!serialized_archive.contains("recoveryKey"));
+
+    let deletion_request = |key: &str, confirmation: &str| {
+        Request::builder()
+            .method("DELETE")
+            .uri("/api/accounts")
+            .header(header::CONTENT_TYPE, "application/json")
+            .header(header::COOKIE, &account_cookie)
+            .body(Body::from(
+                json!({ "recoveryKey": key, "confirmation": confirmation }).to_string(),
+            ))
+            .unwrap()
+    };
+    let missing_confirmation = send(&app, deletion_request(&recovery_key, "delete")).await;
+    assert_eq!(missing_confirmation.status(), StatusCode::BAD_REQUEST);
+    let wrong_recovery = send(&app, deletion_request(&"x".repeat(43), "DELETE")).await;
+    assert_eq!(wrong_recovery.status(), StatusCode::UNAUTHORIZED);
+
+    let deletion_response = send(&app, deletion_request(&recovery_key, "DELETE")).await;
+    assert_eq!(deletion_response.status(), StatusCode::OK);
+    assert!(
+        deletion_response
+            .headers()
+            .get(header::SET_COOKIE)
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|value| value.contains("Max-Age=0"))
+    );
+    let receipt = json_body(deletion_response).await;
+    assert_eq!(receipt["stats"]["sessionsDeleted"], 1);
+    assert_eq!(receipt["stats"]["roomsAnonymized"], 1);
+    assert!(receipt["requestId"].as_str().is_some());
+
+    assert_eq!(
+        send(
+            &app,
+            Request::builder()
+                .uri("/api/sessions/current")
+                .header(header::COOKIE, &account_cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    let deleted_login = send(
+        &app,
+        Request::builder()
+            .method("POST")
+            .uri("/api/accounts/login")
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(
+                json!({ "accountId": account_id, "recoveryKey": recovery_key }).to_string(),
+            ))
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(deleted_login.status(), StatusCode::UNAUTHORIZED);
+
+    let anonymized = store
+        .room_by_id_authoritative(room_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(anonymized.name, "Archived Operation");
+    assert_eq!(anonymized.players[0].nickname, "Deleted Commander");
+    assert!(
+        anonymized
+            .chat_messages
+            .iter()
+            .all(|message| !message.content.contains("Privacy Captain"))
+    );
+}
+
+#[tokio::test]
 async fn completed_mission_reward_is_claimed_exactly_once_through_the_api() {
     let store = Arc::new(MemoryStore::default());
     let app = build_router(AppState::with_store(test_settings(), store.clone()));

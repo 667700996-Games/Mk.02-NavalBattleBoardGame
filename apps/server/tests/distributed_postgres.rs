@@ -3,10 +3,11 @@ use std::{sync::Arc, time::Duration};
 use chrono::Utc;
 use mk01_server::{
     AppState, PROTOCOL_VERSION,
+    app::hash_token,
     config::{Settings, StorageMode},
     domain::{
-        ConnectionState, Coordinate, GameRoom, Orientation, RoomStatus, RoomVisibility, ShipKind,
-        ShipPlacement, UserSession,
+        ConnectionState, Coordinate, GameRoom, Orientation, PlayerAccount, RoomStatus,
+        RoomVisibility, ShipKind, ShipPlacement, UserSession,
     },
     protocol::{HeartbeatResponse, ServerEvent},
     store::{GameStore, PostgresRedisStore},
@@ -177,6 +178,114 @@ async fn postgres_fences_stale_writes_and_atomically_completes_distributed_match
             .current_room_id,
         Some(match_room.id)
     );
+}
+
+#[tokio::test]
+async fn postgres_account_export_and_deletion_cover_migrations_and_anonymized_room_state() {
+    let Some((database_url, redis_url)) = integration_urls() else {
+        eprintln!("skipping distributed integration test without TEST_DATABASE_URL/TEST_REDIS_URL");
+        return;
+    };
+    let store = store(&database_url, &redis_url).await;
+    let guest = session("Postgres Privacy Captain");
+    store.save_session(&guest).await.unwrap();
+    let account = PlayerAccount {
+        id: Uuid::new_v4(),
+        handle: "Postgres Privacy Captain".to_string(),
+        created_at: Utc::now(),
+    };
+    let recovery_key = Uuid::new_v4().simple().to_string();
+    let next_token = Uuid::new_v4().simple().to_string();
+    store
+        .create_account(
+            guest.id,
+            &account,
+            &hash_token(&recovery_key),
+            &hash_token(&next_token),
+        )
+        .await
+        .unwrap();
+    let account_session = store
+        .session_by_token_hash(&hash_token(&next_token))
+        .await
+        .unwrap()
+        .unwrap();
+
+    let mut room = GameRoom::new(
+        Uuid::new_v4().simple().to_string()[..6].to_ascii_uppercase(),
+        "Postgres privacy operation".to_string(),
+        RoomVisibility::Private,
+        &account_session,
+    )
+    .unwrap();
+    room.leave(account_session.id).unwrap();
+    store.save_room(&mut room).await.unwrap();
+
+    let export_request_id = Uuid::new_v4();
+    let archive = store
+        .export_account_data(
+            account.id,
+            export_request_id,
+            &hash_token("export-subject"),
+            Utc::now(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(archive["account"]["id"], account.id.to_string());
+    assert_eq!(archive["credentialsExcluded"], true);
+    let serialized_archive = archive.to_string();
+    assert!(!serialized_archive.contains(&recovery_key));
+    assert!(!serialized_archive.contains("token_hash"));
+
+    let delete_request_id = Uuid::new_v4();
+    let stats = store
+        .delete_account_data(
+            account.id,
+            delete_request_id,
+            &hash_token("delete-subject"),
+            &[room.id],
+            Utc::now(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(stats.sessions_deleted, 1);
+    assert_eq!(stats.rooms_anonymized, 1);
+    assert!(
+        store
+            .account_by_credentials(account.id, &hash_token(&recovery_key))
+            .await
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        store
+            .session_by_token_hash(&hash_token(&next_token))
+            .await
+            .unwrap()
+            .is_none()
+    );
+    let anonymized = store
+        .room_by_id_authoritative(room.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(anonymized.name, "Archived Operation");
+    assert_eq!(anonymized.players[0].nickname, "Deleted Commander");
+    assert!(
+        anonymized
+            .chat_messages
+            .iter()
+            .all(|message| !message.content.contains(&account.handle))
+    );
+
+    let audit_pool = sqlx::PgPool::connect(&database_url).await.unwrap();
+    let audit: (String, String) =
+        sqlx::query_as("SELECT request_type,status FROM privacy_requests WHERE id=$1")
+            .bind(delete_request_id)
+            .fetch_one(&audit_pool)
+            .await
+            .unwrap();
+    assert_eq!(audit, ("DELETE".to_string(), "COMPLETED".to_string()));
 }
 
 #[tokio::test]

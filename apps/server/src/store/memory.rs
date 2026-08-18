@@ -1190,6 +1190,7 @@ impl GameStore for MemoryStore {
 
 #[cfg(test)]
 mod tests {
+    use crate::domain::ReportCategory;
     use chrono::Utc;
 
     use super::*;
@@ -1306,8 +1307,9 @@ mod tests {
     #[tokio::test]
     async fn retention_prunes_only_expired_inactive_data() {
         let store = MemoryStore::default();
+        let now = Utc::now();
         let mut expired = named_session("Expired");
-        expired.last_seen_at = Utc::now() - Duration::days(2);
+        expired.last_seen_at = now - Duration::days(2);
         let active = named_session("Active");
         store.save_session(&expired).await.unwrap();
         store.save_session(&active).await.unwrap();
@@ -1321,22 +1323,87 @@ mod tests {
         )
         .unwrap();
         cancelled.leave(expired.id).unwrap();
-        cancelled.updated_at = Utc::now() - Duration::days(100);
+        cancelled.updated_at = now - Duration::days(100);
         store.save_room(&mut cancelled).await.unwrap();
+
+        let expired_report = NewPlayerReport {
+            id: Uuid::new_v4(),
+            reporter_identity_id: expired.id,
+            target_identity_id: active.id,
+            room_id: cancelled.id,
+            target_player_id: Uuid::new_v4(),
+            target_nickname: "Active".to_string(),
+            category: ReportCategory::Other,
+            details: "expired moderation fixture".to_string(),
+            evidence: serde_json::json!({"fixture": true}),
+            created_at: now - Duration::days(400),
+        };
+        store.create_player_report(&expired_report).await.unwrap();
+        store
+            .apply_moderation_action(&NewModerationAction {
+                id: Uuid::new_v4(),
+                report_id: expired_report.id,
+                operator_id: "retention-test".to_string(),
+                action: ModerationActionKind::Dismiss,
+                reason: "closed fixture".to_string(),
+                expires_at: None,
+                reverses_action_id: None,
+                created_at: now - Duration::days(400),
+            })
+            .await
+            .unwrap();
+        let recent_report = NewPlayerReport {
+            id: Uuid::new_v4(),
+            created_at: now,
+            ..expired_report.clone()
+        };
+        store.create_player_report(&recent_report).await.unwrap();
+
+        let expired_signal = NewIntegritySignal {
+            id: Uuid::new_v4(),
+            subject_identity_id: expired.id,
+            room_id: Some(cancelled.id),
+            kind: IntegritySignalKind::Automation,
+            severity: 2,
+            confidence: 0.75,
+            evidence: serde_json::json!({"fixture": "expired"}),
+            observed_at: now - Duration::days(200),
+        };
+        store
+            .record_integrity_signal(&expired_signal)
+            .await
+            .unwrap();
+        store
+            .record_integrity_signal(&NewIntegritySignal {
+                id: Uuid::new_v4(),
+                subject_identity_id: active.id,
+                room_id: None,
+                evidence: serde_json::json!({"fixture": "recent"}),
+                observed_at: now,
+                ..expired_signal.clone()
+            })
+            .await
+            .unwrap();
 
         let stats = store
             .prune_expired_data(
-                Utc::now() - Duration::days(1),
-                Utc::now() - Duration::days(90),
-                Utc::now() + Duration::seconds(1),
-                Utc::now() - Duration::days(365),
-                Utc::now() - Duration::days(180),
+                now - Duration::days(1),
+                now - Duration::days(90),
+                now + Duration::seconds(1),
+                now - Duration::days(365),
+                now - Duration::days(180),
             )
             .await
             .unwrap();
         assert_eq!(stats.sessions_deleted, 1);
         assert_eq!(stats.rooms_deleted, 1);
         assert_eq!(stats.matchmaking_entries_deleted, 1);
+        assert_eq!(stats.moderation_cases_deleted, 1);
+        assert_eq!(stats.integrity_signals_deleted, 1);
+        assert!(!store.player_reports.contains_key(&expired_report.id));
+        assert!(store.player_reports.contains_key(&recent_report.id));
+        assert!(!store.integrity_signals.contains_key(&expired_signal.id));
+        assert_eq!(store.integrity_signals.len(), 1);
         assert!(
             store
                 .session_by_token_hash(&expired.token_hash)

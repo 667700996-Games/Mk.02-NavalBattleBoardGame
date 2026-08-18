@@ -24,7 +24,8 @@ The server exposes Prometheus text at `/api/metrics`. The endpoint currently inc
 rate-limit totals, local WebSocket connections/events, distributed publish success/failure, room
 mutation/version-conflict and authority acquisition/conflict totals, matchmaking
 queue/completion/cancellation totals, current queue depth, oldest queue-entry age, and retention
-deletion totals for sessions, completed rooms, and abandoned queue entries.
+deletion totals for sessions, completed rooms, abandoned queue entries, closed moderation cases,
+and integrity signals.
 
 Minimum paging alerts:
 

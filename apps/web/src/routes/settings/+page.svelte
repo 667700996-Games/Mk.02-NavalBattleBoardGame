@@ -6,6 +6,7 @@
     Check,
     Contrast,
     Copy,
+    Download,
     Gauge,
     KeyRound,
     LogOut,
@@ -30,6 +31,10 @@
   let copied = $state(false);
   let accountSessions = $state<AccountSession[]>([]);
   let currentSessionId = $state('');
+  let exportingAccount = $state(false);
+  let deletingAccount = $state(false);
+  let deletionRecoveryKey = $state('');
+  let deletionConfirmation = $state('');
 
   onMount(async () => {
     try {
@@ -83,6 +88,42 @@
       await loadAccountSessions();
     } catch (caught) {
       accountError = caught instanceof ApiError ? caught.message : '세션을 폐기하지 못했습니다.';
+    }
+  }
+
+  async function exportAccountData() {
+    exportingAccount = true;
+    accountError = '';
+    try {
+      const archive = await api.exportAccountData();
+      const blob = new Blob([JSON.stringify(archive, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `mk01-account-${archive.requestId}.json`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+    } catch (caught) {
+      accountError =
+        caught instanceof ApiError ? caught.message : '계정 자료를 내보내지 못했습니다.';
+    } finally {
+      exportingAccount = false;
+    }
+  }
+
+  async function deleteAccount() {
+    deletingAccount = true;
+    accountError = '';
+    try {
+      await api.deleteAccount(deletionRecoveryKey.trim(), deletionConfirmation.trim());
+      realtime.disconnect();
+      gameSnapshot.set(null);
+      session.set(null);
+      await goto(resolve('/'));
+    } catch (caught) {
+      accountError = caught instanceof ApiError ? caught.message : '계정을 삭제하지 못했습니다.';
+    } finally {
+      deletingAccount = false;
     }
   }
 
@@ -262,6 +303,64 @@
                 </article>
               {/each}
             </div>
+          {/if}
+          {#if $session.accountId}
+            <section class="privacy-controls" aria-labelledby="privacy-controls-title">
+              <div>
+                <small>DATA CONTROL</small>
+                <h3 id="privacy-controls-title">계정 자료 관리</h3>
+                <p>
+                  자격 증명을 제외한 계정·전투·보상·소셜·신고 자료를 JSON으로 내려받을 수 있습니다.
+                </p>
+              </div>
+              <button
+                class="button"
+                type="button"
+                onclick={exportAccountData}
+                disabled={exportingAccount}
+              >
+                <Download size={15} />
+                {exportingAccount ? '자료 준비 중…' : '내 자료 내보내기'}
+              </button>
+              <form
+                class="account-deletion"
+                onsubmit={(event) => {
+                  event.preventDefault();
+                  deleteAccount();
+                }}
+              >
+                <strong>계정 영구 삭제</strong>
+                <p>
+                  모든 장치가 로그아웃되고 개인 자료가 삭제됩니다. 완료된 전투 기록은 통계 무결성을
+                  위해 익명화됩니다. 이 작업은 되돌릴 수 없습니다.
+                </p>
+                <label for="deletion-recovery-key"
+                  ><span>복구 키</span><input
+                    id="deletion-recovery-key"
+                    type="password"
+                    autocomplete="off"
+                    bind:value={deletionRecoveryKey}
+                    required
+                  /></label
+                >
+                <label for="deletion-confirmation"
+                  ><span>확인을 위해 DELETE 입력</span><input
+                    id="deletion-confirmation"
+                    bind:value={deletionConfirmation}
+                    pattern="DELETE"
+                    required
+                  /></label
+                >
+                <button
+                  class="button button--danger"
+                  type="submit"
+                  disabled={deletingAccount || deletionConfirmation !== 'DELETE'}
+                >
+                  <Trash2 size={15} />
+                  {deletingAccount ? '계정 삭제 중…' : '계정 영구 삭제'}
+                </button>
+              </form>
+            </section>
           {/if}
           {#if accountError}<p class="account-error" role="alert">{accountError}</p>{/if}
         </section>
@@ -456,6 +555,51 @@
     color: var(--red-400);
     background: rgba(255, 83, 100, 0.05);
     cursor: pointer;
+  }
+  .privacy-controls {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 12px;
+    align-items: center;
+    padding-top: 16px;
+    border-top: 1px solid var(--line);
+  }
+  .privacy-controls h3 {
+    margin: 3px 0 4px;
+    font-size: 12px;
+  }
+  .account-deletion {
+    display: grid;
+    grid-column: 1 / -1;
+    grid-template-columns: minmax(160px, 1fr) minmax(160px, 1fr) auto;
+    gap: 10px;
+    align-items: end;
+    padding: 14px;
+    border: 1px solid rgba(255, 83, 100, 0.24);
+    border-radius: 7px;
+    background: rgba(255, 83, 100, 0.04);
+  }
+  .account-deletion > strong,
+  .account-deletion > p {
+    grid-column: 1 / -1;
+  }
+  .account-deletion > strong {
+    color: var(--critical);
+    font-size: 11px;
+  }
+  .account-deletion label {
+    display: grid;
+    gap: 5px;
+    color: var(--ink-400);
+    font-size: 9px;
+  }
+  .account-deletion input {
+    min-height: 40px;
+    padding: 9px 11px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    color: var(--ink-100);
+    background: rgba(2, 14, 21, 0.8);
   }
   .account-error {
     color: var(--critical) !important;
@@ -673,6 +817,13 @@
     }
     .upgrade-form {
       grid-template-columns: 1fr;
+    }
+    .privacy-controls,
+    .account-deletion {
+      grid-template-columns: 1fr;
+    }
+    .privacy-controls > .button {
+      width: 100%;
     }
   }
   @media (max-width: 860px) {
