@@ -1215,6 +1215,8 @@ impl GameStore for PostgresRedisStore {
         inactive_session_before: DateTime<Utc>,
         completed_room_before: DateTime<Utc>,
         abandoned_matchmaking_before: DateTime<Utc>,
+        closed_moderation_before: DateTime<Utc>,
+        integrity_signal_before: DateTime<Utc>,
     ) -> Result<RetentionStats, GameError> {
         let mut transaction = self.pool.begin().await?;
         let matchmaking_entries_deleted =
@@ -1236,6 +1238,19 @@ impl GameStore for PostgresRedisStore {
         .execute(&mut *transaction)
         .await?
         .rows_affected();
+        let moderation_cases_deleted = sqlx::query(
+            "DELETE FROM player_reports WHERE status IN ('ACTIONED','DISMISSED') AND updated_at < $1",
+        )
+        .bind(closed_moderation_before)
+        .execute(&mut *transaction)
+        .await?
+        .rows_affected();
+        let integrity_signals_deleted =
+            sqlx::query("DELETE FROM integrity_signals WHERE last_observed_at < $1")
+                .bind(integrity_signal_before)
+                .execute(&mut *transaction)
+                .await?
+                .rows_affected();
         transaction.commit().await?;
 
         if let Some(mut cache) = self.cache.clone() {
@@ -1249,6 +1264,8 @@ impl GameStore for PostgresRedisStore {
             sessions_deleted,
             rooms_deleted: expired_room_ids.len() as u64,
             matchmaking_entries_deleted,
+            moderation_cases_deleted,
+            integrity_signals_deleted,
         })
     }
 

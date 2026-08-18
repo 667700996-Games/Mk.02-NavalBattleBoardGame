@@ -849,6 +849,8 @@ impl GameStore for MemoryStore {
         inactive_session_before: DateTime<Utc>,
         completed_room_before: DateTime<Utc>,
         abandoned_matchmaking_before: DateTime<Utc>,
+        closed_moderation_before: DateTime<Utc>,
+        integrity_signal_before: DateTime<Utc>,
     ) -> Result<RetentionStats, GameError> {
         let expired_sessions: Vec<_> = self
             .sessions_by_hash
@@ -876,6 +878,42 @@ impl GameStore for MemoryStore {
             self.rooms.remove(room_id);
         }
 
+        let _moderation_guard = self.moderation_mutations.lock().await;
+        let expired_report_ids: Vec<_> = self
+            .player_reports
+            .iter()
+            .filter(|report| {
+                matches!(
+                    report.status,
+                    ReportStatus::Actioned | ReportStatus::Dismissed
+                ) && report.updated_at < closed_moderation_before
+            })
+            .map(|report| report.id)
+            .collect();
+        let expired_action_ids: Vec<_> = self
+            .moderation_actions
+            .iter()
+            .filter(|action| expired_report_ids.contains(&action.report_id))
+            .map(|action| action.id)
+            .collect();
+        for action_id in expired_action_ids {
+            self.moderation_actions.remove(&action_id);
+        }
+        for report_id in &expired_report_ids {
+            self.player_reports.remove(report_id);
+        }
+
+        let _integrity_guard = self.integrity_mutations.lock().await;
+        let expired_signal_ids: Vec<_> = self
+            .integrity_signals
+            .iter()
+            .filter(|signal| signal.last_observed_at < integrity_signal_before)
+            .map(|signal| signal.id)
+            .collect();
+        for signal_id in &expired_signal_ids {
+            self.integrity_signals.remove(signal_id);
+        }
+
         let mut queue = self.matchmaking.lock().await;
         let queue_before = queue.len();
         queue.retain(|_, entry| entry.queued_at >= abandoned_matchmaking_before);
@@ -883,6 +921,8 @@ impl GameStore for MemoryStore {
             sessions_deleted: expired_sessions.len() as u64,
             rooms_deleted: expired_rooms.len() as u64,
             matchmaking_entries_deleted: queue_before.saturating_sub(queue.len()) as u64,
+            moderation_cases_deleted: expired_report_ids.len() as u64,
+            integrity_signals_deleted: expired_signal_ids.len() as u64,
         })
     }
 
@@ -1032,6 +1072,8 @@ mod tests {
                 Utc::now() - Duration::days(1),
                 Utc::now() - Duration::days(90),
                 Utc::now() + Duration::seconds(1),
+                Utc::now() - Duration::days(365),
+                Utc::now() - Duration::days(180),
             )
             .await
             .unwrap();

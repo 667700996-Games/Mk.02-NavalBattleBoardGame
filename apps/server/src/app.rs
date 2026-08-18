@@ -102,6 +102,8 @@ pub struct ServerMetrics {
     pub retention_sessions_deleted: AtomicU64,
     pub retention_rooms_deleted: AtomicU64,
     pub retention_matchmaking_deleted: AtomicU64,
+    pub retention_moderation_deleted: AtomicU64,
+    pub retention_integrity_deleted: AtomicU64,
     pub integrity_impossible_order: AtomicU64,
     pub integrity_automation: AtomicU64,
     pub integrity_collusion: AtomicU64,
@@ -128,6 +130,8 @@ impl Default for ServerMetrics {
             retention_sessions_deleted: AtomicU64::new(0),
             retention_rooms_deleted: AtomicU64::new(0),
             retention_matchmaking_deleted: AtomicU64::new(0),
+            retention_moderation_deleted: AtomicU64::new(0),
+            retention_integrity_deleted: AtomicU64::new(0),
             integrity_impossible_order: AtomicU64::new(0),
             integrity_automation: AtomicU64::new(0),
             integrity_collusion: AtomicU64::new(0),
@@ -232,6 +236,16 @@ impl ServerMetrics {
                 "mk01_retention_matchmaking_deleted_total",
                 "Abandoned matchmaking entries removed by retention sweeps.",
                 &self.retention_matchmaking_deleted,
+            ),
+            counter(
+                "mk01_retention_moderation_deleted_total",
+                "Closed moderation cases removed by retention sweeps.",
+                &self.retention_moderation_deleted,
+            ),
+            counter(
+                "mk01_retention_integrity_deleted_total",
+                "Expired game-integrity signals removed by retention sweeps.",
+                &self.retention_integrity_deleted,
             ),
             counter(
                 "mk01_integrity_impossible_order_total",
@@ -439,6 +453,8 @@ impl AppState {
                 now - to_chrono(self.settings.session_ttl),
                 now - to_chrono(self.settings.completed_room_retention),
                 now - to_chrono(self.settings.matchmaking_entry_ttl),
+                now - to_chrono(self.settings.moderation_retention),
+                now - to_chrono(self.settings.integrity_signal_retention),
             )
             .await?;
         self.metrics
@@ -450,11 +466,25 @@ impl AppState {
         self.metrics
             .retention_matchmaking_deleted
             .fetch_add(stats.matchmaking_entries_deleted, Ordering::Relaxed);
-        if stats.sessions_deleted + stats.rooms_deleted + stats.matchmaking_entries_deleted > 0 {
+        self.metrics
+            .retention_moderation_deleted
+            .fetch_add(stats.moderation_cases_deleted, Ordering::Relaxed);
+        self.metrics
+            .retention_integrity_deleted
+            .fetch_add(stats.integrity_signals_deleted, Ordering::Relaxed);
+        if stats.sessions_deleted
+            + stats.rooms_deleted
+            + stats.matchmaking_entries_deleted
+            + stats.moderation_cases_deleted
+            + stats.integrity_signals_deleted
+            > 0
+        {
             tracing::info!(
                 sessions_deleted = stats.sessions_deleted,
                 rooms_deleted = stats.rooms_deleted,
                 matchmaking_entries_deleted = stats.matchmaking_entries_deleted,
+                moderation_cases_deleted = stats.moderation_cases_deleted,
+                integrity_signals_deleted = stats.integrity_signals_deleted,
                 "retention sweep completed"
             );
         }
