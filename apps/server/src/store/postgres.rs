@@ -12,10 +12,12 @@ use crate::{
         IntegritySignalKind, IntegritySignalPage, LiveContentRevision, MatchmakingCriteria,
         MatchmakingPool, MatchmakingRegion, ModerationAction, ModerationActionKind, ModerationCase,
         ModerationCasePage, NewIntegritySignal, NewModerationAction, NewPlayerReport,
-        PlayerAccount, PlayerReport, RECENT_OPPONENT_LOOKBACK_MINUTES, RankedProfile,
-        RankedStandingRecord, ReportCategory, ReportStatus, RoomStatus, RoomSummary,
-        SocialRelationship, UserSession, matchmaking_quality, next_season_seed,
-        ranked_match_reward_xp, ranked_placement_reward_xp, ranked_season_key,
+        PlayerAccount, PlayerReport, RANKED_LEADERBOARD_MAX_LIMIT,
+        RECENT_OPPONENT_LOOKBACK_MINUTES, RankedLeaderboardEntry, RankedLeaderboardPage,
+        RankedLeaderboardSeason, RankedProfile, RankedStandingRecord, RankedTier, ReportCategory,
+        ReportStatus, RoomStatus, RoomSummary, SocialRelationship, UserSession,
+        matchmaking_quality, next_season_seed, ranked_match_reward_xp, ranked_placement_reward_xp,
+        ranked_season_key,
     },
     error::GameError,
 };
@@ -26,7 +28,7 @@ use super::{
     RankedRating, RetentionStats, RoomAuthorityLease,
 };
 
-const DELETION_RESURRECTION_COUNT_QUERY: &str = "SELECT (SELECT count(*) FROM player_accounts account JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=account.id) + (SELECT count(*) FROM user_sessions session JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=session.account_id) + (SELECT count(*) FROM progression_reward_ledger reward JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=reward.account_id) + (SELECT count(*) FROM ranked_reward_ledger reward JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=reward.account_id) + (SELECT count(*) FROM ranked_season_standings standing JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=standing.account_id) + (SELECT count(*) FROM ranked_match_participants participant JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=participant.account_id) + (SELECT count(*) FROM game_result_participants participant JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=participant.account_id) + (SELECT count(*) FROM game_results result JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=ANY(result.participant_account_ids)) + (SELECT count(*) FROM player_relationships relationship JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=relationship.actor_identity_id OR tombstone.account_id=relationship.target_identity_id) + (SELECT count(*) FROM player_reports report JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=report.reporter_identity_id OR tombstone.account_id=report.target_identity_id) + (SELECT count(*) FROM integrity_signals signal JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=signal.subject_identity_id)";
+const DELETION_RESURRECTION_COUNT_QUERY: &str = "SELECT (SELECT count(*) FROM player_accounts account JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=account.id) + (SELECT count(*) FROM user_sessions session JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=session.account_id) + (SELECT count(*) FROM progression_reward_ledger reward JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=reward.account_id) + (SELECT count(*) FROM ranked_reward_ledger reward JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=reward.account_id) + (SELECT count(*) FROM ranked_season_standings standing JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=standing.account_id) + (SELECT count(*) FROM ranked_match_participants participant JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=participant.account_id) + (SELECT count(*) FROM ranked_leaderboard_snapshot_entries entry JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=entry.account_id) + (SELECT count(*) FROM game_result_participants participant JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=participant.account_id) + (SELECT count(*) FROM game_results result JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=ANY(result.participant_account_ids)) + (SELECT count(*) FROM player_relationships relationship JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=relationship.actor_identity_id OR tombstone.account_id=relationship.target_identity_id) + (SELECT count(*) FROM player_reports report JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=report.reporter_identity_id OR tombstone.account_id=report.target_identity_id) + (SELECT count(*) FROM integrity_signals signal JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=signal.subject_identity_id)";
 const LIVE_CONTENT_ADVISORY_LOCK: i64 = 7_190_120_260;
 const REDIS_INITIAL_CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
 
@@ -55,6 +57,7 @@ pub struct DatabaseVerification {
     pub ranked_standings: i64,
     pub ranked_settlements: i64,
     pub ranked_rewards: i64,
+    pub ranked_leaderboard_snapshots: i64,
     pub privacy_requests: i64,
     pub deletion_tombstones: i64,
     pub live_content_revisions: i64,
@@ -142,6 +145,17 @@ struct RankedStandingRow {
     last_match_at: Option<DateTime<Utc>>,
     decay_steps_applied: i32,
     season_reward_issued_at: Option<DateTime<Utc>>,
+}
+
+#[derive(sqlx::FromRow)]
+struct RankedLeaderboardEntryRow {
+    rank: i32,
+    handle: String,
+    rating: i32,
+    matches_played: i32,
+    wins: i32,
+    losses: i32,
+    peak_rating: i32,
 }
 
 struct StoredMatchmakingCriteria<'a> {
@@ -458,7 +472,7 @@ impl PostgresRedisStore {
             }
         }
         let broken_references: i64 = sqlx::query_scalar(
-            "SELECT (SELECT count(*) FROM user_sessions session WHERE session.current_room_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM game_rooms room WHERE room.id=session.current_room_id)) + (SELECT count(*) FROM matchmaking_queue queue WHERE NOT EXISTS (SELECT 1 FROM user_sessions session WHERE session.id=queue.session_id)) + (SELECT count(*) FROM game_result_participants participant WHERE NOT EXISTS (SELECT 1 FROM game_results result WHERE result.room_id=participant.room_id)) + (SELECT count(*) FROM ranked_match_participants participant WHERE NOT EXISTS (SELECT 1 FROM ranked_match_settlements settlement WHERE settlement.room_id=participant.room_id))",
+            "SELECT (SELECT count(*) FROM user_sessions session WHERE session.current_room_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM game_rooms room WHERE room.id=session.current_room_id)) + (SELECT count(*) FROM matchmaking_queue queue WHERE NOT EXISTS (SELECT 1 FROM user_sessions session WHERE session.id=queue.session_id)) + (SELECT count(*) FROM game_result_participants participant WHERE NOT EXISTS (SELECT 1 FROM game_results result WHERE result.room_id=participant.room_id)) + (SELECT count(*) FROM ranked_match_participants participant WHERE NOT EXISTS (SELECT 1 FROM ranked_match_settlements settlement WHERE settlement.room_id=participant.room_id)) + (SELECT count(*) FROM ranked_leaderboard_snapshot_entries entry WHERE NOT EXISTS (SELECT 1 FROM ranked_leaderboard_snapshots snapshot WHERE snapshot.id=entry.snapshot_id) OR NOT EXISTS (SELECT 1 FROM player_accounts account WHERE account.id=entry.account_id)) + (SELECT count(*) FROM ranked_leaderboard_cursors cursor WHERE NOT EXISTS (SELECT 1 FROM ranked_leaderboard_snapshots snapshot WHERE snapshot.id=cursor.snapshot_id))",
         )
         .fetch_one(&pool)
         .await?;
@@ -485,6 +499,10 @@ impl PostgresRedisStore {
         let ranked_rewards: i64 = sqlx::query_scalar("SELECT count(*) FROM ranked_reward_ledger")
             .fetch_one(&pool)
             .await?;
+        let ranked_leaderboard_snapshots: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM ranked_leaderboard_snapshots")
+                .fetch_one(&pool)
+                .await?;
         let privacy_requests: i64 = sqlx::query_scalar("SELECT count(*) FROM privacy_requests")
             .fetch_one(&pool)
             .await?;
@@ -511,6 +529,7 @@ impl PostgresRedisStore {
             ranked_standings,
             ranked_settlements,
             ranked_rewards,
+            ranked_leaderboard_snapshots,
             privacy_requests,
             deletion_tombstones,
             live_content_revisions,
@@ -1033,6 +1052,11 @@ impl GameStore for PostgresRedisStore {
         .fetch_optional(&mut *transaction)
         .await?
         .ok_or(GameError::Unauthorized)?;
+        let leaderboard_visible: bool =
+            sqlx::query_scalar("SELECT leaderboard_visible FROM player_accounts WHERE id=$1")
+                .bind(account_id)
+                .fetch_one(&mut *transaction)
+                .await?;
         let session_ids: Vec<Uuid> =
             sqlx::query_scalar("SELECT id FROM user_sessions WHERE account_id=$1")
                 .bind(account_id)
@@ -1128,6 +1152,7 @@ impl GameStore for PostgresRedisStore {
             "rankedStandings": ranked_standings,
             "rankedMatchResults": ranked_match_results,
             "rankedRewards": ranked_rewards,
+            "leaderboardVisible": leaderboard_visible,
             "socialRelationships": relationships,
             "moderationReports": reports,
             "moderationActions": moderation_actions,
@@ -2635,6 +2660,277 @@ impl GameStore for PostgresRedisStore {
             &standing,
             u64::try_from(reward_xp).map_err(|_| GameError::Internal)?,
         ))
+    }
+
+    async fn ranked_leaderboard_visibility(&self, account_id: Uuid) -> Result<bool, GameError> {
+        sqlx::query_scalar("SELECT leaderboard_visible FROM player_accounts WHERE id=$1")
+            .bind(account_id)
+            .fetch_optional(&self.pool)
+            .await?
+            .ok_or(GameError::Unauthorized)
+    }
+
+    async fn set_ranked_leaderboard_visibility(
+        &self,
+        account_id: Uuid,
+        visible: bool,
+    ) -> Result<(), GameError> {
+        let updated = sqlx::query("UPDATE player_accounts SET leaderboard_visible=$2 WHERE id=$1")
+            .bind(account_id)
+            .bind(visible)
+            .execute(&self.pool)
+            .await?;
+        if updated.rows_affected() != 1 {
+            return Err(GameError::Unauthorized);
+        }
+        Ok(())
+    }
+
+    async fn ranked_leaderboard(
+        &self,
+        season_id: &str,
+        active_season_id: &str,
+        archived: bool,
+        cursor: Option<Uuid>,
+        limit: usize,
+        now: DateTime<Utc>,
+    ) -> Result<RankedLeaderboardPage, GameError> {
+        let limit = limit.clamp(1, RANKED_LEADERBOARD_MAX_LIMIT);
+        let fetch_limit =
+            i64::try_from(limit.saturating_add(1)).map_err(|_| GameError::Internal)?;
+        let mut transaction = self.pool.begin().await?;
+        if cursor.is_none() && season_id != active_season_id {
+            let season_exists: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM ranked_season_standings WHERE season_id=$1 UNION ALL SELECT 1 FROM ranked_leaderboard_snapshots WHERE season_id=$1)",
+            )
+            .bind(season_id)
+            .fetch_one(&mut *transaction)
+            .await?;
+            if !season_exists {
+                return Err(GameError::InvalidRequest);
+            }
+        }
+        sqlx::query("DELETE FROM ranked_leaderboard_cursors WHERE expires_at<=$1")
+            .bind(now)
+            .execute(&mut *transaction)
+            .await?;
+        sqlx::query(
+            "DELETE FROM ranked_leaderboard_snapshots WHERE NOT archived AND expires_at<=$1",
+        )
+        .bind(now)
+        .execute(&mut *transaction)
+        .await?;
+
+        let (snapshot_id, generated_at, snapshot_expires_at, snapshot_archived, after_rank) =
+            if let Some(cursor_id) = cursor {
+                let row: Option<(Uuid, DateTime<Utc>, Option<DateTime<Utc>>, bool, i32)> =
+                    sqlx::query_as(
+                        "SELECT snapshot.id,snapshot.generated_at,snapshot.expires_at,snapshot.archived,cursor.after_rank FROM ranked_leaderboard_cursors cursor JOIN ranked_leaderboard_snapshots snapshot ON snapshot.id=cursor.snapshot_id WHERE cursor.id=$1 AND cursor.expires_at>$2 AND snapshot.season_id=$3 AND (snapshot.expires_at IS NULL OR snapshot.expires_at>$2)",
+                    )
+                    .bind(cursor_id)
+                    .bind(now)
+                    .bind(season_id)
+                    .fetch_optional(&mut *transaction)
+                    .await?;
+                row.ok_or(GameError::InvalidRequest)?
+            } else {
+                let mut created = false;
+                let snapshot_id = if archived {
+                    if let Some(existing) = sqlx::query_scalar::<_, Uuid>(
+                        "SELECT id FROM ranked_leaderboard_snapshots WHERE season_id=$1 AND archived",
+                    )
+                    .bind(season_id)
+                    .fetch_optional(&mut *transaction)
+                    .await?
+                    {
+                        existing
+                    } else {
+                        let candidate = Uuid::new_v4();
+                        let inserted = sqlx::query_scalar::<_, Uuid>(
+                            "INSERT INTO ranked_leaderboard_snapshots (id,season_id,generated_at,expires_at,archived) VALUES ($1,$2,$3,NULL,TRUE) ON CONFLICT DO NOTHING RETURNING id",
+                        )
+                        .bind(candidate)
+                        .bind(season_id)
+                        .bind(now)
+                        .fetch_optional(&mut *transaction)
+                        .await?;
+                        if let Some(inserted) = inserted {
+                            created = true;
+                            inserted
+                        } else {
+                            sqlx::query_scalar(
+                                "SELECT id FROM ranked_leaderboard_snapshots WHERE season_id=$1 AND archived",
+                            )
+                            .bind(season_id)
+                            .fetch_one(&mut *transaction)
+                            .await?
+                        }
+                    }
+                } else if let Some(existing) = sqlx::query_scalar::<_, Uuid>(
+                    "SELECT id FROM ranked_leaderboard_snapshots WHERE season_id=$1 AND NOT archived AND expires_at>$2 ORDER BY generated_at DESC LIMIT 1",
+                )
+                .bind(season_id)
+                .bind(now)
+                .fetch_optional(&mut *transaction)
+                .await?
+                {
+                    existing
+                } else {
+                    let candidate = Uuid::new_v4();
+                    sqlx::query(
+                        "INSERT INTO ranked_leaderboard_snapshots (id,season_id,generated_at,expires_at,archived) VALUES ($1,$2,$3,$3+interval '5 minutes',FALSE)",
+                    )
+                    .bind(candidate)
+                    .bind(season_id)
+                    .bind(now)
+                    .execute(&mut *transaction)
+                    .await?;
+                    created = true;
+                    candidate
+                };
+                if created {
+                    sqlx::query(
+                        r#"INSERT INTO ranked_leaderboard_snapshot_entries
+                           (snapshot_id,rank,account_id,rating,matches_played,wins,losses,peak_rating)
+                           SELECT $1,
+                             row_number() OVER (
+                               ORDER BY standing.rating DESC,standing.wins DESC,
+                                 standing.peak_rating DESC,standing.matches_played ASC,
+                                 standing.account_id ASC
+                             )::integer,
+                             standing.account_id,standing.rating,standing.matches_played,
+                             standing.wins,standing.losses,standing.peak_rating
+                           FROM ranked_season_standings standing
+                           WHERE standing.season_id=$2
+                             AND standing.matches_played>=5
+                             AND standing.wins+standing.losses=standing.matches_played
+                             AND standing.matches_played=(
+                               SELECT count(*)::integer
+                               FROM ranked_match_participants participant
+                               JOIN ranked_match_settlements settlement
+                                 ON settlement.room_id=participant.room_id
+                               WHERE participant.account_id=standing.account_id
+                                 AND settlement.season_id=standing.season_id
+                             )"#,
+                    )
+                    .bind(snapshot_id)
+                    .bind(season_id)
+                    .execute(&mut *transaction)
+                    .await?;
+                }
+                let row: (DateTime<Utc>, Option<DateTime<Utc>>, bool) = sqlx::query_as(
+                    "SELECT generated_at,expires_at,archived FROM ranked_leaderboard_snapshots WHERE id=$1",
+                )
+                .bind(snapshot_id)
+                .fetch_one(&mut *transaction)
+                .await?;
+                (snapshot_id, row.0, row.1, row.2, 0)
+            };
+
+        let mut rows: Vec<RankedLeaderboardEntryRow> = sqlx::query_as(
+            r#"SELECT entry.rank,account.handle,entry.rating,entry.matches_played,
+                 entry.wins,entry.losses,entry.peak_rating
+               FROM ranked_leaderboard_snapshot_entries entry
+               JOIN player_accounts account ON account.id=entry.account_id
+               WHERE entry.snapshot_id=$1
+                 AND entry.rank>$2
+                 AND account.leaderboard_visible
+                 AND NOT EXISTS (
+                   SELECT 1 FROM player_moderation_actions action
+                   WHERE (
+                     action.target_identity_id=entry.account_id
+                     OR action.target_identity_id IN (
+                       SELECT session.id FROM user_sessions session
+                       WHERE session.account_id=entry.account_id
+                     )
+                   )
+                   AND (
+                     action.action_type='BAN'
+                     OR (action.action_type='SUSPEND' AND action.expires_at>$3)
+                   )
+                   AND NOT EXISTS (
+                     SELECT 1 FROM player_moderation_actions reversal
+                     WHERE reversal.reverses_action_id=action.id
+                   )
+                 )
+               ORDER BY entry.rank
+               LIMIT $4"#,
+        )
+        .bind(snapshot_id)
+        .bind(after_rank)
+        .bind(now)
+        .bind(fetch_limit)
+        .fetch_all(&mut *transaction)
+        .await?;
+        let has_more = rows.len() > limit;
+        if has_more {
+            rows.truncate(limit);
+        }
+        let next_cursor = if has_more {
+            let after_rank = rows.last().map(|row| row.rank).ok_or(GameError::Internal)?;
+            let cursor_id = Uuid::new_v4();
+            let cursor_expires_at =
+                snapshot_expires_at.unwrap_or(now + chrono::Duration::minutes(15));
+            sqlx::query(
+                "INSERT INTO ranked_leaderboard_cursors (id,snapshot_id,after_rank,expires_at) VALUES ($1,$2,$3,$4)",
+            )
+            .bind(cursor_id)
+            .bind(snapshot_id)
+            .bind(after_rank)
+            .bind(cursor_expires_at)
+            .execute(&mut *transaction)
+            .await?;
+            Some(cursor_id)
+        } else {
+            None
+        };
+
+        let mut season_ids: Vec<String> = sqlx::query_scalar(
+            "SELECT season_id FROM (SELECT DISTINCT season_id FROM ranked_season_standings UNION SELECT DISTINCT season_id FROM ranked_leaderboard_snapshots) seasons ORDER BY season_id DESC",
+        )
+        .fetch_all(&mut *transaction)
+        .await?;
+        if !season_ids
+            .iter()
+            .any(|candidate| candidate == active_season_id)
+        {
+            season_ids.insert(0, active_season_id.to_string());
+        }
+        transaction.commit().await?;
+
+        let entries = rows
+            .into_iter()
+            .map(|row| {
+                let rank = u32::try_from(row.rank).map_err(|_| GameError::Internal)?;
+                let matches_played =
+                    u32::try_from(row.matches_played).map_err(|_| GameError::Internal)?;
+                Ok(RankedLeaderboardEntry {
+                    rank,
+                    handle: row.handle,
+                    rating: row.rating,
+                    tier: RankedTier::for_standing(row.rating, matches_played),
+                    matches_played,
+                    wins: u32::try_from(row.wins).map_err(|_| GameError::Internal)?,
+                    losses: u32::try_from(row.losses).map_err(|_| GameError::Internal)?,
+                    peak_rating: row.peak_rating,
+                })
+            })
+            .collect::<Result<Vec<_>, GameError>>()?;
+        let available_seasons = season_ids
+            .into_iter()
+            .map(|available_season_id| RankedLeaderboardSeason {
+                archived: available_season_id != active_season_id,
+                season_id: available_season_id,
+            })
+            .collect();
+        Ok(RankedLeaderboardPage {
+            season_id: season_id.to_string(),
+            archived: snapshot_archived,
+            generated_at,
+            entries,
+            next_cursor,
+            available_seasons,
+        })
     }
 
     async fn matchmaking_queue_stats(&self) -> Result<MatchmakingQueueStats, GameError> {

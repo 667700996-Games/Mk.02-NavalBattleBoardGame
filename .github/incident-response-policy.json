@@ -35,7 +35,8 @@
     "Battle interaction",
     "New-player funnel",
     "Retention and backup",
-    "Ranked rematch quality"
+    "Ranked rematch quality",
+    "Ranked leaderboard integrity"
   ],
   "requiredAlerts": [
     "Mk01AvailabilityFastBurn",
@@ -44,6 +45,7 @@
     "Mk01CommandLatency",
     "Mk01MatchmakingLatency",
     "Mk01RankedRematchRate",
+    "Mk01RankedLeaderboardEmpty",
     "Mk01UnexpectedDisconnectRate",
     "Mk01ActiveMatchRecovery",
     "Mk01DistributedEventFailure",

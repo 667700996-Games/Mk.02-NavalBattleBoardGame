@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Duration, Utc};
 use dashmap::DashMap;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
@@ -11,10 +11,12 @@ use crate::{
         GameRoom, IntegritySignal, IntegritySignalKind, IntegritySignalPage, LiveContentRevision,
         MatchmakingCriteria, MatchmakingPool, ModerationAction, ModerationActionKind,
         ModerationCase, ModerationCasePage, NewIntegritySignal, NewModerationAction,
-        NewPlayerReport, PlayerAccount, PlayerReport, RECENT_OPPONENT_LOOKBACK_MINUTES,
-        RankedProfile, RankedStandingRecord, ReportStatus, RoomStatus, RoomSummary, RoomVisibility,
-        SocialRelationship, UserSession, matchmaking_quality, next_season_seed,
-        ranked_match_reward_xp, ranked_placement_reward_xp, ranked_season_key,
+        NewPlayerReport, PlayerAccount, PlayerReport, RANKED_LEADERBOARD_MAX_LIMIT,
+        RECENT_OPPONENT_LOOKBACK_MINUTES, RankedLeaderboardEntry, RankedLeaderboardPage,
+        RankedLeaderboardSeason, RankedProfile, RankedStandingRecord, RankedTier, ReportStatus,
+        RoomStatus, RoomSummary, RoomVisibility, SocialRelationship, UserSession,
+        matchmaking_quality, next_season_seed, ranked_match_reward_xp, ranked_placement_reward_xp,
+        ranked_season_key,
     },
     error::GameError,
 };
@@ -32,6 +34,34 @@ struct MatchmakingEntry {
     criteria: MatchmakingCriteria,
     claim_id: Option<Uuid>,
     claimed_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Clone)]
+struct LeaderboardSnapshotEntry {
+    rank: u32,
+    account_id: Uuid,
+    rating: i32,
+    matches_played: u32,
+    wins: u32,
+    losses: u32,
+    peak_rating: i32,
+}
+
+#[derive(Debug, Clone)]
+struct LeaderboardSnapshot {
+    id: Uuid,
+    season_id: String,
+    generated_at: DateTime<Utc>,
+    expires_at: Option<DateTime<Utc>>,
+    archived: bool,
+    entries: Vec<LeaderboardSnapshotEntry>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct LeaderboardCursor {
+    snapshot_id: Uuid,
+    after_rank: u32,
+    expires_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Default)]
@@ -58,6 +88,11 @@ pub struct MemoryStore {
     ranked_rewards: DashMap<(Uuid, String, String, String), u32>,
     ranked_settlements: DashMap<Uuid, ()>,
     ranked_mutations: Mutex<()>,
+    leaderboard_visibility: DashMap<Uuid, bool>,
+    leaderboard_snapshots: DashMap<Uuid, LeaderboardSnapshot>,
+    leaderboard_archives: DashMap<String, Uuid>,
+    leaderboard_cursors: DashMap<Uuid, LeaderboardCursor>,
+    leaderboard_mutations: Mutex<()>,
 }
 
 impl MemoryStore {
@@ -93,6 +128,83 @@ impl MemoryStore {
             })
             .count();
         u16::try_from(count).unwrap_or(u16::MAX)
+    }
+
+    fn has_leaderboard_penalty(&self, account_id: Uuid, now: DateTime<Utc>) -> bool {
+        let mut identities = vec![account_id];
+        identities.extend(
+            self.sessions_by_hash
+                .iter()
+                .filter(|session| session.account_id == Some(account_id))
+                .map(|session| session.id),
+        );
+        let actions: Vec<_> = self
+            .moderation_actions
+            .iter()
+            .map(|action| action.value().clone())
+            .collect();
+        let reversed: HashSet<_> = actions
+            .iter()
+            .filter_map(|action| action.reverses_action_id)
+            .collect();
+        actions.iter().any(|action| {
+            identities.contains(&action.target_identity_id)
+                && !reversed.contains(&action.id)
+                && (action.action == ModerationActionKind::Ban
+                    || (action.action == ModerationActionKind::Suspend
+                        && action.expires_at.is_some_and(|expires_at| expires_at > now)))
+        })
+    }
+
+    fn build_leaderboard_snapshot(
+        &self,
+        season_id: &str,
+        archived: bool,
+        now: DateTime<Utc>,
+    ) -> LeaderboardSnapshot {
+        let mut standings: Vec<_> = self
+            .ranked_standings
+            .iter()
+            .filter(|standing| {
+                standing.key().1 == season_id
+                    && standing.matches_played >= crate::domain::RANKED_PLACEMENT_MATCHES
+                    && standing.wins.saturating_add(standing.losses) == standing.matches_played
+                    && self.accounts.contains_key(&standing.key().0)
+            })
+            .map(|standing| (standing.key().0, standing.value().clone()))
+            .collect();
+        standings.sort_by(|(left_id, left), (right_id, right)| {
+            right
+                .rating
+                .cmp(&left.rating)
+                .then_with(|| right.wins.cmp(&left.wins))
+                .then_with(|| right.peak_rating.cmp(&left.peak_rating))
+                .then_with(|| left.matches_played.cmp(&right.matches_played))
+                .then_with(|| left_id.cmp(right_id))
+        });
+        let entries = standings
+            .into_iter()
+            .enumerate()
+            .filter_map(|(index, (account_id, standing))| {
+                Some(LeaderboardSnapshotEntry {
+                    rank: u32::try_from(index).ok()?.checked_add(1)?,
+                    account_id,
+                    rating: standing.rating,
+                    matches_played: standing.matches_played,
+                    wins: standing.wins,
+                    losses: standing.losses,
+                    peak_rating: standing.peak_rating,
+                })
+            })
+            .collect();
+        LeaderboardSnapshot {
+            id: Uuid::new_v4(),
+            season_id: season_id.to_string(),
+            generated_at: now,
+            expires_at: (!archived).then_some(now + Duration::minutes(5)),
+            archived,
+            entries,
+        }
     }
 
     fn standing_or_seed(&self, account_id: Uuid, season_id: &str) -> RankedStandingRecord {
@@ -485,6 +597,7 @@ impl GameStore for MemoryStore {
             "rankedRating": ranked_rating,
             "rankedStandings": ranked_standings,
             "rankedRewards": ranked_rewards,
+            "leaderboardVisible": self.leaderboard_visibility.get(&account_id).is_none_or(|visible| *visible),
             "socialRelationships": relationships,
             "moderationReports": reports,
             "moderationActions": moderation_actions,
@@ -655,6 +768,12 @@ impl GameStore for MemoryStore {
         self.account_id_by_handle
             .remove(&account.handle.to_lowercase());
         self.accounts.remove(&account_id);
+        self.leaderboard_visibility.remove(&account_id);
+        for mut snapshot in self.leaderboard_snapshots.iter_mut() {
+            snapshot
+                .entries
+                .retain(|entry| entry.account_id != account_id);
+        }
         self.ranked_ratings.remove(&account_id);
         self.ranked_rating_seasons.remove(&account_id);
         let standing_keys: Vec<_> = self
@@ -1493,6 +1612,213 @@ impl GameStore for MemoryStore {
         Ok(RankedProfile::from_record(&standing, reward_xp_earned))
     }
 
+    async fn ranked_leaderboard_visibility(&self, account_id: Uuid) -> Result<bool, GameError> {
+        if !self.accounts.contains_key(&account_id) {
+            return Err(GameError::Unauthorized);
+        }
+        Ok(self
+            .leaderboard_visibility
+            .get(&account_id)
+            .is_none_or(|visible| *visible))
+    }
+
+    async fn set_ranked_leaderboard_visibility(
+        &self,
+        account_id: Uuid,
+        visible: bool,
+    ) -> Result<(), GameError> {
+        if !self.accounts.contains_key(&account_id) {
+            return Err(GameError::Unauthorized);
+        }
+        self.leaderboard_visibility.insert(account_id, visible);
+        Ok(())
+    }
+
+    async fn ranked_leaderboard(
+        &self,
+        season_id: &str,
+        active_season_id: &str,
+        archived: bool,
+        cursor: Option<Uuid>,
+        limit: usize,
+        now: DateTime<Utc>,
+    ) -> Result<RankedLeaderboardPage, GameError> {
+        let limit = limit.clamp(1, RANKED_LEADERBOARD_MAX_LIMIT);
+        let _guard = self.leaderboard_mutations.lock().await;
+        if cursor.is_none()
+            && season_id != active_season_id
+            && !self
+                .ranked_standings
+                .iter()
+                .any(|standing| standing.key().1 == season_id)
+            && !self.leaderboard_archives.contains_key(season_id)
+        {
+            return Err(GameError::InvalidRequest);
+        }
+
+        let expired_cursors: Vec<_> = self
+            .leaderboard_cursors
+            .iter()
+            .filter(|cursor| cursor.expires_at <= now)
+            .map(|cursor| *cursor.key())
+            .collect();
+        for cursor_id in expired_cursors {
+            self.leaderboard_cursors.remove(&cursor_id);
+        }
+        let expired_snapshots: Vec<_> = self
+            .leaderboard_snapshots
+            .iter()
+            .filter(|snapshot| {
+                snapshot
+                    .expires_at
+                    .is_some_and(|expires_at| expires_at <= now)
+            })
+            .map(|snapshot| *snapshot.key())
+            .collect();
+        for snapshot_id in expired_snapshots {
+            self.leaderboard_snapshots.remove(&snapshot_id);
+        }
+
+        let (snapshot, after_rank) = if let Some(cursor_id) = cursor {
+            let cursor = *self
+                .leaderboard_cursors
+                .get(&cursor_id)
+                .ok_or(GameError::InvalidRequest)?;
+            if cursor.expires_at <= now {
+                return Err(GameError::InvalidRequest);
+            }
+            let snapshot = self
+                .leaderboard_snapshots
+                .get(&cursor.snapshot_id)
+                .map(|snapshot| snapshot.clone())
+                .ok_or(GameError::InvalidRequest)?;
+            if snapshot.season_id != season_id
+                || snapshot
+                    .expires_at
+                    .is_some_and(|expires_at| expires_at <= now)
+            {
+                return Err(GameError::InvalidRequest);
+            }
+            (snapshot, cursor.after_rank)
+        } else {
+            let snapshot = if archived {
+                self.leaderboard_archives
+                    .get(season_id)
+                    .and_then(|snapshot_id| {
+                        self.leaderboard_snapshots
+                            .get(snapshot_id.value())
+                            .map(|snapshot| snapshot.clone())
+                    })
+                    .unwrap_or_else(|| {
+                        let snapshot = self.build_leaderboard_snapshot(season_id, true, now);
+                        self.leaderboard_archives
+                            .insert(season_id.to_string(), snapshot.id);
+                        self.leaderboard_snapshots
+                            .insert(snapshot.id, snapshot.clone());
+                        snapshot
+                    })
+            } else {
+                self.leaderboard_snapshots
+                    .iter()
+                    .filter(|snapshot| {
+                        snapshot.season_id == season_id
+                            && !snapshot.archived
+                            && snapshot
+                                .expires_at
+                                .is_some_and(|expires_at| expires_at > now)
+                    })
+                    .max_by_key(|snapshot| snapshot.generated_at)
+                    .map(|snapshot| snapshot.clone())
+                    .unwrap_or_else(|| {
+                        let snapshot = self.build_leaderboard_snapshot(season_id, false, now);
+                        self.leaderboard_snapshots
+                            .insert(snapshot.id, snapshot.clone());
+                        snapshot
+                    })
+            };
+            (snapshot, 0)
+        };
+
+        let mut eligible: Vec<_> = snapshot
+            .entries
+            .iter()
+            .filter(|entry| entry.rank > after_rank)
+            .filter_map(|entry| {
+                let account = self.accounts.get(&entry.account_id)?;
+                if self
+                    .leaderboard_visibility
+                    .get(&entry.account_id)
+                    .is_some_and(|visible| !*visible)
+                    || self.has_leaderboard_penalty(entry.account_id, now)
+                {
+                    return None;
+                }
+                Some(RankedLeaderboardEntry {
+                    rank: entry.rank,
+                    handle: account.0.handle.clone(),
+                    rating: entry.rating,
+                    tier: RankedTier::for_standing(entry.rating, entry.matches_played),
+                    matches_played: entry.matches_played,
+                    wins: entry.wins,
+                    losses: entry.losses,
+                    peak_rating: entry.peak_rating,
+                })
+            })
+            .take(limit.saturating_add(1))
+            .collect();
+        let has_more = eligible.len() > limit;
+        if has_more {
+            eligible.truncate(limit);
+        }
+        let next_cursor = if has_more {
+            let after_rank = eligible
+                .last()
+                .map(|entry| entry.rank)
+                .ok_or(GameError::Internal)?;
+            let cursor_id = Uuid::new_v4();
+            let expires_at = snapshot.expires_at.unwrap_or(now + Duration::minutes(15));
+            self.leaderboard_cursors.insert(
+                cursor_id,
+                LeaderboardCursor {
+                    snapshot_id: snapshot.id,
+                    after_rank,
+                    expires_at,
+                },
+            );
+            Some(cursor_id)
+        } else {
+            None
+        };
+
+        let mut season_ids: HashSet<_> = self
+            .ranked_standings
+            .iter()
+            .map(|standing| standing.key().1.clone())
+            .collect();
+        season_ids.insert(active_season_id.to_string());
+        let mut available_seasons: Vec<_> = season_ids
+            .into_iter()
+            .map(|available_season_id| RankedLeaderboardSeason {
+                archived: available_season_id != active_season_id,
+                season_id: available_season_id,
+            })
+            .collect();
+        available_seasons.sort_by(|left, right| {
+            left.archived
+                .cmp(&right.archived)
+                .then_with(|| right.season_id.cmp(&left.season_id))
+        });
+
+        Ok(RankedLeaderboardPage {
+            season_id: snapshot.season_id,
+            archived: snapshot.archived,
+            generated_at: snapshot.generated_at,
+            entries: eligible,
+            next_cursor,
+            available_seasons,
+        })
+    }
+
     async fn matchmaking_queue_stats(&self) -> Result<MatchmakingQueueStats, GameError> {
         let queue = self.matchmaking.lock().await;
         let oldest_age_seconds = queue
@@ -2079,6 +2405,121 @@ mod tests {
         assert_eq!(relaxed.quality.recent_pairings, 1);
         assert!(relaxed.quality.rematch_relaxed);
         assert!(relaxed.quality.shared_wait_seconds >= 90);
+    }
+
+    #[tokio::test]
+    async fn ranked_leaderboard_snapshots_filter_penalties_and_honor_privacy_immediately() {
+        let store = MemoryStore::default();
+        let first = ranked_session(&store, "Board Alpha").await;
+        let second = ranked_session(&store, "Board Bravo").await;
+        let third = ranked_session(&store, "Board Charlie").await;
+        let now = Utc::now();
+        let standing = |rating, wins| RankedStandingRecord {
+            season_id: "LEADERBOARD_S1".to_string(),
+            rating,
+            matches_played: 10,
+            wins,
+            losses: 10 - wins,
+            peak_rating: rating + 50,
+            last_match_at: Some(now),
+            decay_steps_applied: 0,
+            season_reward_issued_at: None,
+        };
+        store.ranked_standings.insert(
+            (first.account_id.unwrap(), "LEADERBOARD_S1".to_string()),
+            standing(1_900, 8),
+        );
+        store.ranked_standings.insert(
+            (second.account_id.unwrap(), "LEADERBOARD_S1".to_string()),
+            standing(1_800, 7),
+        );
+        store.ranked_standings.insert(
+            (third.account_id.unwrap(), "LEADERBOARD_S1".to_string()),
+            standing(1_700, 6),
+        );
+
+        let first_page = store
+            .ranked_leaderboard("LEADERBOARD_S1", "LEADERBOARD_S1", false, None, 1, now)
+            .await
+            .unwrap();
+        assert_eq!(first_page.entries[0].handle, "Board Alpha");
+        assert_eq!(first_page.entries[0].rank, 1);
+        let cursor = first_page.next_cursor.expect("a second page must exist");
+        assert!(
+            !serde_json::to_value(&first_page)
+                .unwrap()
+                .to_string()
+                .contains("accountId")
+        );
+
+        let suspension_id = Uuid::new_v4();
+        store.moderation_actions.insert(
+            suspension_id,
+            ModerationAction {
+                id: suspension_id,
+                report_id: Uuid::new_v4(),
+                target_identity_id: second.account_id.unwrap(),
+                operator_id: "leaderboard-test".to_string(),
+                action: ModerationActionKind::Suspend,
+                reason: "competitive integrity review".to_string(),
+                expires_at: Some(now + Duration::hours(1)),
+                reverses_action_id: None,
+                created_at: now,
+            },
+        );
+        let second_page = store
+            .ranked_leaderboard(
+                "LEADERBOARD_S1",
+                "LEADERBOARD_S1",
+                false,
+                Some(cursor),
+                1,
+                now,
+            )
+            .await
+            .unwrap();
+        assert_eq!(second_page.entries[0].handle, "Board Charlie");
+        assert_eq!(second_page.entries[0].rank, 3);
+
+        store
+            .set_ranked_leaderboard_visibility(first.account_id.unwrap(), false)
+            .await
+            .unwrap();
+        let private_page = store
+            .ranked_leaderboard("LEADERBOARD_S1", "LEADERBOARD_S1", false, None, 10, now)
+            .await
+            .unwrap();
+        assert_eq!(private_page.entries.len(), 1);
+        assert_eq!(private_page.entries[0].handle, "Board Charlie");
+
+        let archived = store
+            .ranked_leaderboard("LEADERBOARD_S1", "LEADERBOARD_S2", true, None, 10, now)
+            .await
+            .unwrap();
+        store
+            .ranked_standings
+            .get_mut(&(third.account_id.unwrap(), "LEADERBOARD_S1".to_string()))
+            .unwrap()
+            .rating = 2_500;
+        let archived_again = store
+            .ranked_leaderboard(
+                "LEADERBOARD_S1",
+                "LEADERBOARD_S2",
+                true,
+                None,
+                10,
+                now + Duration::minutes(1),
+            )
+            .await
+            .unwrap();
+        assert!(archived.archived);
+        assert_eq!(archived.entries, archived_again.entries);
+        assert!(
+            archived_again
+                .available_seasons
+                .iter()
+                .any(|season| season.season_id == "LEADERBOARD_S2" && !season.archived)
+        );
     }
 
     #[tokio::test]

@@ -7,8 +7,8 @@ use crate::domain::{
     Coordinate, GameSnapshot, GameStartRecord, GameTimerState, IntegritySignalKind,
     LiveContentPayload, LiveContentRevision, MatchRules, MatchmakingPool, MatchmakingQuality,
     MatchmakingRegion, MatchmakingSearchWindow, ModerationAction, ModerationActionKind,
-    PlayerAccount, PlayerReadyRecord, PlayerReportReceipt, ReportCategory, ReportStatus,
-    RoomSummary, RoomVisibility, ShipPlacement, SocialRelationship, SurrenderRecord,
+    PlayerAccount, PlayerReadyRecord, PlayerReportReceipt, RankedLeaderboardPage, ReportCategory,
+    ReportStatus, RoomSummary, RoomVisibility, ShipPlacement, SocialRelationship, SurrenderRecord,
     TurnExpiredRecord,
 };
 
@@ -68,6 +68,34 @@ pub struct AccountDeletionResponse {
     pub request_id: Uuid,
     pub deleted_at: DateTime<Utc>,
     pub stats: crate::store::AccountDeletionStats,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RankedLeaderboardQuery {
+    pub season_id: Option<String>,
+    pub cursor: Option<Uuid>,
+    pub limit: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RankedLeaderboardResponse {
+    #[serde(flatten)]
+    pub page: RankedLeaderboardPage,
+    pub viewer_visible: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RankedLeaderboardVisibilityInput {
+    pub visible: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RankedLeaderboardVisibilityResponse {
+    pub visible: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]

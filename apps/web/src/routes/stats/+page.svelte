@@ -19,20 +19,28 @@
   } from '@lucide/svelte';
   import { api } from '$lib/api';
   import { session } from '$lib/stores';
-  import type { HistoryItem, PlayerProgression } from '$lib/types';
+  import type { HistoryItem, PlayerProgression, RankedLeaderboardResponse } from '$lib/types';
 
   let games = $state<HistoryItem[]>([]);
   let loading = $state(true);
   let progression = $state<PlayerProgression | null>(null);
   let claimingMission = $state<string | null>(null);
   let progressionError = $state('');
+  let hasAccount = $state(false);
+  let leaderboard = $state<RankedLeaderboardResponse | null>(null);
+  let leaderboardLoading = $state(false);
+  let leaderboardLoadingMore = $state(false);
+  let leaderboardVisibilitySaving = $state(false);
+  let leaderboardError = $state('');
   onMount(async () => {
     try {
       const current = await api.currentSession();
       session.set(current);
+      hasAccount = Boolean(current.accountId);
       const [history, profile] = await Promise.all([api.history(), api.profile()]);
       games = history.games;
       progression = profile;
+      if (hasAccount) await loadLeaderboard();
     } catch {
       await goto(resolve('/'));
     } finally {
@@ -62,6 +70,43 @@
         caught instanceof Error ? caught.message : '임무 보상을 지급하지 못했습니다.';
     } finally {
       claimingMission = null;
+    }
+  }
+  async function loadLeaderboard(seasonId?: string, append = false) {
+    if (!hasAccount) return;
+    leaderboardError = '';
+    if (append) leaderboardLoadingMore = true;
+    else leaderboardLoading = true;
+    try {
+      const next = await api.rankedLeaderboard(
+        seasonId ?? leaderboard?.seasonId,
+        append ? (leaderboard?.nextCursor ?? undefined) : undefined
+      );
+      leaderboard =
+        append && leaderboard
+          ? { ...next, entries: [...leaderboard.entries, ...next.entries] }
+          : next;
+    } catch (caught) {
+      leaderboardError =
+        caught instanceof Error ? caught.message : '시즌 순위표를 불러오지 못했습니다.';
+    } finally {
+      leaderboardLoading = false;
+      leaderboardLoadingMore = false;
+    }
+  }
+  async function updateLeaderboardVisibility() {
+    if (!leaderboard) return;
+    leaderboardVisibilitySaving = true;
+    leaderboardError = '';
+    try {
+      const preference = await api.setRankedLeaderboardVisibility(!leaderboard.viewerVisible);
+      leaderboard = { ...leaderboard, viewerVisible: preference.visible };
+      await loadLeaderboard(leaderboard.seasonId);
+    } catch (caught) {
+      leaderboardError =
+        caught instanceof Error ? caught.message : '순위표 공개 설정을 저장하지 못했습니다.';
+    } finally {
+      leaderboardVisibilitySaving = false;
     }
   }
   let wins = $derived(games.filter(won).length);
@@ -131,6 +176,96 @@
         </ul>
       {/if}
     </section>
+    {#if hasAccount}
+      <section class="leaderboard panel" aria-labelledby="ranked-leaderboard-title">
+        <div class="leaderboard-heading">
+          <div class="leaderboard-title">
+            <span><Trophy size={17} /></span>
+            <div>
+              <small>SERVER-AUTHORITATIVE RANKING</small>
+              <h2 id="ranked-leaderboard-title">시즌 지휘관 순위</h2>
+            </div>
+          </div>
+          {#if leaderboard}
+            <div class="leaderboard-controls">
+              <label>
+                <span class="sr-only">조회할 랭크 시즌</span>
+                <select
+                  value={leaderboard.seasonId}
+                  aria-label="조회할 랭크 시즌"
+                  onchange={(event) => loadLeaderboard(event.currentTarget.value)}
+                >
+                  {#each leaderboard.availableSeasons as season (season.seasonId)}
+                    <option value={season.seasonId}
+                      >{season.seasonId}{season.archived ? ' · ARCHIVE' : ' · LIVE'}</option
+                    >
+                  {/each}
+                </select>
+              </label>
+              <button
+                class:private={!leaderboard.viewerVisible}
+                class="visibility-toggle"
+                type="button"
+                aria-pressed={!leaderboard.viewerVisible}
+                disabled={leaderboardVisibilitySaving}
+                onclick={updateLeaderboardVisibility}
+              >
+                {leaderboard.viewerVisible ? '공개 중' : '비공개'}
+              </button>
+            </div>
+          {/if}
+        </div>
+        {#if leaderboardLoading}
+          <div class="leaderboard-state" role="status"><div class="spinner"></div></div>
+        {:else if leaderboard}
+          <div class="leaderboard-meta">
+            <span class:archive={leaderboard.archived}
+              >{leaderboard.archived ? 'FINAL ARCHIVE' : '5 MIN SNAPSHOT'}</span
+            >
+            <time datetime={leaderboard.generatedAt}
+              >{new Date(leaderboard.generatedAt).toLocaleString('ko-KR')} 생성</time
+            >
+            <p>
+              완료된 배치 경기만 반영하며, 제재 중인 계정과 공개를 거부한 지휘관은 즉시 제외됩니다.
+            </p>
+          </div>
+          {#if leaderboard.entries.length}
+            <div class="leaderboard-table" role="table" aria-label={`${leaderboard.seasonId} 순위`}>
+              <div class="leaderboard-row leaderboard-row--head" role="row">
+                <span role="columnheader">순위</span><span role="columnheader">지휘관</span><span
+                  role="columnheader">티어</span
+                ><span role="columnheader">RP</span><span role="columnheader">전적</span>
+              </div>
+              {#each leaderboard.entries as entry (entry.rank)}
+                <div class:podium={entry.rank <= 3} class="leaderboard-row" role="row">
+                  <div role="cell"><strong>#{entry.rank}</strong></div>
+                  <span class="leaderboard-handle" role="cell">{entry.handle}</span>
+                  <span role="cell">{entry.tier}</span>
+                  <div role="cell"><strong>{entry.rating.toLocaleString('ko-KR')}</strong></div>
+                  <span role="cell">{entry.wins}승 {entry.losses}패</span>
+                </div>
+              {/each}
+            </div>
+            {#if leaderboard.nextCursor}
+              <button
+                class="leaderboard-more"
+                type="button"
+                disabled={leaderboardLoadingMore}
+                onclick={() => loadLeaderboard(leaderboard?.seasonId, true)}
+                >{leaderboardLoadingMore ? '스냅샷 확인 중…' : '다음 순위 불러오기'}</button
+              >
+            {/if}
+          {:else}
+            <div class="leaderboard-state">
+              <Medal size={26} />
+              <strong>공개 가능한 배치 완료 지휘관이 없습니다</strong>
+              <span>5회의 배치 경기를 완료하면 시즌 순위에 참여할 수 있습니다.</span>
+            </div>
+          {/if}
+        {/if}
+        {#if leaderboardError}<p class="leaderboard-error" role="alert">{leaderboardError}</p>{/if}
+      </section>
+    {/if}
     <section class="progression panel" aria-label="지휘관 진행도">
       <div class="rank-seal"><Star size={26} /><strong>{progression.level}</strong></div>
       <div class="rank-copy">
@@ -373,6 +508,165 @@
   .event-list time {
     color: var(--ink-500);
     font-size: 7px;
+  }
+  .leaderboard {
+    margin-bottom: 12px;
+    padding: 20px;
+    overflow: hidden;
+  }
+  .leaderboard-heading,
+  .leaderboard-title,
+  .leaderboard-controls,
+  .leaderboard-meta {
+    display: flex;
+    align-items: center;
+  }
+  .leaderboard-heading {
+    justify-content: space-between;
+    gap: 18px;
+    margin-bottom: 15px;
+  }
+  .leaderboard-title {
+    gap: 10px;
+  }
+  .leaderboard-title > span {
+    display: grid;
+    width: 36px;
+    height: 36px;
+    place-items: center;
+    border: 1px solid rgba(40, 223, 232, 0.24);
+    border-radius: 50%;
+    color: var(--cyan-300);
+    background: rgba(40, 223, 232, 0.06);
+  }
+  .leaderboard-title small {
+    color: var(--cyan-400);
+    font-family: var(--font-display);
+    font-size: 7px;
+    letter-spacing: 0.12em;
+  }
+  .leaderboard-title h2 {
+    margin: 2px 0 0;
+    font-family: var(--font-display);
+    font-size: 15px;
+  }
+  .leaderboard-controls {
+    gap: 8px;
+  }
+  .leaderboard-controls select,
+  .visibility-toggle,
+  .leaderboard-more {
+    min-height: 36px;
+    border: 1px solid var(--line-strong);
+    border-radius: 6px;
+    color: var(--ink-200);
+    background: rgba(4, 17, 24, 0.78);
+    font: inherit;
+    font-size: 9px;
+  }
+  .leaderboard-controls select {
+    padding: 0 30px 0 10px;
+  }
+  .visibility-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 11px;
+    color: var(--green-400);
+    cursor: pointer;
+  }
+  .visibility-toggle.private {
+    color: var(--amber-300);
+  }
+  .visibility-toggle:disabled,
+  .leaderboard-more:disabled {
+    cursor: wait;
+    opacity: 0.55;
+  }
+  .leaderboard-meta {
+    flex-wrap: wrap;
+    gap: 7px 12px;
+    margin-bottom: 10px;
+    color: var(--ink-500);
+    font-size: 8px;
+  }
+  .leaderboard-meta > span {
+    padding: 3px 6px;
+    border-radius: 999px;
+    color: var(--green-400);
+    background: rgba(53, 215, 147, 0.08);
+    font-family: var(--font-display);
+    letter-spacing: 0.08em;
+  }
+  .leaderboard-meta > span.archive {
+    color: var(--amber-300);
+    background: rgba(255, 180, 60, 0.08);
+  }
+  .leaderboard-meta p {
+    flex-basis: 100%;
+    margin: 0;
+  }
+  .leaderboard-table {
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    overflow: hidden;
+  }
+  .leaderboard-row {
+    display: grid;
+    grid-template-columns: 62px minmax(150px, 1.5fr) minmax(90px, 0.8fr) 78px minmax(90px, 0.7fr);
+    align-items: center;
+    min-height: 42px;
+    padding: 0 12px;
+    border-bottom: 1px solid rgba(110, 169, 190, 0.09);
+    color: var(--ink-400);
+    font-size: 9px;
+  }
+  .leaderboard-row:last-child {
+    border-bottom: 0;
+  }
+  .leaderboard-row--head {
+    min-height: 31px;
+    color: var(--ink-600);
+    background: rgba(38, 94, 112, 0.08);
+    font-size: 7px;
+    letter-spacing: 0.08em;
+  }
+  .leaderboard-row.podium {
+    background: linear-gradient(90deg, rgba(255, 180, 60, 0.06), transparent 44%);
+  }
+  .leaderboard-row [role='cell'] > strong {
+    color: var(--amber-300);
+    font-family: var(--font-display);
+  }
+  .leaderboard-handle {
+    color: var(--ink-100);
+    font-weight: 700;
+  }
+  .leaderboard-state {
+    display: grid;
+    min-height: 108px;
+    place-items: center;
+    align-content: center;
+    gap: 6px;
+    color: var(--ink-500);
+    text-align: center;
+  }
+  .leaderboard-state strong {
+    color: var(--ink-300);
+    font-size: 10px;
+  }
+  .leaderboard-state span {
+    font-size: 8px;
+  }
+  .leaderboard-more {
+    width: 100%;
+    margin-top: 9px;
+    cursor: pointer;
+  }
+  .leaderboard-error {
+    margin: 10px 0 0;
+    color: var(--danger-400);
+    font-size: 9px;
   }
   .content-paused {
     margin: 0 0 24px;
@@ -664,6 +958,28 @@
     }
     .season-brief {
       grid-template-columns: auto 1fr;
+    }
+    .leaderboard-heading {
+      align-items: stretch;
+      flex-direction: column;
+    }
+    .leaderboard-controls,
+    .leaderboard-controls label,
+    .leaderboard-controls select,
+    .visibility-toggle {
+      flex: 1;
+    }
+    .leaderboard-controls select,
+    .visibility-toggle {
+      width: 100%;
+      min-height: 44px;
+    }
+    .leaderboard-row {
+      grid-template-columns: 42px minmax(110px, 1fr) 72px 58px;
+      padding: 0 8px;
+    }
+    .leaderboard-row > :last-child {
+      display: none;
     }
     .event-list {
       grid-column: 1 / -1;

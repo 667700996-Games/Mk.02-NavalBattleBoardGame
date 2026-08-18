@@ -18,6 +18,7 @@ import type {
   PlayerAccount,
   PlayerProgression,
   PlayerReportReceipt,
+  RankedLeaderboardResponse,
   ReportCategory,
   ReportStatus,
   RoomCreatedResponse,
@@ -116,6 +117,17 @@ export const api = {
       body: JSON.stringify({ recoveryKey, confirmation })
     }),
   profile: () => request<PlayerProgression>('/profile'),
+  rankedLeaderboard: (seasonId?: string, cursor?: string, limit = 20) => {
+    const query = new URLSearchParams({ limit: String(limit) });
+    if (seasonId) query.set('seasonId', seasonId);
+    if (cursor) query.set('cursor', cursor);
+    return request<RankedLeaderboardResponse>(`/leaderboards/ranked?${query}`);
+  },
+  setRankedLeaderboardVisibility: (visible: boolean) =>
+    request<{ visible: boolean }>('/profile/leaderboard-visibility', {
+      method: 'PUT',
+      body: JSON.stringify({ visible })
+    }),
   claimMission: (missionId: string) =>
     request<PlayerProgression>(`/profile/missions/${encodeURIComponent(missionId)}/claim`, {
       method: 'POST'

@@ -10,7 +10,7 @@ documented, and no longer than the values below without a legal basis.
 | Abandoned matchmaking entries | 10 minutes | Durable queue rows are deleted hourly and opportunistically during queue operations. |
 | Cancelled and completed rooms | 90 days | The room snapshot, chat, replay timeline, result, and participant index are deleted together. Redis room cache entries are evicted in the same sweep. |
 | Active rooms | Until resolved | Durable reconnect/turn deadlines resolve abandoned games; active state is never deleted solely because a process stopped. |
-| Account identity and ranked competition | Until user deletion | Current rating, seasonal standings, result deltas, and reward rows survive session expiry. Account-bound rows cascade with verified deletion; the room settlement marker contains no identity. |
+| Account identity and ranked competition | Until user deletion | Current rating, seasonal standings, result deltas, rewards, leaderboard preference, and snapshot entries survive session expiry. Account-bound rows cascade with verified deletion; the room settlement marker and empty snapshot shell contain no identity. |
 | Operational metrics | Aggregated only | The application endpoint exposes counters, gauges, and histograms without player identifiers. Funnel and real-user performance input accepts only fixed enums and bounded numeric values; it never accepts an account, session, room, request ID, IP, nickname, URL parameter, device model, or free-text label. Infrastructure retention must not exceed 30 days. |
 | Closed moderation cases | 365 days after closure | Reports and their action audit rows are removed together. Open/reviewing cases are retained until resolved; legal holds require a separately audited export before closure. |
 | Integrity telemetry | 180 days after last observation | Deduplicated anti-cheat signals and evidence are removed by the same hourly worker. Aggregated counters contain no player identity. |
@@ -29,6 +29,12 @@ sessions. This lets expired session tokens be deleted without breaking an accoun
 history. Ranked matchmaking derives a 30-minute recent-opponent count from these retained rows and
 stores no separate opponent profile or identity in metrics. The participant index is deleted by
 the same database cascade as its room and result.
+
+Leaderboard snapshots store account UUIDs only as private foreign keys; public responses join the
+current handle and never serialize that key. Visibility and active moderation are evaluated on each
+read. Deletion cascades every snapshot entry immediately, while an empty season snapshot can remain
+as non-personal archive metadata. Active snapshots expire after five minutes and their opaque cursor
+rows cascade; finalized past-season snapshots remain to preserve historical ranks.
 
 Deletion sweeps expose cumulative Prometheus counters for sessions, rooms, matchmaking rows,
 closed moderation cases, and integrity signals.

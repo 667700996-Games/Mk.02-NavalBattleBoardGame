@@ -126,18 +126,25 @@
           <a
             class:active={active('/lobby') || active('/room')}
             class="nav-link"
+            aria-label="작전 로비"
             href={resolve('/lobby')}><Radio size={17} /><span>작전 로비</span></a
           >
         </Tooltip>
         <Tooltip text="전투 기록" side="bottom">
-          <a class:active={active('/stats')} class="nav-link" href={resolve('/stats')}
-            ><History size={17} /><span>전투 기록</span></a
+          <a
+            class:active={active('/stats')}
+            class="nav-link"
+            aria-label="전투 기록"
+            href={resolve('/stats')}><History size={17} /><span>전투 기록</span></a
           >
         </Tooltip>
       {/if}
       <Tooltip text="환경 설정" side="bottom">
-        <a class:active={active('/settings')} class="nav-link" href={resolve('/settings')}
-          ><Settings size={17} /><span>설정</span></a
+        <a
+          class:active={active('/settings')}
+          class="nav-link"
+          aria-label="환경 설정"
+          href={resolve('/settings')}><Settings size={17} /><span>설정</span></a
         >
       </Tooltip>
     </nav>

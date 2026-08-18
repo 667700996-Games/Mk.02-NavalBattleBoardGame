@@ -1315,6 +1315,117 @@ async fn ranked_matchmaking_requires_accounts_rejects_client_authority_and_retur
 }
 
 #[tokio::test]
+async fn ranked_leaderboard_requires_accounts_bounds_queries_and_persists_privacy_choice() {
+    let app = test_app();
+    let (guest_cookie, _) = create_session(&app, "Board Guest").await;
+    let guest_response = send(
+        &app,
+        Request::builder()
+            .uri("/api/leaderboards/ranked")
+            .header(header::COOKIE, &guest_cookie)
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(guest_response.status(), StatusCode::FORBIDDEN);
+    assert_eq!(
+        json_body(guest_response).await["code"],
+        "RANKED_ACCOUNT_REQUIRED"
+    );
+
+    let (account_cookie, _) = upgrade_account(&app, &guest_cookie, "Board Captain").await;
+    let oversized = send(
+        &app,
+        Request::builder()
+            .uri("/api/leaderboards/ranked?limit=51")
+            .header(header::COOKIE, &account_cookie)
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(oversized.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(json_body(oversized).await["code"], "INVALID_REQUEST");
+    let unknown_season = send(
+        &app,
+        Request::builder()
+            .uri("/api/leaderboards/ranked?seasonId=UNKNOWN_SEASON")
+            .header(header::COOKIE, &account_cookie)
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(unknown_season.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(json_body(unknown_season).await["code"], "INVALID_REQUEST");
+
+    let leaderboard = json_body(
+        send(
+            &app,
+            Request::builder()
+                .uri("/api/leaderboards/ranked?limit=20")
+                .header(header::COOKIE, &account_cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(leaderboard["seasonId"], "FOUNDERS_SEASON");
+    assert_eq!(leaderboard["archived"], false);
+    assert_eq!(leaderboard["viewerVisible"], true);
+    assert_eq!(leaderboard["entries"], json!([]));
+    assert!(leaderboard["generatedAt"].is_string());
+    assert_eq!(
+        leaderboard["availableSeasons"][0]["seasonId"],
+        "FOUNDERS_SEASON"
+    );
+    assert!(leaderboard.get("accountId").is_none());
+
+    let visibility = json_body(
+        send(
+            &app,
+            Request::builder()
+                .method("PUT")
+                .uri("/api/profile/leaderboard-visibility")
+                .header(header::CONTENT_TYPE, "application/json")
+                .header(header::COOKIE, &account_cookie)
+                .body(Body::from(json!({ "visible": false }).to_string()))
+                .unwrap(),
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(visibility["visible"], false);
+
+    let hidden = json_body(
+        send(
+            &app,
+            Request::builder()
+                .uri("/api/leaderboards/ranked")
+                .header(header::COOKIE, &account_cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(hidden["viewerVisible"], false);
+
+    let exported = json_body(
+        send(
+            &app,
+            Request::builder()
+                .uri("/api/accounts/export")
+                .header(header::COOKIE, &account_cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(exported["leaderboardVisible"], false);
+}
+
+#[tokio::test]
 async fn social_safety_mutes_blocks_reports_and_prevents_future_room_pairing() {
     let app = test_app();
     let (alpha_cookie, _) = create_session(&app, "Safety Alpha").await;

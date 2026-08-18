@@ -150,6 +150,7 @@ export interface AccountDataExport {
   rankedStandings?: unknown[];
   rankedMatchResults?: unknown[];
   rankedRewards?: unknown[];
+  leaderboardVisible: boolean;
   socialRelationships: unknown[];
   moderationReports: unknown[];
   moderationActions: unknown[];
@@ -245,6 +246,32 @@ export interface RankedProfile {
   nextDecayAt: string | null;
   decayPointsApplied: number;
   rewardXpEarned: number;
+}
+
+export interface RankedLeaderboardEntry {
+  rank: number;
+  handle: string;
+  rating: number;
+  tier: RankedTier;
+  matchesPlayed: number;
+  wins: number;
+  losses: number;
+  peakRating: number;
+}
+
+export interface RankedLeaderboardSeason {
+  seasonId: string;
+  archived: boolean;
+}
+
+export interface RankedLeaderboardResponse {
+  seasonId: string;
+  archived: boolean;
+  generatedAt: string;
+  entries: RankedLeaderboardEntry[];
+  nextCursor: string | null;
+  availableSeasons: RankedLeaderboardSeason[];
+  viewerVisible: boolean;
 }
 
 export interface SocialRelationship {

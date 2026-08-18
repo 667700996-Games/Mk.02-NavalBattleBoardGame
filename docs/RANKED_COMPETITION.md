@@ -79,12 +79,13 @@ correctness boundary.
 
 ## Privacy, recovery, and acceptance
 
-Account export contains current rating, all seasonal standings, per-match deltas, and ranked
-rewards. Verified account deletion removes every account-bound ranked row by explicit deletion or
-foreign-key cascade; anonymous settlement markers retain no account identity. Restore verification
-checks all 16 migrations, queue profiles, ranked table counts, references, and deletion tombstones.
+Account export contains current rating, all seasonal standings, per-match deltas, ranked rewards,
+and leaderboard visibility. Verified account deletion removes every account-bound ranked row by
+explicit deletion or foreign-key cascade; anonymous settlement markers retain no account identity.
+Restore verification checks all 17 migrations, queue profiles, ranked and leaderboard table counts,
+references, and deletion tombstones.
 
 Acceptance evidence includes domain and memory-store tests, API profile/snapshot contracts, a fresh
-PostgreSQL 16 migration, an eight-test PostgreSQL/Redis distributed suite, restore verification,
-Chromium/Firefox/WebKit player flow, and the bundle/performance gates. Leaderboard abuse controls
-and rematch-aware fairness. Leaderboard abuse controls remain a separately tracked C2 deliverable.
+PostgreSQL 16 migration, the PostgreSQL/Redis distributed suite, restore verification,
+Chromium/Firefox/WebKit player flow, and the bundle/performance gates. Rematch policy is defined in
+`RANKED_MATCHMAKING.md`; public ranking policy is defined in `RANKED_LEADERBOARDS.md`.

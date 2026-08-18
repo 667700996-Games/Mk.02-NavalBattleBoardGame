@@ -246,6 +246,21 @@
       ],
       "title": "Ranked rematch quality",
       "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "description": "Privacy-filtered ranked leaderboard demand, entries served, and empty responses.",
+      "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 48 },
+      "id": 12,
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        { "editorMode": "code", "expr": "sum(rate(mk01_ranked_leaderboard_requests_total[30m]))", "legendFormat": "requests/s", "range": true, "refId": "A" },
+        { "editorMode": "code", "expr": "sum(rate(mk01_ranked_leaderboard_entries_served_total[30m]))", "legendFormat": "entries/s", "range": true, "refId": "B" },
+        { "editorMode": "code", "expr": "sum(rate(mk01_ranked_leaderboard_empty_responses_total[30m]))", "legendFormat": "empty responses/s", "range": true, "refId": "C" }
+      ],
+      "title": "Ranked leaderboard integrity",
+      "type": "timeseries"
     }
   ],
   "refresh": "30s",

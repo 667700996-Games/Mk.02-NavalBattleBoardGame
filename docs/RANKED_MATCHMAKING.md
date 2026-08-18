@@ -2,8 +2,8 @@
 
 Mk.01 ranked matchmaking is a server-authoritative, durable 1v1 queue. This document defines the
 shipping constraints for the A2 matchmaking gate. Seasonal rating, placements, tiers, inactivity,
-and reward settlement are defined in `RANKED_COMPETITION.md`; leaderboard work remains a separate
-C2 deliverable.
+and reward settlement are defined in `RANKED_COMPETITION.md`; public seasonal ranking is defined in
+`RANKED_LEADERBOARDS.md`.
 
 ## Authority boundary
 

@@ -1,3 +1,4 @@
+import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 
 async function register(page: Page, nickname: string) {
@@ -52,4 +53,38 @@ test('ranked queue measures RTT and sends only player-controlled preferences', a
 
   await page.goto('/stats');
   await expect(page.getByText('PROVISIONAL 1500 RP')).toBeVisible();
+  await expect(page.getByRole('heading', { name: '시즌 지휘관 순위' })).toBeVisible();
+  await expect(page.getByText('공개 가능한 배치 완료 지휘관이 없습니다')).toBeVisible();
+  await expect(page.getByRole('button', { name: '공개 중' })).toBeVisible();
+  await page.getByRole('button', { name: '공개 중' }).click();
+  await expect(page.getByRole('button', { name: '비공개' })).toBeVisible();
+});
+
+test('mobile ranked leaderboard keeps privacy controls readable without overflow', async ({
+  page,
+  browserName
+}, testInfo) => {
+  test.skip(browserName !== 'chromium', 'One mobile layout run covers the shared responsive CSS.');
+  const handle = `BoardMobile${testInfo.repeatEachIndex}`;
+  await register(page, handle);
+  const upgraded = await page.request.post('/api/accounts/upgrade', { data: { handle } });
+  expect(upgraded.ok()).toBe(true);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/stats');
+  await expect(page.getByRole('heading', { name: '시즌 지휘관 순위' })).toBeVisible();
+  const visibility = page.getByRole('button', { name: '공개 중' });
+  const season = page.getByLabel('조회할 랭크 시즌');
+  await expect(visibility).toBeVisible();
+  await expect(season).toBeVisible();
+  expect((await visibility.boundingBox())?.height).toBeGreaterThanOrEqual(44);
+  expect((await season.boundingBox())?.height).toBeGreaterThanOrEqual(44);
+  const dimensions = await page.evaluate(() => ({
+    scrollWidth: document.documentElement.scrollWidth,
+    clientWidth: document.documentElement.clientWidth
+  }));
+  expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.clientWidth + 1);
+  const audit = await new AxeBuilder({ page })
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22a', 'wcag22aa'])
+    .analyze();
+  expect(audit.violations).toEqual([]);
 });

@@ -37,6 +37,10 @@ reward counts.
 The matchmaking fairness expansion adds only composite indexes over retained result timestamps and
 participant identities. Candidate servers use those indexes for a bounded 30-minute recent-
 opponent query; stable servers continue using the same result and participant rows unchanged.
+The leaderboard expansion adds a default-visible account preference plus isolated snapshot, entry,
+and opaque-cursor tables. Stable servers ignore them. Candidate servers retain active snapshots for
+five minutes and one finalized archive per past season; account foreign keys cascade deleted player
+entries without storing handles or other personal data in the archive.
 It also decodes every live-content payload and compares its revision, schema, activation, operator,
 change note, rollback source, and creation timestamp with the immutable relational audit columns.
 It also fails if a deletion tombstone has any surviving account, session, reward, participant, or

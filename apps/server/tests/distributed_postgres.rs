@@ -707,6 +707,240 @@ async fn postgres_ranked_results_settle_once_complete_placements_and_issue_seaso
 }
 
 #[tokio::test]
+async fn postgres_ranked_leaderboard_uses_authoritative_snapshots_privacy_and_penalties() {
+    let Some((database_url, redis_url)) = integration_urls() else {
+        eprintln!("skipping distributed integration test without TEST_DATABASE_URL/TEST_REDIS_URL");
+        return;
+    };
+    let store = store(&database_url, &redis_url).await;
+    let database = sqlx::PgPool::connect(&database_url).await.unwrap();
+    sqlx::query("DELETE FROM player_reports WHERE details='authoritative leaderboard test'")
+        .execute(&database)
+        .await
+        .unwrap();
+    sqlx::query(
+        "DELETE FROM player_accounts WHERE id IN (SELECT account_id FROM ranked_season_standings WHERE season_id='LEADERBOARD_PG')",
+    )
+    .execute(&database)
+    .await
+    .unwrap();
+    sqlx::query("DELETE FROM ranked_leaderboard_snapshots WHERE season_id='LEADERBOARD_PG'")
+        .execute(&database)
+        .await
+        .unwrap();
+    let (first, first_account) = account_session(&store, "BoardPgAlpha").await;
+    let (second, second_account) = account_session(&store, "BoardPgBravo").await;
+    let (third, third_account) = account_session(&store, "BoardPgCharlie").await;
+    for account in [&first_account, &second_account, &third_account] {
+        store
+            .ranked_profile(
+                account.id,
+                "LEADERBOARD_PG",
+                Utc::now() - chrono::Duration::days(1),
+                Utc::now(),
+            )
+            .await
+            .unwrap();
+    }
+    for _ in 0..3 {
+        let mut first_second = finished_ranked_room(&first, &second, "LEADERBOARD_PG");
+        store.save_room(&mut first_second).await.unwrap();
+        let mut second_third = finished_ranked_room(&second, &third, "LEADERBOARD_PG");
+        store.save_room(&mut second_third).await.unwrap();
+        let mut third_first = finished_ranked_room(&third, &first, "LEADERBOARD_PG");
+        store.save_room(&mut third_first).await.unwrap();
+    }
+
+    let first_page = store
+        .ranked_leaderboard(
+            "LEADERBOARD_PG",
+            "LEADERBOARD_PG",
+            false,
+            None,
+            1,
+            Utc::now(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(first_page.entries.len(), 1);
+    assert_eq!(first_page.entries[0].rank, 1);
+    assert!(first_page.next_cursor.is_some());
+    let snapshot_id: Uuid = sqlx::query_scalar(
+        "SELECT id FROM ranked_leaderboard_snapshots WHERE season_id='LEADERBOARD_PG' AND NOT archived ORDER BY generated_at DESC LIMIT 1",
+    )
+    .fetch_one(&database)
+    .await
+    .unwrap();
+    let second_rank_account: Uuid = sqlx::query_scalar(
+        "SELECT account_id FROM ranked_leaderboard_snapshot_entries WHERE snapshot_id=$1 AND rank=2",
+    )
+    .bind(snapshot_id)
+    .fetch_one(&database)
+    .await
+    .unwrap();
+    let report_id = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO player_reports (id,reporter_identity_id,target_identity_id,target_nickname,category,details,evidence,status,created_at,updated_at) VALUES ($1,$2,$3,'Ranked subject','CHEATING','authoritative leaderboard test','{}'::jsonb,'ACTIONED',now(),now())",
+    )
+    .bind(report_id)
+    .bind(Uuid::new_v4())
+    .bind(second_rank_account)
+    .execute(&database)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO player_moderation_actions (id,report_id,target_identity_id,operator_id,action_type,reason,expires_at,created_at) VALUES ($1,$2,$3,'leaderboard-test','SUSPEND','competitive integrity review',now()+interval '1 hour',now())",
+    )
+    .bind(Uuid::new_v4())
+    .bind(report_id)
+    .bind(second_rank_account)
+    .execute(&database)
+    .await
+    .unwrap();
+
+    let next_page = store
+        .ranked_leaderboard(
+            "LEADERBOARD_PG",
+            "LEADERBOARD_PG",
+            false,
+            first_page.next_cursor,
+            1,
+            Utc::now(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(next_page.entries.len(), 1);
+    assert_eq!(next_page.entries[0].rank, 3);
+    assert!(next_page.next_cursor.is_none());
+
+    let first_rank_account: Uuid = sqlx::query_scalar(
+        "SELECT account_id FROM ranked_leaderboard_snapshot_entries WHERE snapshot_id=$1 AND rank=1",
+    )
+    .bind(snapshot_id)
+    .fetch_one(&database)
+    .await
+    .unwrap();
+    store
+        .set_ranked_leaderboard_visibility(first_rank_account, false)
+        .await
+        .unwrap();
+    let private_page = store
+        .ranked_leaderboard(
+            "LEADERBOARD_PG",
+            "LEADERBOARD_PG",
+            false,
+            None,
+            10,
+            Utc::now(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(private_page.entries.len(), 1);
+    assert_eq!(private_page.entries[0].rank, 3);
+
+    let archived = store
+        .ranked_leaderboard(
+            "LEADERBOARD_PG",
+            "LEADERBOARD_NEXT",
+            true,
+            None,
+            10,
+            Utc::now(),
+        )
+        .await
+        .unwrap();
+    sqlx::query(
+        "UPDATE ranked_season_standings SET rating=2500,peak_rating=GREATEST(peak_rating,2500) WHERE account_id=$1 AND season_id='LEADERBOARD_PG'",
+    )
+    .bind(third_account.id)
+    .execute(&database)
+    .await
+    .unwrap();
+    let archived_again = store
+        .ranked_leaderboard(
+            "LEADERBOARD_PG",
+            "LEADERBOARD_NEXT",
+            true,
+            None,
+            10,
+            Utc::now() + chrono::Duration::minutes(1),
+        )
+        .await
+        .unwrap();
+    assert!(archived.archived);
+    assert_eq!(archived.generated_at, archived_again.generated_at);
+    assert_eq!(archived.entries, archived_again.entries);
+    assert_eq!(
+        store
+            .ranked_leaderboard(
+                "LEADERBOARD_PG",
+                "LEADERBOARD_NEXT",
+                true,
+                Some(Uuid::new_v4()),
+                10,
+                Utc::now(),
+            )
+            .await
+            .unwrap_err(),
+        mk01_server::error::GameError::InvalidRequest
+    );
+
+    let snapshot_entries_before: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM ranked_leaderboard_snapshot_entries WHERE account_id=$1",
+    )
+    .bind(third_account.id)
+    .fetch_one(&database)
+    .await
+    .unwrap();
+    assert!(snapshot_entries_before >= 2);
+    store
+        .delete_account_data(
+            third_account.id,
+            Uuid::new_v4(),
+            &hash_token("leaderboard-delete-subject"),
+            &[],
+            Utc::now(),
+            AccountDeletionScope::LiveRequest,
+        )
+        .await
+        .unwrap();
+    let snapshot_entries_after: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM ranked_leaderboard_snapshot_entries WHERE account_id=$1",
+    )
+    .bind(third_account.id)
+    .fetch_one(&database)
+    .await
+    .unwrap();
+    assert_eq!(snapshot_entries_after, 0);
+    assert_eq!(
+        store
+            .ranked_leaderboard(
+                "LEADERBOARD_UNKNOWN",
+                "LEADERBOARD_NEXT",
+                true,
+                None,
+                10,
+                Utc::now(),
+            )
+            .await
+            .unwrap_err(),
+        mk01_server::error::GameError::InvalidRequest
+    );
+    let unknown_snapshots: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM ranked_leaderboard_snapshots WHERE season_id='LEADERBOARD_UNKNOWN'",
+    )
+    .fetch_one(&database)
+    .await
+    .unwrap();
+    assert_eq!(unknown_snapshots, 0);
+
+    let verification = PostgresRedisStore::verify_database(&database_url)
+        .await
+        .unwrap();
+    assert!(verification.ranked_leaderboard_snapshots >= 2);
+}
+
+#[tokio::test]
 async fn postgres_account_export_and_deletion_cover_migrations_and_anonymized_room_state() {
     let Some((database_url, redis_url)) = integration_urls() else {
         eprintln!("skipping distributed integration test without TEST_DATABASE_URL/TEST_REDIS_URL");

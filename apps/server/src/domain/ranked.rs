@@ -10,6 +10,9 @@ pub const RANKED_DECAY_INTERVAL_DAYS: i64 = 7;
 pub const RANKED_DECAY_POINTS: i32 = 25;
 pub const RANKED_DECAY_THRESHOLD: i32 = 2_100;
 pub const RANKED_DECAY_FLOOR: i32 = 1_800;
+pub const RANKED_LEADERBOARD_DEFAULT_LIMIT: usize = 20;
+pub const RANKED_LEADERBOARD_MAX_LIMIT: usize = 50;
+pub const RANKED_LEADERBOARD_FINALIZATION_HOURS: i64 = 24;
 
 const RANKED_SEASON_NAMESPACE: Uuid = Uuid::from_u128(0x58b9_d700_9c42_4bf4_a95d_16aa_e04e_7249);
 
@@ -208,6 +211,37 @@ pub struct RankedProfile {
     pub next_decay_at: Option<DateTime<Utc>>,
     pub decay_points_applied: u32,
     pub reward_xp_earned: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RankedLeaderboardEntry {
+    pub rank: u32,
+    pub handle: String,
+    pub rating: i32,
+    pub tier: RankedTier,
+    pub matches_played: u32,
+    pub wins: u32,
+    pub losses: u32,
+    pub peak_rating: i32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RankedLeaderboardSeason {
+    pub season_id: String,
+    pub archived: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RankedLeaderboardPage {
+    pub season_id: String,
+    pub archived: bool,
+    pub generated_at: DateTime<Utc>,
+    pub entries: Vec<RankedLeaderboardEntry>,
+    pub next_cursor: Option<Uuid>,
+    pub available_seasons: Vec<RankedLeaderboardSeason>,
 }
 
 impl RankedProfile {

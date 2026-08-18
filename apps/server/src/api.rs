@@ -7,7 +7,7 @@ use axum::{
     },
     http::{HeaderMap, StatusCode, header::AUTHORIZATION},
     response::IntoResponse,
-    routing::{delete, get, post},
+    routing::{delete, get, post, put},
 };
 use axum_extra::extract::{
     CookieJar,
@@ -32,9 +32,11 @@ use crate::{
         CreateSessionInput, FunnelEventInput, FunnelOutcome, HealthResponse, IntegritySignalQuery,
         JoinRoomInput, LiveContentHistoryQuery, LiveContentHistoryResponse, MatchmakingResponse,
         MatchmakingTicket, ModerationActionInput, ModerationActionResponse, ModerationReportQuery,
-        PlayerReportInput, PlayerReportResponse, PublishLiveContentInput, RollbackLiveContentInput,
-        RoomCreatedResponse, RoomListResponse, RumMetricInput, SessionResponse,
-        SocialRelationshipInput, SocialRelationshipsResponse,
+        PlayerReportInput, PlayerReportResponse, PublishLiveContentInput, RankedLeaderboardQuery,
+        RankedLeaderboardResponse, RankedLeaderboardVisibilityInput,
+        RankedLeaderboardVisibilityResponse, RollbackLiveContentInput, RoomCreatedResponse,
+        RoomListResponse, RumMetricInput, SessionResponse, SocialRelationshipInput,
+        SocialRelationshipsResponse,
     },
     store::GameHistoryItem,
 };
@@ -57,6 +59,11 @@ pub fn router() -> Router<AppState> {
             delete(revoke_account_session),
         )
         .route("/profile", get(player_profile))
+        .route("/leaderboards/ranked", get(ranked_leaderboard))
+        .route(
+            "/profile/leaderboard-visibility",
+            put(update_ranked_leaderboard_visibility),
+        )
         .route("/content/live", get(live_content))
         .route(
             "/profile/missions/{mission_id}/claim",
@@ -345,6 +352,41 @@ async fn player_profile(
 ) -> Result<Json<PlayerProgression>, GameError> {
     let session = authenticate(&state, &jar, &headers).await?;
     Ok(Json(state.progression(&session).await?))
+}
+
+async fn ranked_leaderboard(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+    Query(query): Query<RankedLeaderboardQuery>,
+) -> Result<Json<RankedLeaderboardResponse>, GameError> {
+    let session = authenticate(&state, &jar, &headers).await?;
+    let (page, viewer_visible) = state
+        .ranked_leaderboard(
+            &session,
+            query.season_id.as_deref(),
+            query.cursor,
+            query.limit,
+        )
+        .await?;
+    Ok(Json(RankedLeaderboardResponse {
+        page,
+        viewer_visible,
+    }))
+}
+
+async fn update_ranked_leaderboard_visibility(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+    input: Result<Json<RankedLeaderboardVisibilityInput>, JsonRejection>,
+) -> Result<Json<RankedLeaderboardVisibilityResponse>, GameError> {
+    let input = parse_json(input)?;
+    let session = authenticate(&state, &jar, &headers).await?;
+    let visible = state
+        .set_ranked_leaderboard_visibility(&session, input.visible)
+        .await?;
+    Ok(Json(RankedLeaderboardVisibilityResponse { visible }))
 }
 
 async fn claim_mission_reward(

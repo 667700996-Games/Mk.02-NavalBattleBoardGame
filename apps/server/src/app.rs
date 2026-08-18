@@ -54,9 +54,10 @@ use crate::{
         MatchmakingPreferences, MatchmakingQuality, MatchmakingSearchWindow, MissionCadence,
         MissionProgress, ModerationAction, ModerationActionKind, ModerationCasePage,
         NewIntegritySignal, NewModerationAction, NewPlayerReport, Orientation, PlayerAccount,
-        PlayerKind, PlayerProgression, PlayerReportReceipt, RankedMatchContext, RankedProfile,
-        ReportCategory, ReportStatus, RoomVisibility, ShipKind, ShipPlacement, SocialRelationship,
-        UserSession, baseline_live_content, ranked_season_key,
+        PlayerKind, PlayerProgression, PlayerReportReceipt, RANKED_LEADERBOARD_DEFAULT_LIMIT,
+        RANKED_LEADERBOARD_FINALIZATION_HOURS, RANKED_LEADERBOARD_MAX_LIMIT, RankedLeaderboardPage,
+        RankedMatchContext, RankedProfile, ReportCategory, ReportStatus, RoomVisibility, ShipKind,
+        ShipPlacement, SocialRelationship, UserSession, baseline_live_content, ranked_season_key,
     },
     error::GameError,
     protocol::{
@@ -118,6 +119,10 @@ pub struct ServerMetrics {
     pub matchmaking_completed: AtomicU64,
     pub ranked_matchmaking_completed: AtomicU64,
     pub ranked_matchmaking_rematches: AtomicU64,
+    pub ranked_leaderboard_requests: AtomicU64,
+    pub ranked_leaderboard_empty_responses: AtomicU64,
+    pub ranked_leaderboard_entries_served: AtomicU64,
+    pub ranked_leaderboard_visibility_changes: AtomicU64,
     pub matchmaking_cancelled: AtomicU64,
     pub retention_sessions_deleted: AtomicU64,
     pub retention_rooms_deleted: AtomicU64,
@@ -215,6 +220,10 @@ impl Default for ServerMetrics {
             matchmaking_completed: AtomicU64::new(0),
             ranked_matchmaking_completed: AtomicU64::new(0),
             ranked_matchmaking_rematches: AtomicU64::new(0),
+            ranked_leaderboard_requests: AtomicU64::new(0),
+            ranked_leaderboard_empty_responses: AtomicU64::new(0),
+            ranked_leaderboard_entries_served: AtomicU64::new(0),
+            ranked_leaderboard_visibility_changes: AtomicU64::new(0),
             matchmaking_cancelled: AtomicU64::new(0),
             retention_sessions_deleted: AtomicU64::new(0),
             retention_rooms_deleted: AtomicU64::new(0),
@@ -414,6 +423,26 @@ impl ServerMetrics {
                 "mk01_ranked_matchmaking_rematches_total",
                 "Durably completed ranked pairs that required recent-opponent relaxation.",
                 &self.ranked_matchmaking_rematches,
+            ),
+            counter(
+                "mk01_ranked_leaderboard_requests_total",
+                "Successful ranked leaderboard page requests.",
+                &self.ranked_leaderboard_requests,
+            ),
+            counter(
+                "mk01_ranked_leaderboard_empty_responses_total",
+                "Successful ranked leaderboard pages with no visible eligible entries.",
+                &self.ranked_leaderboard_empty_responses,
+            ),
+            counter(
+                "mk01_ranked_leaderboard_entries_served_total",
+                "Privacy-filtered ranked leaderboard entries served.",
+                &self.ranked_leaderboard_entries_served,
+            ),
+            counter(
+                "mk01_ranked_leaderboard_visibility_changes_total",
+                "Authenticated ranked leaderboard visibility preference changes.",
+                &self.ranked_leaderboard_visibility_changes,
             ),
             counter(
                 "mk01_matchmaking_cancelled_total",
@@ -1393,6 +1422,104 @@ impl AppState {
             &live_content,
             now,
         ))
+    }
+
+    pub async fn ranked_leaderboard(
+        &self,
+        session: &UserSession,
+        requested_season_id: Option<&str>,
+        cursor: Option<Uuid>,
+        limit: Option<u32>,
+    ) -> Result<(RankedLeaderboardPage, bool), GameError> {
+        let account_id = session.account_id.ok_or(GameError::RankedAccountRequired)?;
+        let now = Utc::now();
+        let live_content = self.active_live_content(now).await?;
+        let content_history = self.store.live_content_history(100).await?;
+        let season_id = requested_season_id.unwrap_or(&live_content.season.id);
+        if !(3..=32).contains(&season_id.len())
+            || !season_id.chars().all(|character| {
+                character.is_ascii_uppercase() || character.is_ascii_digit() || character == '_'
+            })
+        {
+            return Err(GameError::InvalidRequest);
+        }
+        let season_ends_at = if season_id == live_content.season.id {
+            Some(live_content.season.ends_at)
+        } else {
+            content_history
+                .iter()
+                .find(|revision| revision.season.id == season_id)
+                .map(|revision| revision.season.ends_at)
+        };
+        let archived = season_ends_at.map_or(season_id != live_content.season.id, |ends_at| {
+            now >= ends_at + chrono::Duration::hours(RANKED_LEADERBOARD_FINALIZATION_HOURS)
+        });
+        let limit = usize::try_from(limit.unwrap_or(RANKED_LEADERBOARD_DEFAULT_LIMIT as u32))
+            .map_err(|_| GameError::InvalidRequest)?;
+        if limit == 0 || limit > RANKED_LEADERBOARD_MAX_LIMIT {
+            return Err(GameError::InvalidRequest);
+        }
+        let mut page = self
+            .store
+            .ranked_leaderboard(
+                season_id,
+                &live_content.season.id,
+                archived,
+                cursor,
+                limit,
+                now,
+            )
+            .await?;
+        for season in &mut page.available_seasons {
+            let ends_at = if season.season_id == live_content.season.id {
+                Some(live_content.season.ends_at)
+            } else {
+                content_history
+                    .iter()
+                    .find(|revision| revision.season.id == season.season_id)
+                    .map(|revision| revision.season.ends_at)
+            };
+            season.archived =
+                ends_at.map_or(season.season_id != live_content.season.id, |ends_at| {
+                    now >= ends_at + chrono::Duration::hours(RANKED_LEADERBOARD_FINALIZATION_HOURS)
+                });
+        }
+        if season_id != live_content.season.id
+            && !page
+                .available_seasons
+                .iter()
+                .any(|season| season.season_id == season_id)
+        {
+            return Err(GameError::InvalidRequest);
+        }
+        let viewer_visible = self.store.ranked_leaderboard_visibility(account_id).await?;
+        self.metrics
+            .ranked_leaderboard_requests
+            .fetch_add(1, Ordering::Relaxed);
+        self.metrics
+            .ranked_leaderboard_entries_served
+            .fetch_add(page.entries.len() as u64, Ordering::Relaxed);
+        if page.entries.is_empty() {
+            self.metrics
+                .ranked_leaderboard_empty_responses
+                .fetch_add(1, Ordering::Relaxed);
+        }
+        Ok((page, viewer_visible))
+    }
+
+    pub async fn set_ranked_leaderboard_visibility(
+        &self,
+        session: &UserSession,
+        visible: bool,
+    ) -> Result<bool, GameError> {
+        let account_id = session.account_id.ok_or(GameError::RankedAccountRequired)?;
+        self.store
+            .set_ranked_leaderboard_visibility(account_id, visible)
+            .await?;
+        self.metrics
+            .ranked_leaderboard_visibility_changes
+            .fetch_add(1, Ordering::Relaxed);
+        Ok(visible)
     }
 
     pub async fn claim_mission_reward(
@@ -3706,6 +3833,18 @@ mod tests {
         metrics
             .ranked_matchmaking_rematches
             .store(1, Ordering::Relaxed);
+        metrics
+            .ranked_leaderboard_requests
+            .store(3, Ordering::Relaxed);
+        metrics
+            .ranked_leaderboard_empty_responses
+            .store(1, Ordering::Relaxed);
+        metrics
+            .ranked_leaderboard_entries_served
+            .store(20, Ordering::Relaxed);
+        metrics
+            .ranked_leaderboard_visibility_changes
+            .store(2, Ordering::Relaxed);
 
         let output = metrics.render_prometheus(MatchmakingQueueStats {
             queued: 3,
@@ -3724,6 +3863,10 @@ mod tests {
         assert!(output.contains("mk01_ranked_matchmaking_queued_total 2"));
         assert!(output.contains("mk01_ranked_matchmaking_completed_total 1"));
         assert!(output.contains("mk01_ranked_matchmaking_rematches_total 1"));
+        assert!(output.contains("mk01_ranked_leaderboard_requests_total 3"));
+        assert!(output.contains("mk01_ranked_leaderboard_empty_responses_total 1"));
+        assert!(output.contains("mk01_ranked_leaderboard_entries_served_total 20"));
+        assert!(output.contains("mk01_ranked_leaderboard_visibility_changes_total 2"));
         assert!(output.contains("mk01_ranked_matchmaking_queue_depth 2"));
         assert!(output.contains("mk01_active_match_recovery_milliseconds_count 1"));
         assert!(output.contains("mk01_unexpected_disconnects_total 1"));
