@@ -814,6 +814,14 @@ async fn liveness_readiness_and_security_headers_are_exposed() {
     assert!(metrics.contains("# TYPE mk01_websocket_connections gauge"));
     assert!(metrics.contains("# TYPE mk01_matchmaking_queue_depth gauge"));
     assert!(metrics.contains("# TYPE mk01_matchmaking_oldest_age_seconds gauge"));
+    assert!(metrics.contains("# TYPE mk01_http_responses_total counter"));
+    assert!(metrics.contains("# TYPE mk01_command_duration_milliseconds histogram"));
+    assert!(metrics.contains("# TYPE mk01_matchmaking_duration_seconds histogram"));
+    assert!(metrics.contains("# TYPE mk01_active_match_recovery_milliseconds histogram"));
+    assert!(metrics.contains("mk01_http_responses_total{class=\"2xx\"} 0"));
+    assert!(metrics.contains(
+        "mk01_command_duration_milliseconds_count{transport=\"http\",outcome=\"accepted\"} 0"
+    ));
 }
 
 #[tokio::test]

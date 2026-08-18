@@ -10,7 +10,7 @@ use std::{
 
 use axum::{
     Router,
-    http::{HeaderValue, Method},
+    http::{HeaderValue, Method, StatusCode},
     routing::get,
 };
 use axum_extra::extract::CookieJar;
@@ -111,12 +111,64 @@ pub struct ServerMetrics {
     pub integrity_automation: AtomicU64,
     pub integrity_collusion: AtomicU64,
     pub integrity_stalling: AtomicU64,
+    http_responses_by_class: [AtomicU64; 5],
+    command_latency: [[SloDistribution; 2]; CommandTransport::COUNT],
+    matchmaking_latency: SloDistribution,
+    active_match_recovery_latency: SloDistribution,
+    pub websocket_disconnects: AtomicU64,
+    pub unexpected_disconnects: AtomicU64,
+    pub websocket_connected_milliseconds: AtomicU64,
     funnel_events: [[AtomicU64; FunnelOutcome::COUNT]; FunnelStage::COUNT],
     funnel_failures: [AtomicU64; FunnelFailureReason::COUNT],
     rum: [[[RumDistribution; RumDeviceTier::COUNT]; RumRoute::COUNT]; RumMetric::COUNT],
 }
 
 const RUM_BUCKET_COUNT: usize = 5;
+const SLO_BUCKET_COUNT: usize = 6;
+const COMMAND_LATENCY_BUCKETS_MS: [u64; SLO_BUCKET_COUNT] = [25, 50, 100, 150, 400, 1_000];
+const MATCHMAKING_LATENCY_BUCKETS_SECONDS: [u64; SLO_BUCKET_COUNT] = [1, 5, 10, 30, 60, 120];
+const RECOVERY_LATENCY_BUCKETS_MS: [u64; SLO_BUCKET_COUNT] =
+    [1_000, 2_500, 5_000, 10_000, 30_000, 60_000];
+
+#[derive(Debug, Clone, Copy)]
+pub enum CommandTransport {
+    Http,
+    Websocket,
+}
+
+impl CommandTransport {
+    const COUNT: usize = 2;
+
+    const fn index(self) -> usize {
+        self as usize
+    }
+
+    const fn label(self) -> &'static str {
+        match self {
+            Self::Http => "http",
+            Self::Websocket => "websocket",
+        }
+    }
+}
+
+#[derive(Debug, Default)]
+struct SloDistribution {
+    buckets: [AtomicU64; SLO_BUCKET_COUNT],
+    count: AtomicU64,
+    sum: AtomicU64,
+}
+
+impl SloDistribution {
+    fn record(&self, value: u64, upper_bounds: &[u64; SLO_BUCKET_COUNT]) {
+        for (index, upper_bound) in upper_bounds.iter().enumerate() {
+            if value <= *upper_bound {
+                self.buckets[index].fetch_add(1, Ordering::Relaxed);
+            }
+        }
+        self.count.fetch_add(1, Ordering::Relaxed);
+        self.sum.fetch_add(value, Ordering::Relaxed);
+    }
+}
 
 #[derive(Debug, Default)]
 struct RumDistribution {
@@ -151,6 +203,15 @@ impl Default for ServerMetrics {
             integrity_automation: AtomicU64::new(0),
             integrity_collusion: AtomicU64::new(0),
             integrity_stalling: AtomicU64::new(0),
+            http_responses_by_class: std::array::from_fn(|_| AtomicU64::new(0)),
+            command_latency: std::array::from_fn(|_| {
+                std::array::from_fn(|_| SloDistribution::default())
+            }),
+            matchmaking_latency: SloDistribution::default(),
+            active_match_recovery_latency: SloDistribution::default(),
+            websocket_disconnects: AtomicU64::new(0),
+            unexpected_disconnects: AtomicU64::new(0),
+            websocket_connected_milliseconds: AtomicU64::new(0),
             funnel_events: std::array::from_fn(|_| std::array::from_fn(|_| AtomicU64::new(0))),
             funnel_failures: std::array::from_fn(|_| AtomicU64::new(0)),
             rum: std::array::from_fn(|_| {
@@ -161,6 +222,53 @@ impl Default for ServerMetrics {
 }
 
 impl ServerMetrics {
+    pub fn record_http_response(&self, status: StatusCode) {
+        let class = usize::from(status.as_u16() / 100);
+        if (1..=5).contains(&class) {
+            self.http_responses_by_class[class - 1].fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    pub fn record_command_latency(
+        &self,
+        transport: CommandTransport,
+        accepted: bool,
+        elapsed: Duration,
+    ) {
+        let outcome_index = usize::from(!accepted);
+        self.command_latency[transport.index()][outcome_index].record(
+            elapsed.as_millis().min(u128::from(u64::MAX)) as u64,
+            &COMMAND_LATENCY_BUCKETS_MS,
+        );
+    }
+
+    pub fn record_matchmaking_latency(&self, queued_at: chrono::DateTime<Utc>) {
+        let elapsed = Utc::now()
+            .signed_duration_since(queued_at)
+            .num_seconds()
+            .max(0) as u64;
+        self.matchmaking_latency
+            .record(elapsed, &MATCHMAKING_LATENCY_BUCKETS_SECONDS);
+    }
+
+    pub fn record_websocket_disconnect(&self, elapsed: Duration, unexpected: bool) {
+        self.websocket_disconnects.fetch_add(1, Ordering::Relaxed);
+        self.websocket_connected_milliseconds.fetch_add(
+            elapsed.as_millis().min(u128::from(u64::MAX)) as u64,
+            Ordering::Relaxed,
+        );
+        if unexpected {
+            self.unexpected_disconnects.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    pub fn record_active_match_recovery(&self, elapsed: Duration) {
+        self.active_match_recovery_latency.record(
+            elapsed.as_millis().min(u128::from(u64::MAX)) as u64,
+            &RECOVERY_LATENCY_BUCKETS_MS,
+        );
+    }
+
     pub fn record_funnel_event(
         &self,
         stage: FunnelStage,
@@ -318,6 +426,21 @@ impl ServerMetrics {
                 "Repeated authoritative turn timeouts detected.",
                 &self.integrity_stalling,
             ),
+            counter(
+                "mk01_websocket_disconnects_total",
+                "Completed WebSocket connections, regardless of close reason.",
+                &self.websocket_disconnects,
+            ),
+            counter(
+                "mk01_unexpected_disconnects_total",
+                "WebSocket connections that ended without a normal client close frame.",
+                &self.unexpected_disconnects,
+            ),
+            counter(
+                "mk01_websocket_connected_milliseconds_total",
+                "Cumulative connected-player WebSocket time in milliseconds.",
+                &self.websocket_connected_milliseconds,
+            ),
             gauge(
                 "mk01_matchmaking_queue_depth",
                 "Current durable matchmaking queue entries.",
@@ -330,6 +453,48 @@ impl ServerMetrics {
             ),
         ]
         .concat();
+        output.push_str(
+            "# HELP mk01_http_responses_total Product API responses by status class, excluding operational and telemetry routes.\n\
+# TYPE mk01_http_responses_total counter\n",
+        );
+        for (index, value) in self.http_responses_by_class.iter().enumerate() {
+            output.push_str(&format!(
+                "mk01_http_responses_total{{class=\"{}xx\"}} {}\n",
+                index + 1,
+                value.load(Ordering::Relaxed)
+            ));
+        }
+        for transport in [CommandTransport::Http, CommandTransport::Websocket] {
+            for (outcome_index, outcome) in ["accepted", "rejected"].into_iter().enumerate() {
+                render_slo_histogram(
+                    &mut output,
+                    "mk01_command_duration_milliseconds",
+                    "Product command processing duration in milliseconds.",
+                    &format!("transport=\"{}\",outcome=\"{outcome}\"", transport.label()),
+                    &COMMAND_LATENCY_BUCKETS_MS,
+                    &self.command_latency[transport.index()][outcome_index],
+                    transport.index() == 0 && outcome_index == 0,
+                );
+            }
+        }
+        render_slo_histogram(
+            &mut output,
+            "mk01_matchmaking_duration_seconds",
+            "Queue entry to durable room assignment duration for each matched player in seconds.",
+            "",
+            &MATCHMAKING_LATENCY_BUCKETS_SECONDS,
+            &self.matchmaking_latency,
+            true,
+        );
+        render_slo_histogram(
+            &mut output,
+            "mk01_active_match_recovery_milliseconds",
+            "Persisted disconnect to authoritative active-match reconnection in milliseconds.",
+            "",
+            &RECOVERY_LATENCY_BUCKETS_MS,
+            &self.active_match_recovery_latency,
+            true,
+        );
         output.push_str(
             "# HELP mk01_new_player_funnel_events_total Aggregate onboarding events by fixed stage and outcome.\n\
 # TYPE mk01_new_player_funnel_events_total counter\n",
@@ -394,6 +559,41 @@ impl ServerMetrics {
         }
         output
     }
+}
+
+fn render_slo_histogram(
+    output: &mut String,
+    name: &str,
+    help: &str,
+    labels: &str,
+    upper_bounds: &[u64; SLO_BUCKET_COUNT],
+    distribution: &SloDistribution,
+    include_metadata: bool,
+) {
+    if include_metadata {
+        output.push_str(&format!("# HELP {name} {help}\n# TYPE {name} histogram\n"));
+    }
+    let label_prefix = if labels.is_empty() {
+        String::new()
+    } else {
+        format!("{labels},")
+    };
+    for (index, upper_bound) in upper_bounds.iter().enumerate() {
+        output.push_str(&format!(
+            "{name}_bucket{{{label_prefix}le=\"{upper_bound}\"}} {}\n",
+            distribution.buckets[index].load(Ordering::Relaxed)
+        ));
+    }
+    let count = distribution.count.load(Ordering::Relaxed);
+    let exact_labels = if labels.is_empty() {
+        String::new()
+    } else {
+        format!("{{{labels}}}")
+    };
+    output.push_str(&format!(
+        "{name}_bucket{{{label_prefix}le=\"+Inf\"}} {count}\n{name}_sum{exact_labels} {}\n{name}_count{exact_labels} {count}\n",
+        distribution.sum.load(Ordering::Relaxed)
+    ));
 }
 
 impl std::fmt::Debug for AppState {
@@ -2136,9 +2336,26 @@ impl AppState {
             return;
         };
         let mut room = room.lock().await;
+        let disconnected_at = room
+            .player_for_session(session.id)
+            .ok()
+            .and_then(|player| room.disconnected_deadlines.get(&player.id).copied())
+            .and_then(|deadline| {
+                chrono::Duration::from_std(self.settings.reconnect_grace)
+                    .ok()
+                    .map(|grace| deadline - grace)
+            });
         if matches!(room.reconnect(session.id), Ok(true)) {
             if self.save_room(&mut room).await.is_err() {
                 return;
+            }
+            if let Some(disconnected_at) = disconnected_at {
+                self.metrics.record_active_match_recovery(
+                    Utc::now()
+                        .signed_duration_since(disconnected_at)
+                        .to_std()
+                        .unwrap_or_default(),
+                );
             }
             self.broadcast_latest_chat_message(&room).await;
             self.broadcast_snapshots(&room, SnapshotEvent::PlayerReconnected)
@@ -2442,6 +2659,7 @@ impl AppState {
             return Err(GameError::CapacityReached);
         }
         let queued = self.store.enqueue_matchmaking(&session).await?;
+        let own_queued_at = queued.queued_at;
         let Some(claim) = queued.claim else {
             self.metrics
                 .matchmaking_queued
@@ -2449,6 +2667,7 @@ impl AppState {
             return Ok(None);
         };
         let claim_id = claim.id;
+        let opponent_queued_at = claim.opponent_queued_at;
         let result = async {
             let code = self.unique_room_code().await?;
             let mut room = GameRoom::new(
@@ -2459,6 +2678,8 @@ impl AppState {
             )?;
             room.join(&session)?;
             self.store.complete_matchmaking(claim_id, &mut room).await?;
+            self.metrics.record_matchmaking_latency(own_queued_at);
+            self.metrics.record_matchmaking_latency(opponent_queued_at);
             self.metrics
                 .matchmaking_completed
                 .fetch_add(1, Ordering::Relaxed);
@@ -2978,6 +3199,10 @@ async fn request_ip_rate_limit(
     request: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> Result<axum::response::Response, GameError> {
+    let path = request.uri().path().to_string();
+    let observe_availability = is_product_api_route(&path);
+    let observe_command = is_product_http_command(&path);
+    let started_at = std::time::Instant::now();
     state.metrics.http_requests.fetch_add(1, Ordering::Relaxed);
     if let Err(error) = state
         .enforce_ip_rate_limit(request.headers(), address)
@@ -2989,9 +3214,46 @@ async fn request_ip_rate_limit(
                 .rate_limit_rejections
                 .fetch_add(1, Ordering::Relaxed);
         }
+        if observe_availability {
+            state.metrics.record_http_response(error.status());
+        }
+        if observe_command {
+            state.metrics.record_command_latency(
+                CommandTransport::Http,
+                false,
+                started_at.elapsed(),
+            );
+        }
         return Err(error);
     }
-    Ok(next.run(request).await)
+    let response = next.run(request).await;
+    if observe_availability {
+        state.metrics.record_http_response(response.status());
+    }
+    if observe_command {
+        state.metrics.record_command_latency(
+            CommandTransport::Http,
+            response.status().is_success() || response.status().is_redirection(),
+            started_at.elapsed(),
+        );
+    }
+    Ok(response)
+}
+
+fn is_product_http_command(path: &str) -> bool {
+    is_product_api_route(path) && !matches!(path, "/api/sessions" | "/api/accounts/login")
+}
+
+fn is_product_api_route(path: &str) -> bool {
+    path.starts_with("/api/")
+        && !matches!(
+            path,
+            "/api/health"
+                | "/api/ready"
+                | "/api/metrics"
+                | "/api/telemetry/funnel"
+                | "/api/telemetry/performance"
+        )
 }
 
 async fn security_headers(
@@ -3073,6 +3335,171 @@ mod tests {
             orientation: Orientation::Horizontal,
         })
         .collect()
+    }
+
+    #[test]
+    fn slo_metrics_render_bounded_prometheus_series() {
+        let metrics = ServerMetrics::default();
+        metrics.record_http_response(StatusCode::OK);
+        metrics.record_http_response(StatusCode::SERVICE_UNAVAILABLE);
+        metrics.record_command_latency(CommandTransport::Http, true, Duration::from_millis(90));
+        metrics.record_command_latency(
+            CommandTransport::Websocket,
+            false,
+            Duration::from_millis(900),
+        );
+        metrics.record_matchmaking_latency(Utc::now() - chrono::Duration::seconds(31));
+        metrics.record_active_match_recovery(Duration::from_millis(4_500));
+        metrics.record_websocket_disconnect(Duration::from_millis(3_600), true);
+
+        let output = metrics.render_prometheus(MatchmakingQueueStats::default());
+        assert!(output.contains("mk01_http_responses_total{class=\"2xx\"} 1"));
+        assert!(output.contains("mk01_http_responses_total{class=\"5xx\"} 1"));
+        assert!(output.contains(
+            "mk01_command_duration_milliseconds_bucket{transport=\"http\",outcome=\"accepted\",le=\"100\"} 1"
+        ));
+        assert!(output.contains(
+            "mk01_command_duration_milliseconds_count{transport=\"websocket\",outcome=\"rejected\"} 1"
+        ));
+        assert!(output.contains("mk01_matchmaking_duration_seconds_count 1"));
+        assert!(output.contains("mk01_active_match_recovery_milliseconds_count 1"));
+        assert!(output.contains("mk01_unexpected_disconnects_total 1"));
+        assert!(output.contains("mk01_websocket_disconnects_total 1"));
+        assert!(output.contains("mk01_websocket_connected_milliseconds_total 3600"));
+        assert_eq!(
+            output
+                .matches("# TYPE mk01_command_duration_milliseconds histogram")
+                .count(),
+            1
+        );
+        assert!(!output.contains("_sum{}"));
+        assert!(!output.contains("_count{}"));
+    }
+
+    #[test]
+    fn command_slo_excludes_public_and_operational_http_routes() {
+        for path in [
+            "/api/health",
+            "/api/ready",
+            "/api/metrics",
+            "/api/telemetry/funnel",
+            "/api/telemetry/performance",
+            "/api/sessions",
+            "/api/accounts/login",
+            "/ws",
+        ] {
+            assert!(!is_product_http_command(path), "unexpected command: {path}");
+        }
+        for path in [
+            "/api/rooms",
+            "/api/matchmaking",
+            "/api/accounts/export",
+            "/api/games/recover",
+        ] {
+            assert!(is_product_http_command(path), "missing command: {path}");
+        }
+    }
+
+    #[test]
+    fn availability_slo_excludes_probes_metrics_and_anonymous_telemetry() {
+        for path in [
+            "/api/health",
+            "/api/ready",
+            "/api/metrics",
+            "/api/telemetry/funnel",
+            "/api/telemetry/performance",
+            "/ws",
+        ] {
+            assert!(!is_product_api_route(path), "unexpected route: {path}");
+        }
+        for path in [
+            "/api/sessions",
+            "/api/accounts/login",
+            "/api/rooms",
+            "/api/matchmaking",
+        ] {
+            assert!(is_product_api_route(path), "missing route: {path}");
+        }
+    }
+
+    #[tokio::test]
+    async fn completed_matchmaking_records_each_players_wait() {
+        let store = Arc::new(MemoryStore::default());
+        let alpha = session("Metric Alpha");
+        let bravo = session("Metric Bravo");
+        store.save_session(&alpha).await.unwrap();
+        store.save_session(&bravo).await.unwrap();
+        let state = AppState::with_store(Settings::default(), store);
+
+        assert!(state.enqueue_matchmaking(alpha).await.unwrap().is_none());
+        assert!(state.enqueue_matchmaking(bravo).await.unwrap().is_some());
+
+        let output = state
+            .metrics
+            .render_prometheus(MatchmakingQueueStats::default());
+        assert!(output.contains("mk01_matchmaking_duration_seconds_count 2"));
+        assert!(output.contains("mk01_matchmaking_completed_total 1"));
+    }
+
+    #[tokio::test]
+    async fn active_match_reconnect_records_outage_to_authoritative_save() {
+        let alpha = session("Recovery Alpha");
+        let bravo = session("Recovery Bravo");
+        let mut room = GameRoom::new(
+            "SLO234".to_string(),
+            "Recovery metric".to_string(),
+            RoomVisibility::Private,
+            &alpha,
+        )
+        .unwrap();
+        room.join(&bravo).unwrap();
+        let alpha_player_id = room.player_for_session(alpha.id).unwrap().id;
+        let bravo_player_id = room.player_for_session(bravo.id).unwrap().id;
+        room.set_lobby_ready(alpha.id, Uuid::new_v4(), alpha_player_id, true)
+            .unwrap();
+        room.set_lobby_ready(bravo.id, Uuid::new_v4(), bravo_player_id, true)
+            .unwrap();
+        room.start_placement(alpha.id, Uuid::new_v4(), alpha_player_id, room.version)
+            .unwrap();
+        room.place_ships(alpha.id, fleet(0)).unwrap();
+        room.place_ships(bravo.id, fleet(5)).unwrap();
+        room.confirm_placement(alpha.id, &fleet(0), 60).unwrap();
+        room.confirm_placement(bravo.id, &fleet(5), 60).unwrap();
+        room.disconnect(alpha.id, 10).unwrap();
+
+        let room_id = room.id;
+        let store = Arc::new(MemoryStore::default());
+        store.save_room(&mut room).await.unwrap();
+        let settings = Settings {
+            reconnect_grace: Duration::from_secs(10),
+            ..Settings::default()
+        };
+        let state = AppState::with_store(settings, store);
+        state
+            .rooms
+            .insert(room_id, Arc::new(Mutex::new(room.clone())));
+        let reconnecting_alpha = UserSession {
+            current_room_id: Some(room_id),
+            ..alpha
+        };
+
+        state.restore_connection(&reconnecting_alpha).await;
+
+        let output = state
+            .metrics
+            .render_prometheus(MatchmakingQueueStats::default());
+        assert!(output.contains("mk01_active_match_recovery_milliseconds_count 1"));
+        assert!(output.contains("mk01_active_match_recovery_milliseconds_bucket{le=\"1000\"} 1"));
+        assert!(
+            !state
+                .room(room_id)
+                .await
+                .unwrap()
+                .lock()
+                .await
+                .disconnected_deadlines
+                .contains_key(&alpha_player_id)
+        );
     }
 
     #[test]

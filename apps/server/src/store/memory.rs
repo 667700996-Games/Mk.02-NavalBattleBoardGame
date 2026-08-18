@@ -977,6 +977,7 @@ impl GameStore for MemoryStore {
         let opponent = queue
             .get_mut(&opponent_id)
             .expect("selected matchmaking opponent must exist");
+        let opponent_queued_at = opponent.queued_at;
         opponent.claim_id = Some(claim_id);
         opponent.claimed_at = Some(now);
         let opponent = opponent.session.clone();
@@ -991,6 +992,7 @@ impl GameStore for MemoryStore {
             claim: Some(MatchmakingClaim {
                 id: claim_id,
                 opponent,
+                opponent_queued_at,
             }),
         })
     }
@@ -1259,6 +1261,7 @@ mod tests {
         let matched = store.enqueue_matchmaking(&second).await.unwrap();
         let claim = matched.claim.unwrap();
         assert_eq!(claim.opponent.id, first.id);
+        assert_eq!(claim.opponent_queued_at, queued.queued_at);
         assert!(
             store
                 .enqueue_matchmaking(&first)

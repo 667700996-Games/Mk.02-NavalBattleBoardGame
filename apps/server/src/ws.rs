@@ -17,7 +17,7 @@ use uuid::Uuid;
 
 use crate::{
     api::authenticate,
-    app::{AppState, SnapshotEvent},
+    app::{AppState, CommandTransport, SnapshotEvent},
     domain::{IntegritySignalKind, QuickCommandId},
     error::GameError,
     protocol::{
@@ -49,6 +49,8 @@ async fn handle_socket(
     session: crate::domain::UserSession,
     _connection_permit: tokio::sync::OwnedSemaphorePermit,
 ) {
+    let connected_at = std::time::Instant::now();
+    let mut unexpected_disconnect = false;
     state
         .metrics
         .websocket_connections
@@ -62,12 +64,23 @@ async fn handle_socket(
         tokio::select! {
             outgoing = event_receiver.recv() => {
                 let Some(json) = outgoing else { break };
-                if socket_sender.send(Message::Text(json.into())).await.is_err() { break; }
+                if socket_sender.send(Message::Text(json.into())).await.is_err() {
+                    unexpected_disconnect = true;
+                    break;
+                }
             }
             incoming = socket_receiver.next() => {
-                let Some(Ok(message)) = incoming else { break };
+                let Some(message) = incoming else {
+                    unexpected_disconnect = true;
+                    break;
+                };
+                let Ok(message) = message else {
+                    unexpected_disconnect = true;
+                    break;
+                };
                 match message {
                     Message::Text(text) => {
+                        let command_started_at = std::time::Instant::now();
                         if let Err(error) = state
                             .enforce_websocket_event_rate_limit(session.id)
                             .await
@@ -92,14 +105,26 @@ async fn handle_socket(
                                     )
                                     .await;
                             }
+                            state.metrics.record_command_latency(
+                                CommandTransport::Websocket,
+                                false,
+                                command_started_at.elapsed(),
+                            );
                             state
                                 .send_to_session(session.id, error_event(error))
                                 .await;
                             continue;
                         }
                         match serde_json::from_str::<ClientEvent>(&text) {
-                            Ok(event) => handle_event(&state, &session, event).await,
+                            Ok(event) => {
+                                handle_event(&state, &session, event, command_started_at).await
+                            }
                             Err(_) => {
+                                state.metrics.record_command_latency(
+                                    CommandTransport::Websocket,
+                                    false,
+                                    command_started_at.elapsed(),
+                                );
                                 state
                                     .send_to_session(
                                         session.id,
@@ -110,7 +135,10 @@ async fn handle_socket(
                         }
                     }
                     Message::Ping(payload) => {
-                        if socket_sender.send(Message::Pong(payload)).await.is_err() { break; }
+                        if socket_sender.send(Message::Pong(payload)).await.is_err() {
+                            unexpected_disconnect = true;
+                            break;
+                        }
                     }
                     Message::Close(_) => break,
                     Message::Binary(_) | Message::Pong(_) => {}
@@ -121,6 +149,9 @@ async fn handle_socket(
 
     state
         .metrics
+        .record_websocket_disconnect(connected_at.elapsed(), unexpected_disconnect);
+    state
+        .metrics
         .websocket_connections
         .fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
 
@@ -129,7 +160,12 @@ async fn handle_socket(
     }
 }
 
-async fn handle_event(state: &AppState, session: &crate::domain::UserSession, event: ClientEvent) {
+async fn handle_event(
+    state: &AppState,
+    session: &crate::domain::UserSession,
+    event: ClientEvent,
+    started_at: std::time::Instant,
+) {
     state
         .metrics
         .websocket_events
@@ -523,6 +559,11 @@ async fn handle_event(state: &AppState, session: &crate::domain::UserSession, ev
             Ok(())
         }
     };
+    state.metrics.record_command_latency(
+        CommandTransport::Websocket,
+        result.is_ok(),
+        started_at.elapsed(),
+    );
     if let Err(error) = result {
         tracing::warn!(
             session_id = %session.id,

@@ -36,6 +36,7 @@ pub struct GameHistoryItem {
 pub struct MatchmakingClaim {
     pub id: Uuid,
     pub opponent: UserSession,
+    pub opponent_queued_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone)]

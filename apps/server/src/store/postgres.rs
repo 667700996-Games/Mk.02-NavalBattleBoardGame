@@ -1117,16 +1117,25 @@ impl GameStore for PostgresRedisStore {
             DateTime<Utc>,
             Option<Uuid>,
             Option<Uuid>,
+            DateTime<Utc>,
         )> = sqlx::query_as(
-            "SELECT sessions.id, sessions.nickname, sessions.token_hash, sessions.created_at, sessions.last_seen_at, sessions.current_room_id, sessions.account_id FROM matchmaking_queue queue JOIN user_sessions sessions ON sessions.id=queue.session_id WHERE queue.session_id<>$1 AND queue.claim_id IS NULL AND sessions.current_room_id IS NULL AND NOT EXISTS (SELECT 1 FROM player_relationships relationships WHERE relationships.blocked AND ((relationships.actor_identity_id=$2 AND relationships.target_identity_id=COALESCE(sessions.account_id,sessions.id)) OR (relationships.actor_identity_id=COALESCE(sessions.account_id,sessions.id) AND relationships.target_identity_id=$2))) ORDER BY queue.queued_at ASC FOR UPDATE OF queue SKIP LOCKED LIMIT 1",
+            "SELECT sessions.id, sessions.nickname, sessions.token_hash, sessions.created_at, sessions.last_seen_at, sessions.current_room_id, sessions.account_id, queue.queued_at FROM matchmaking_queue queue JOIN user_sessions sessions ON sessions.id=queue.session_id WHERE queue.session_id<>$1 AND queue.claim_id IS NULL AND sessions.current_room_id IS NULL AND NOT EXISTS (SELECT 1 FROM player_relationships relationships WHERE relationships.blocked AND ((relationships.actor_identity_id=$2 AND relationships.target_identity_id=COALESCE(sessions.account_id,sessions.id)) OR (relationships.actor_identity_id=COALESCE(sessions.account_id,sessions.id) AND relationships.target_identity_id=$2))) ORDER BY queue.queued_at ASC FOR UPDATE OF queue SKIP LOCKED LIMIT 1",
         )
         .bind(session.id)
         .bind(own_identity)
         .fetch_optional(&mut *transaction)
         .await?;
 
-        let Some((id, nickname, token_hash, created_at, last_seen_at, current_room_id, account_id)) =
-            opponent
+        let Some((
+            id,
+            nickname,
+            token_hash,
+            created_at,
+            last_seen_at,
+            current_room_id,
+            account_id,
+            opponent_queued_at,
+        )) = opponent
         else {
             transaction.commit().await?;
             return Ok(MatchmakingEnqueueResult {
@@ -1160,6 +1169,7 @@ impl GameStore for PostgresRedisStore {
                     last_seen_at,
                     current_room_id,
                 },
+                opponent_queued_at,
             }),
         })
     }

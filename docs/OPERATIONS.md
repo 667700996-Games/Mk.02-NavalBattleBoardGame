@@ -8,10 +8,10 @@ evidence owned by the release team.
 
 | Signal                  | Objective                             | Measurement                                                                  |
 | ----------------------- | ------------------------------------- | ---------------------------------------------------------------------------- |
-| API availability        | 99.95% per rolling 30 days            | non-5xx responses excluding `/api/health`                                    |
+| API availability        | 99.95% per rolling 30 days            | non-5xx product API responses; operational/telemetry routes are excluded     |
 | Command latency         | p95 < 150 ms, p99 < 400 ms            | authenticated HTTP and accepted WebSocket command spans                      |
 | Matchmaking latency     | p95 < 30 s in a healthy regional pool | enqueue to durable room assignment                                           |
-| Unexpected disconnects  | < 0.5% of active-player hours         | abnormal socket closes / connected player hours                              |
+| Unexpected disconnects  | < 0.5% of completed socket sessions   | abnormal socket closes / all completed sockets; connected time is exposure   |
 | Active-match recovery   | p95 < 10 s after instance loss        | last accepted room revision to first recovered snapshot                      |
 | Persistence correctness | zero stale commits                    | `mk01_room_version_conflicts_total` may rise; stale commits must remain zero |
 
@@ -27,6 +27,42 @@ queue/completion/cancellation totals, current queue depth, oldest queue-entry ag
 deletion totals for sessions, completed rooms, abandoned queue entries, closed moderation cases,
 integrity signals, the privacy-preserving new-player funnel, and bounded real-user performance
 histograms below.
+
+### Core service SLO signals
+
+The SLO numerator and denominator are emitted by the same process boundary so health probes and
+client-side telemetry cannot silently dilute product availability or command latency:
+
+- `mk01_http_responses_total{class}` counts product API status classes and excludes health,
+  readiness, metrics, and anonymous telemetry routes.
+  Thirty-day availability is
+  `sum(increase(mk01_http_responses_total{class!="5xx"}[30d])) / sum(increase(mk01_http_responses_total[30d]))`.
+  Require traffic in the denominator. Page when error-budget burn is true for either the one-hour
+  + five-minute pair at 14.4× or the six-hour + thirty-minute pair at 6×.
+- `mk01_command_duration_milliseconds{transport,outcome}` uses identical fixed buckets for
+  authenticated HTTP product routes and every parsed WebSocket command. Public session creation,
+  login, health, readiness, metrics and anonymous telemetry routes are excluded. The release p95
+  query is
+  `histogram_quantile(0.95, sum by (le) (rate(mk01_command_duration_milliseconds_bucket{outcome="accepted"}[5m])))`;
+  use `0.99` for p99 and show HTTP/WebSocket splits beside the combined panel.
+- `mk01_matchmaking_duration_seconds` records two observations per durable pair: each player's
+  original queue time to the successful room transaction. The p95 query is
+  `histogram_quantile(0.95, sum by (le) (rate(mk01_matchmaking_duration_seconds_bucket[15m])))`.
+- `mk01_websocket_disconnects_total`, `mk01_unexpected_disconnects_total`, and
+  `mk01_websocket_connected_milliseconds_total` distinguish a normal client Close frame from an
+  abnormal EOF or send/receive failure. The primary rate is
+  `sum(increase(mk01_unexpected_disconnects_total[30d])) / sum(increase(mk01_websocket_disconnects_total[30d]))`.
+  Also graph abnormal disconnects per connected-player hour by dividing the numerator by
+  `sum(increase(mk01_websocket_connected_milliseconds_total[30d])) / 3600000`; require at least
+  100 completed sockets before enforcing the percentage objective.
+- `mk01_active_match_recovery_milliseconds` starts at the persisted disconnect time reconstructed
+  from the reconnect deadline and ends only after the replacement authority saves the reconnected
+  room. Its p95 query is
+  `histogram_quantile(0.95, sum by (le) (rate(mk01_active_match_recovery_milliseconds_bucket[15m])))`.
+
+All histograms are cumulative Prometheus histograms with bounded, identity-free labels. A release
+must show non-zero accepted-command samples and, in the staging failure drill, non-zero recovery
+samples. Missing series are a failed gate, not a zero-latency result.
 
 ### New-player funnel
 

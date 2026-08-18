@@ -260,9 +260,16 @@ The program is complete only when all gates below are satisfied in a production-
 - [ ] Separate development, staging, canary, and production environments use reproducible artifacts.
 - [ ] Deployments include preflight, migration safety, canary analysis, rollback, and active-match
       compatibility gates.
-- [ ] SLOs cover availability, matchmaking latency, command latency, disconnect rate, and recovery.
+- [x] SLOs cover availability, matchmaking latency, command latency, disconnect rate, and recovery.
 - [ ] Dashboards, alerts, incident roles, status communication, runbooks, and postmortems exist.
 - [ ] Customer support and moderation tooling can act without direct database access.
+- Evidence: product API response-class counters exclude probes, metrics and telemetry; shared
+  HTTP/WebSocket command histograms distinguish accepted and rejected work; durable matchmaking
+  records both players' queue-to-room latency; socket totals, abnormal closes and connected exposure
+  form an auditable disconnect denominator; and active-match recovery starts from the persisted
+  disconnect boundary and ends after the authoritative save. Unit and API integration tests verify bounded
+  Prometheus output, route exclusions, paired wait samples and the reconnect sample. `OPERATIONS.md`
+  fixes the objectives, PromQL, minimum samples, and multi-window availability burn-rate gate.
 
 ## Delivery order
 
