@@ -665,6 +665,30 @@ export interface GameReplay {
   result: GameResult;
 }
 
+export type SpectatorPhase = 'DELAYED' | 'LIVE' | 'FINISHED';
+
+export interface SpectatorPlayer {
+  id: string;
+  nickname: string;
+  kind: PlayerKind;
+}
+
+export interface SpectatorSnapshot {
+  protocolVersion: number;
+  delaySeconds: number;
+  visibleThrough: string;
+  room: RoomSummary;
+  gameId: string;
+  phase: SpectatorPhase;
+  players: SpectatorPlayer[];
+  balance: BalancePin;
+  rules: MatchRules;
+  timeline: GameTimelineEvent[];
+  currentPlayerId: string | null;
+  result: GameResult | null;
+  serverTimestamp: string;
+}
+
 export type ClientEvent =
   | { type: 'room:create'; payload: { name: string; visibility: RoomVisibility } }
   | { type: 'room:join'; payload: { code: string } }

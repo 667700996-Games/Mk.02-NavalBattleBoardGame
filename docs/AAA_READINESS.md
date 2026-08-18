@@ -222,7 +222,7 @@ The program is complete only when all gates below are satisfied in a production-
 ### C4. Social, spectating, and replay
 
 - [ ] Friends, parties, direct invites, recent players, presence, privacy, mute, and block exist.
-- [ ] Spectators receive delayed, visibility-filtered authoritative state.
+- [x] Spectators receive delayed, visibility-filtered authoritative state.
 - [x] Deterministic replays include ruleset/protocol versions and cannot expose hidden information
       before a match is complete.
 - [x] Post-match analysis can step through turns, compare decisions, and share a safe replay link.
@@ -235,6 +235,14 @@ The program is complete only when all gates below are satisfied in a production-
   surrender and timeout endings, while the six-profile full-match E2E checks both cards, all phase
   meters, decisive-event navigation, the safe-link disclosure and horizontal overflow; Chromium
   profiles additionally prove the clipboard value exactly matches the participant replay URL.
+- Evidence: public matches now expose a separate server-authored spectator projection with a fixed
+  30-second horizon; private rooms return not-found and viewers never join the participant room
+  channel. Attack and timeout events, active turn, finish phase, and result are all released against
+  the same authoritative `visibleThrough` timestamp. The allowlist excludes boards, unhit fleets,
+  placements, session IDs, reconnect state, chat, and tokens. Deterministic domain tests prove the
+  29/30-second boundary and result delay, the authenticated HTTP test scans serialized output for
+  hidden fields, and isolated host/guest/viewer E2E passes in Chromium, Firefox, and WebKit with two
+  fleet-free responsive grids. `SPECTATING.md` fixes the privacy and timing contract.
 
 ## Gate D — Presentation and experience
 

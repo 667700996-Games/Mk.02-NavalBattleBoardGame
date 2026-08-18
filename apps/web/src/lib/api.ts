@@ -26,6 +26,7 @@ import type {
   RoomVisibility,
   Session,
   SocialRelationship,
+  SpectatorSnapshot,
   SupportAccountSnapshot
 } from '$lib/types';
 import { message } from '$lib/i18n';
@@ -35,6 +36,7 @@ import {
   GAME_PROTOCOL_VERSION,
   isCompatibleGameSnapshot,
   isCompatibleProtocolEnvelope,
+  isCompatibleSpectatorSnapshot,
   legacyProtocolCompatibility,
   type ProtocolCompatibility,
   PROTOCOL_VERSION_HEADER,
@@ -86,6 +88,13 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 
 function compatibleSnapshot(value: unknown): GameSnapshot {
   if (!isCompatibleGameSnapshot(value)) {
+    throw new ApiError(SERVER_PROTOCOL_MISMATCH_CODE, serverProtocolMismatchMessage(), 426);
+  }
+  return value;
+}
+
+function compatibleSpectatorSnapshot(value: unknown): SpectatorSnapshot {
+  if (!isCompatibleSpectatorSnapshot(value)) {
     throw new ApiError(SERVER_PROTOCOL_MISMATCH_CODE, serverProtocolMismatchMessage(), 426);
   }
   return value;
@@ -276,6 +285,10 @@ export const api = {
     return snapshot === null ? null : compatibleSnapshot(snapshot);
   },
   history: () => request<{ games: HistoryItem[] }>('/games/history'),
+  spectatableGames: () =>
+    request<{ rooms: RoomSummary[]; delaySeconds: number }>('/games/spectatable'),
+  spectate: async (roomId: string) =>
+    compatibleSpectatorSnapshot(await request<unknown>(`/games/${roomId}/spectate`)),
   replay: (roomId: string) => request<GameReplay>(`/games/${roomId}/replay`),
   measureMatchmakingLatency: async () => {
     const startedAt = performance.now();

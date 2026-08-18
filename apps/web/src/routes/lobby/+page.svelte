@@ -25,6 +25,8 @@
   } from '$lib/types';
 
   let rooms: RoomSummary[] = [];
+  let spectatableRooms: RoomSummary[] = [];
+  let spectatorDelaySeconds = 30;
   let loading = true;
   let error = '';
   let showCreate = false;
@@ -101,13 +103,23 @@
 
   async function loadRooms() {
     try {
-      rooms = (await api.listRooms()).rooms;
+      const [roomResponse, spectatorResponse] = await Promise.all([
+        api.listRooms(),
+        api.spectatableGames()
+      ]);
+      rooms = roomResponse.rooms;
+      spectatableRooms = spectatorResponse.rooms;
+      spectatorDelaySeconds = spectatorResponse.delaySeconds;
       error = '';
     } catch (caught) {
       error = localizeError(caught, 'lobby.loadRoomsError');
     } finally {
       loading = false;
     }
+  }
+
+  async function spectate(roomId: string) {
+    await goto(resolve('/spectate/[roomId]', { roomId }));
   }
 
   async function createRoom() {
@@ -271,6 +283,8 @@
 
     <LobbyRoomOperations
       {rooms}
+      {spectatableRooms}
+      {spectatorDelaySeconds}
       {loading}
       {submitting}
       bind:openCreate={showCreate}
@@ -283,6 +297,7 @@
       {loadRooms}
       {createRoom}
       {joinRoom}
+      {spectate}
     />
   </div>
 </div>

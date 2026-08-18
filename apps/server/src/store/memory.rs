@@ -1394,6 +1394,22 @@ impl GameStore for MemoryStore {
         Ok(rooms)
     }
 
+    async fn list_spectatable_rooms(&self) -> Result<Vec<RoomSummary>, GameError> {
+        let mut rooms: Vec<_> = self
+            .rooms
+            .iter()
+            .filter(|entry| {
+                entry.visibility == RoomVisibility::Public
+                    && entry.game.is_some()
+                    && matches!(entry.status, RoomStatus::Playing | RoomStatus::Finished)
+            })
+            .map(|entry| entry.summary())
+            .collect();
+        rooms.sort_by_key(|room| std::cmp::Reverse(room.created_at));
+        rooms.truncate(100);
+        Ok(rooms)
+    }
+
     async fn history_for_session(
         &self,
         session_id: Uuid,

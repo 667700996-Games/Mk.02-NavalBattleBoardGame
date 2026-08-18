@@ -203,6 +203,86 @@ impl GameRoom {
         })
     }
 
+    pub fn spectator_snapshot_at(
+        &self,
+        now: DateTime<Utc>,
+    ) -> Result<SpectatorSnapshot, GameError> {
+        self.require_valid_balance()?;
+        if self.visibility != RoomVisibility::Public {
+            return Err(GameError::RoomNotFound);
+        }
+        let game = self.game.as_ref().ok_or(GameError::InvalidState)?;
+        let visible_through = now - Duration::seconds(i64::from(SPECTATOR_DELAY_SECONDS));
+        let source_timeline = if game.timeline.is_empty() {
+            game.attacks
+                .iter()
+                .cloned()
+                .map(GameTimelineEvent::Attack)
+                .collect::<Vec<_>>()
+        } else {
+            game.timeline.clone()
+        };
+        let timeline = source_timeline
+            .into_iter()
+            .filter(|event| match event {
+                GameTimelineEvent::Attack(record) => record.created_at <= visible_through,
+                GameTimelineEvent::TurnExpired(record) => record.expired_at <= visible_through,
+            })
+            .collect::<Vec<_>>();
+        let visible_result = game
+            .result
+            .clone()
+            .filter(|result| result.finished_at <= visible_through);
+        let phase = if game.started_at > visible_through {
+            SpectatorPhase::Delayed
+        } else if visible_result.is_some() {
+            SpectatorPhase::Finished
+        } else {
+            SpectatorPhase::Live
+        };
+        let current_player_id = if phase == SpectatorPhase::Live {
+            timeline
+                .last()
+                .and_then(|event| match event {
+                    GameTimelineEvent::Attack(record) => record.next_player_id,
+                    GameTimelineEvent::TurnExpired(record) => record.next_player_id,
+                })
+                .or_else(|| (!game.first_player_id.is_nil()).then_some(game.first_player_id))
+        } else {
+            None
+        };
+        let mut room = self.summary();
+        room.status = match phase {
+            SpectatorPhase::Delayed => RoomStatus::Placement,
+            SpectatorPhase::Live => RoomStatus::Playing,
+            SpectatorPhase::Finished => RoomStatus::Finished,
+        };
+
+        Ok(SpectatorSnapshot {
+            protocol_version: crate::PROTOCOL_VERSION,
+            delay_seconds: SPECTATOR_DELAY_SECONDS,
+            visible_through,
+            room,
+            game_id: self.game_id.ok_or(GameError::InvalidState)?,
+            phase,
+            players: self
+                .players
+                .iter()
+                .map(|player| SpectatorPlayer {
+                    id: player.id,
+                    nickname: player.nickname.clone(),
+                    kind: player.kind,
+                })
+                .collect(),
+            balance: self.balance.clone(),
+            rules: self.rules,
+            timeline,
+            current_player_id,
+            result: visible_result,
+            server_timestamp: now,
+        })
+    }
+
     pub fn has_valid_balance_pin(&self) -> bool {
         self.balance.has_valid_integrity()
             && self
@@ -224,6 +304,42 @@ impl GameRoom {
             .then_some(())
             .ok_or(GameError::InvalidState)
     }
+}
+
+pub const SPECTATOR_DELAY_SECONDS: u32 = 30;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum SpectatorPhase {
+    Delayed,
+    Live,
+    Finished,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SpectatorPlayer {
+    pub id: Uuid,
+    pub nickname: String,
+    pub kind: PlayerKind,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SpectatorSnapshot {
+    pub protocol_version: u16,
+    pub delay_seconds: u32,
+    pub visible_through: DateTime<Utc>,
+    pub room: RoomSummary,
+    pub game_id: Uuid,
+    pub phase: SpectatorPhase,
+    pub players: Vec<SpectatorPlayer>,
+    pub balance: BalancePin,
+    pub rules: MatchRules,
+    pub timeline: Vec<GameTimelineEvent>,
+    pub current_player_id: Option<Uuid>,
+    pub result: Option<GameResult>,
+    pub server_timestamp: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

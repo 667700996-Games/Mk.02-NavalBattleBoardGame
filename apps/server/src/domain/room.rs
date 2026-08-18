@@ -16,6 +16,8 @@ use super::{
 
 mod chat;
 mod projection;
+#[cfg(test)]
+mod spectator_tests;
 mod state;
 mod timers;
 

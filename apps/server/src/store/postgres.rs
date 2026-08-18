@@ -1754,6 +1754,19 @@ impl GameStore for PostgresRedisStore {
             .collect()
     }
 
+    async fn list_spectatable_rooms(&self) -> Result<Vec<RoomSummary>, GameError> {
+        let snapshots: Vec<(serde_json::Value, i64, i16, String)> = sqlx::query_as(
+            "SELECT snapshot,persistence_revision,ruleset_version,balance_checksum FROM game_rooms WHERE visibility='PUBLIC' AND status IN ('PLAYING','FINISHED') ORDER BY updated_at DESC LIMIT 100"
+        ).fetch_all(&self.pool).await?;
+        snapshots
+            .into_iter()
+            .map(|(value, revision, ruleset_version, balance_checksum)| {
+                decode_room_snapshot(value, revision, ruleset_version, &balance_checksum)
+                    .map(|room| room.summary())
+            })
+            .collect()
+    }
+
     async fn history_for_session(
         &self,
         session_id: Uuid,

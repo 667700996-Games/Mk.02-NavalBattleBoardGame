@@ -36,8 +36,9 @@ use crate::{
         PublishLiveContentInput, RankedLeaderboardQuery, RankedLeaderboardResponse,
         RankedLeaderboardVisibilityInput, RankedLeaderboardVisibilityResponse,
         RollbackLiveContentInput, RoomCreatedResponse, RoomListResponse, RumMetricInput,
-        SessionResponse, SocialRelationshipInput, SocialRelationshipsResponse, SupportAccountQuery,
-        SupportActionResponse, SupportSessionRevocationInput,
+        SessionResponse, SocialRelationshipInput, SocialRelationshipsResponse,
+        SpectatableRoomsResponse, SupportAccountQuery, SupportActionResponse,
+        SupportSessionRevocationInput,
     },
     store::GameHistoryItem,
 };
@@ -103,6 +104,8 @@ pub fn router() -> Router<AppState> {
         .route("/rooms/{room_id}/leave", post(leave_room))
         .route("/games/recover", get(recover_game))
         .route("/games/history", get(game_history))
+        .route("/games/spectatable", get(spectatable_games))
+        .route("/games/{room_id}/spectate", get(spectate_game))
         .route("/games/{room_id}/replay", get(game_replay))
         .route("/practice", post(create_practice))
         .route(
@@ -693,6 +696,30 @@ async fn game_replay(
         .await?
         .ok_or(GameError::RoomNotFound)?;
     Ok(Json(room.replay_for(session.id)?))
+}
+
+async fn spectatable_games(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+) -> Result<Json<SpectatableRoomsResponse>, GameError> {
+    authenticate(&state, &jar, &headers).await?;
+    Ok(Json(SpectatableRoomsResponse {
+        rooms: state.store.list_spectatable_rooms().await?,
+        delay_seconds: crate::domain::SPECTATOR_DELAY_SECONDS,
+    }))
+}
+
+async fn spectate_game(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+    room_id: Result<Path<Uuid>, PathRejection>,
+) -> Result<Json<crate::domain::SpectatorSnapshot>, GameError> {
+    authenticate(&state, &jar, &headers).await?;
+    let Path(room_id) = parse_path(room_id)?;
+    let room = state.room(room_id).await?;
+    Ok(Json(room.lock().await.spectator_snapshot_at(Utc::now())?))
 }
 
 async fn join_room(

@@ -175,6 +175,13 @@ pub struct SocialRelationshipsResponse {
     pub relationships: Vec<SocialRelationship>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SpectatableRoomsResponse {
+    pub rooms: Vec<RoomSummary>,
+    pub delay_seconds: u32,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PlayerReportInput {

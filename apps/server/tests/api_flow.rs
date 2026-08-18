@@ -1813,6 +1813,107 @@ async fn support_console_finds_exact_accounts_and_audits_session_revocation() {
 }
 
 #[tokio::test]
+async fn delayed_spectating_lists_public_battles_and_never_serializes_hidden_state() {
+    let store = Arc::new(MemoryStore::default());
+    let now = Utc::now();
+    let session = |nickname: &str, token: &str| UserSession {
+        id: uuid::Uuid::new_v4(),
+        account_id: None,
+        nickname: nickname.to_string(),
+        token_hash: hash_token(token),
+        created_at: now,
+        last_seen_at: now,
+        current_room_id: None,
+    };
+    let host = session("Spectate Alpha", "spectate-host-token");
+    let guest = session("Spectate Bravo", "spectate-guest-token");
+    let viewer = session("Spectate Viewer", "spectate-viewer-token");
+    for candidate in [&host, &guest, &viewer] {
+        store.save_session(candidate).await.unwrap();
+    }
+
+    let mut room = GameRoom::new(
+        "WATCH1".to_string(),
+        "Public fleet exercise".to_string(),
+        RoomVisibility::Public,
+        &host,
+    )
+    .unwrap();
+    room.join(&guest).unwrap();
+    let host_player_id = room.player_for_session(host.id).unwrap().id;
+    let guest_player_id = room.player_for_session(guest.id).unwrap().id;
+    room.set_lobby_ready(host.id, uuid::Uuid::new_v4(), host_player_id, true)
+        .unwrap();
+    room.set_lobby_ready(guest.id, uuid::Uuid::new_v4(), guest_player_id, true)
+        .unwrap();
+    room.start_placement(host.id, uuid::Uuid::new_v4(), host_player_id, room.version)
+        .unwrap();
+    room.place_ships(host.id, fleet(0)).unwrap();
+    room.place_ships(guest.id, fleet(5)).unwrap();
+    assert!(!room.confirm_placement(host.id, &fleet(0), 60).unwrap());
+    assert!(room.confirm_placement(guest.id, &fleet(5), 60).unwrap());
+    store.save_room(&mut room).await.unwrap();
+    let room_id = room.id;
+    let app = build_router(AppState::with_store(test_settings(), store));
+
+    let unauthenticated = send(
+        &app,
+        Request::builder()
+            .uri("/api/games/spectatable")
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(unauthenticated.status(), StatusCode::UNAUTHORIZED);
+
+    let cookie = "mk01_session=spectate-viewer-token";
+    let listed = json_body(
+        send(
+            &app,
+            Request::builder()
+                .uri("/api/games/spectatable")
+                .header(header::COOKIE, cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(listed["delaySeconds"], 30);
+    assert_eq!(listed["rooms"].as_array().unwrap().len(), 1);
+    assert_eq!(listed["rooms"][0]["id"], room_id.to_string());
+
+    let response = send(
+        &app,
+        Request::builder()
+            .uri(format!("/api/games/{room_id}/spectate"))
+            .header(header::COOKIE, cookie)
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let snapshot = json_body(response).await;
+    assert_eq!(snapshot["protocolVersion"], PROTOCOL_VERSION);
+    assert_eq!(snapshot["delaySeconds"], 30);
+    assert_eq!(snapshot["players"].as_array().unwrap().len(), 2);
+    let serialized = snapshot.to_string();
+    for hidden_field in [
+        "\"boards\"",
+        "\"ships\"",
+        "sessionId",
+        "pendingPlacements",
+        "chatMessages",
+        "tokenHash",
+    ] {
+        assert!(
+            !serialized.contains(hidden_field),
+            "spectator API leaked {hidden_field}"
+        );
+    }
+}
+
+#[tokio::test]
 async fn social_safety_mutes_blocks_reports_and_prevents_future_room_pairing() {
     let app = test_app();
     let (alpha_cookie, _) = create_session(&app, "Safety Alpha").await;

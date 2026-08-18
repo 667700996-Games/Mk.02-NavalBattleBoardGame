@@ -1,4 +1,4 @@
-import type { GameSnapshot, RoomStatus, ServerEvent } from '$lib/types';
+import type { GameSnapshot, RoomStatus, ServerEvent, SpectatorSnapshot } from '$lib/types';
 import { message } from '$lib/i18n';
 
 export const GAME_PROTOCOL_VERSION = 2;
@@ -213,6 +213,24 @@ export function isCompatibleGameSnapshot(value: unknown): value is GameSnapshot 
     typeof value.roomVersion === 'number' &&
     Array.isArray(value.players)
   );
+}
+
+export function isCompatibleSpectatorSnapshot(value: unknown): value is SpectatorSnapshot {
+  if (!isRecord(value) || value.protocolVersion !== GAME_PROTOCOL_VERSION) return false;
+  if (!isRecord(value.room) || !ROOM_STATES.has(value.room.status as RoomStatus)) return false;
+  if (!isCompatibleBalancePin(value.balance)) return false;
+  if (
+    !['DELAYED', 'LIVE', 'FINISHED'].includes(String(value.phase)) ||
+    !Number.isInteger(value.delaySeconds) ||
+    Number(value.delaySeconds) < 15 ||
+    !Array.isArray(value.players) ||
+    value.players.length !== 2 ||
+    !Array.isArray(value.timeline)
+  ) {
+    return false;
+  }
+  const forbidden = ['ownBoard', 'targetBoard', 'revealedBoard', 'placement', 'pendingPlacements'];
+  return forbidden.every((field) => !(field in value));
 }
 
 export function isCompatibleProtocolEnvelope(value: unknown): value is {

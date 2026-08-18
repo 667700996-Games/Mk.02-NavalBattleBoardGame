@@ -3,12 +3,12 @@
     "javascript": {
       "extensions": [".js"],
       "perFileBytes": 100000,
-      "totalBytes": 380000
+      "totalBytes": 392000
     },
     "css": {
       "extensions": [".css"],
       "perFileBytes": 90000,
-      "totalBytes": 201600
+      "totalBytes": 205000
     },
     "fonts": {
       "extensions": [".woff2"],
@@ -47,6 +47,10 @@
     "/stats": {
       "javascriptBytes": 20000,
       "cssBytes": 14000
+    },
+    "/spectate/[roomId]": {
+      "javascriptBytes": 8500,
+      "cssBytes": 3800
     }
   },
   "tiers": {

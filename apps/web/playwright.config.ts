@@ -15,6 +15,7 @@ export default defineConfig({
   reporter: [['list'], ['html', { open: 'never' }]],
   use: {
     baseURL: webOrigin,
+    locale: 'ko-KR',
     trace: 'on-first-retry'
   },
   webServer: [

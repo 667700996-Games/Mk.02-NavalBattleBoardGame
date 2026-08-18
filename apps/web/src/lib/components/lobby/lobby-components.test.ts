@@ -92,6 +92,8 @@ describe('LobbyCommandDashboard', () => {
 });
 
 const roomProps = {
+  spectatableRooms: [],
+  spectatorDelaySeconds: 30,
   submitting: false,
   openCreate: false,
   openJoin: false,
@@ -102,7 +104,8 @@ const roomProps = {
   roomCode: '',
   loadRooms: vi.fn(),
   createRoom: vi.fn(),
-  joinRoom: vi.fn()
+  joinRoom: vi.fn(),
+  spectate: vi.fn()
 };
 
 describe('LobbyRoomOperations', () => {

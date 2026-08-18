@@ -273,6 +273,7 @@ pub trait GameStore: Send + Sync {
     async fn room_by_code(&self, code: &str) -> Result<Option<GameRoom>, GameError>;
     async fn active_rooms(&self) -> Result<Vec<GameRoom>, GameError>;
     async fn list_public_rooms(&self) -> Result<Vec<RoomSummary>, GameError>;
+    async fn list_spectatable_rooms(&self) -> Result<Vec<RoomSummary>, GameError>;
     async fn history_for_session(
         &self,
         session_id: Uuid,
