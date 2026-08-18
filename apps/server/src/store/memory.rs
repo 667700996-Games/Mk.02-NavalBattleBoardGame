@@ -7,7 +7,7 @@ use uuid::Uuid;
 
 use crate::{
     domain::{
-        AccountSession, ActivePenalty, FinishReason, GameRoom, IntegritySignal,
+        AccountSession, ActivePenalty, ChatMessageType, FinishReason, GameRoom, IntegritySignal,
         IntegritySignalKind, IntegritySignalPage, ModerationAction, ModerationActionKind,
         ModerationCase, ModerationCasePage, NewIntegritySignal, NewModerationAction,
         NewPlayerReport, PlayerAccount, PlayerReport, ReportStatus, RoomStatus, RoomSummary,
@@ -17,8 +17,8 @@ use crate::{
 };
 
 use super::{
-    GameHistoryItem, GameStore, MatchmakingClaim, MatchmakingEnqueueResult, MatchmakingQueueStats,
-    MissionReward, RetentionStats,
+    AccountDeletionStats, GameHistoryItem, GameStore, MatchmakingClaim, MatchmakingEnqueueResult,
+    MatchmakingQueueStats, MissionReward, RetentionStats,
 };
 
 #[derive(Debug, Clone)]
@@ -43,6 +43,7 @@ pub struct MemoryStore {
     moderation_mutations: Mutex<()>,
     integrity_signals: DashMap<Uuid, IntegritySignal>,
     integrity_mutations: Mutex<()>,
+    privacy_requests: DashMap<Uuid, serde_json::Value>,
     rooms: DashMap<Uuid, GameRoom>,
     matchmaking: Mutex<HashMap<Uuid, MatchmakingEntry>>,
 }
@@ -194,6 +195,242 @@ impl GameStore for MemoryStore {
         self.session_hash_by_id.remove(&session_id);
         self.sessions_by_hash.remove(&hash);
         Ok(true)
+    }
+
+    async fn export_account_data(
+        &self,
+        account_id: Uuid,
+        request_id: Uuid,
+        subject_fingerprint: &str,
+        generated_at: DateTime<Utc>,
+    ) -> Result<serde_json::Value, GameError> {
+        let account = self
+            .accounts
+            .get(&account_id)
+            .map(|entry| entry.value().0.clone())
+            .ok_or(GameError::Unauthorized)?;
+        let sessions = self.sessions_for_account(account_id).await?;
+        let session_ids: Vec<_> = sessions.iter().map(|session| session.id).collect();
+        let mut identities = session_ids.clone();
+        identities.push(account_id);
+        let history = match session_ids.first() {
+            Some(session_id) => self.history_for_session(*session_id).await?,
+            None => Vec::new(),
+        };
+        let rewards = self.mission_rewards(account_id).await?;
+        let relationships: Vec<_> = self
+            .social_relationships
+            .iter()
+            .filter(|relationship| identities.contains(&relationship.key().0))
+            .map(|relationship| relationship.value().clone())
+            .collect();
+        let reports: Vec<_> = self
+            .player_reports
+            .iter()
+            .filter(|report| {
+                identities.contains(&report.reporter_identity_id)
+                    || identities.contains(&report.target_identity_id)
+            })
+            .map(|report| {
+                serde_json::json!({
+                    "id": report.id,
+                    "direction": if identities.contains(&report.reporter_identity_id) { "SUBMITTED" } else { "RECEIVED" },
+                    "targetNickname": report.target_nickname,
+                    "category": report.category,
+                    "details": report.details,
+                    "evidence": report.evidence,
+                    "status": report.status,
+                    "createdAt": report.created_at,
+                    "updatedAt": report.updated_at,
+                })
+            })
+            .collect();
+        let report_ids: Vec<Uuid> = reports
+            .iter()
+            .filter_map(|report| report["id"].as_str().and_then(|id| Uuid::parse_str(id).ok()))
+            .collect();
+        let moderation_actions: Vec<_> = self
+            .moderation_actions
+            .iter()
+            .filter(|action| report_ids.contains(&action.report_id))
+            .map(|action| action.value().clone())
+            .collect();
+        let integrity_signals: Vec<_> = self
+            .integrity_signals
+            .iter()
+            .filter(|signal| identities.contains(&signal.subject_identity_id))
+            .map(|signal| signal.value().clone())
+            .collect();
+        let archive = serde_json::json!({
+            "formatVersion": 1,
+            "requestId": request_id,
+            "generatedAt": generated_at,
+            "account": account,
+            "sessions": sessions,
+            "gameHistory": history,
+            "progressionRewards": rewards,
+            "socialRelationships": relationships,
+            "moderationReports": reports,
+            "moderationActions": moderation_actions,
+            "integritySignals": integrity_signals,
+            "cacheCopies": "No independent data; Redis room cache follows the authoritative room lifecycle.",
+            "credentialsExcluded": true,
+        });
+        self.privacy_requests.insert(
+            request_id,
+            serde_json::json!({
+                "subjectFingerprint": subject_fingerprint,
+                "requestType": "EXPORT",
+                "status": "COMPLETED",
+                "createdAt": generated_at,
+                "completedAt": generated_at,
+            }),
+        );
+        Ok(archive)
+    }
+
+    async fn delete_account_data(
+        &self,
+        account_id: Uuid,
+        request_id: Uuid,
+        subject_fingerprint: &str,
+        deleted_at: DateTime<Utc>,
+    ) -> Result<AccountDeletionStats, GameError> {
+        let _account_guard = self.account_mutations.lock().await;
+        let account = self
+            .accounts
+            .get(&account_id)
+            .map(|entry| entry.value().0.clone())
+            .ok_or(GameError::Unauthorized)?;
+        let sessions: Vec<_> = self
+            .sessions_by_hash
+            .iter()
+            .filter(|session| session.account_id == Some(account_id))
+            .map(|session| (session.id, session.token_hash.clone()))
+            .collect();
+        let session_ids: Vec<_> = sessions.iter().map(|(id, _)| *id).collect();
+        let mut identities = session_ids.clone();
+        identities.push(account_id);
+        let affected_room_ids: Vec<_> = self
+            .rooms
+            .iter()
+            .filter(|room| {
+                room.players
+                    .iter()
+                    .any(|player| session_ids.contains(&player.session_id))
+            })
+            .map(|room| room.id)
+            .collect();
+        for room_id in &affected_room_ids {
+            let mut room = self.rooms.get_mut(room_id).ok_or(GameError::Internal)?;
+            if !matches!(room.status, RoomStatus::Finished | RoomStatus::Cancelled) {
+                return Err(GameError::InvalidState);
+            }
+            let mut deleted_player_ids = Vec::new();
+            for player in &mut room.players {
+                if session_ids.contains(&player.session_id) {
+                    deleted_player_ids.push(player.id);
+                    player.session_id = Uuid::new_v4();
+                    player.nickname = "Deleted Commander".to_string();
+                }
+            }
+            for message in &mut room.chat_messages {
+                if message
+                    .player_id
+                    .is_some_and(|player_id| deleted_player_ids.contains(&player_id))
+                {
+                    message.nickname = "Deleted Commander".to_string();
+                    if message.message_type == ChatMessageType::Text {
+                        message.content = "[deleted]".to_string();
+                    }
+                }
+            }
+            room.updated_at = deleted_at;
+            room.version = room.version.saturating_add(1);
+        }
+
+        let reward_keys: Vec<_> = self
+            .mission_rewards
+            .iter()
+            .filter(|reward| reward.key().0 == account_id)
+            .map(|reward| reward.key().clone())
+            .collect();
+        for key in &reward_keys {
+            self.mission_rewards.remove(key);
+        }
+        let relationship_keys: Vec<_> = self
+            .social_relationships
+            .iter()
+            .filter(|relationship| {
+                identities.contains(&relationship.key().0)
+                    || identities.contains(&relationship.key().1)
+            })
+            .map(|relationship| *relationship.key())
+            .collect();
+        for key in &relationship_keys {
+            self.social_relationships.remove(key);
+        }
+        let _moderation_guard = self.moderation_mutations.lock().await;
+        let report_ids: Vec<_> = self
+            .player_reports
+            .iter()
+            .filter(|report| {
+                identities.contains(&report.reporter_identity_id)
+                    || identities.contains(&report.target_identity_id)
+            })
+            .map(|report| report.id)
+            .collect();
+        let action_ids: Vec<_> = self
+            .moderation_actions
+            .iter()
+            .filter(|action| report_ids.contains(&action.report_id))
+            .map(|action| action.id)
+            .collect();
+        for action_id in action_ids {
+            self.moderation_actions.remove(&action_id);
+        }
+        for report_id in &report_ids {
+            self.player_reports.remove(report_id);
+        }
+        let _integrity_guard = self.integrity_mutations.lock().await;
+        let signal_ids: Vec<_> = self
+            .integrity_signals
+            .iter()
+            .filter(|signal| identities.contains(&signal.subject_identity_id))
+            .map(|signal| signal.id)
+            .collect();
+        for signal_id in &signal_ids {
+            self.integrity_signals.remove(signal_id);
+        }
+        self.matchmaking
+            .lock()
+            .await
+            .retain(|session_id, _| !session_ids.contains(session_id));
+        for (session_id, token_hash) in &sessions {
+            self.session_hash_by_id.remove(session_id);
+            self.sessions_by_hash.remove(token_hash);
+        }
+        self.account_id_by_handle
+            .remove(&account.handle.to_lowercase());
+        self.accounts.remove(&account_id);
+        self.privacy_requests.insert(
+            request_id,
+            serde_json::json!({
+                "subjectFingerprint": subject_fingerprint,
+                "requestType": "DELETE",
+                "status": "COMPLETED",
+                "createdAt": deleted_at,
+                "completedAt": deleted_at,
+            }),
+        );
+        Ok(AccountDeletionStats {
+            sessions_deleted: sessions.len() as u64,
+            rewards_deleted: reward_keys.len() as u64,
+            relationships_deleted: relationship_keys.len() as u64,
+            reports_deleted: report_ids.len() as u64,
+            integrity_signals_deleted: signal_ids.len() as u64,
+            rooms_anonymized: affected_room_ids.len() as u64,
+        })
     }
 
     async fn mission_rewards(&self, account_id: Uuid) -> Result<Vec<MissionReward>, GameError> {

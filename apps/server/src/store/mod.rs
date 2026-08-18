@@ -56,6 +56,17 @@ pub struct RetentionStats {
     pub integrity_signals_deleted: u64,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountDeletionStats {
+    pub sessions_deleted: u64,
+    pub rewards_deleted: u64,
+    pub relationships_deleted: u64,
+    pub reports_deleted: u64,
+    pub integrity_signals_deleted: u64,
+    pub rooms_anonymized: u64,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MissionReward {
     pub mission_id: String,
@@ -105,6 +116,20 @@ pub trait GameStore: Send + Sync {
         account_id: Uuid,
         session_id: Uuid,
     ) -> Result<bool, GameError>;
+    async fn export_account_data(
+        &self,
+        account_id: Uuid,
+        request_id: Uuid,
+        subject_fingerprint: &str,
+        generated_at: DateTime<Utc>,
+    ) -> Result<serde_json::Value, GameError>;
+    async fn delete_account_data(
+        &self,
+        account_id: Uuid,
+        request_id: Uuid,
+        subject_fingerprint: &str,
+        deleted_at: DateTime<Utc>,
+    ) -> Result<AccountDeletionStats, GameError>;
     async fn mission_rewards(&self, account_id: Uuid) -> Result<Vec<MissionReward>, GameError>;
     async fn claim_mission_reward(
         &self,
