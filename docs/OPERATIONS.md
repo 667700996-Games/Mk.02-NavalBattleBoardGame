@@ -25,7 +25,8 @@ rate-limit totals, local WebSocket connections/events, distributed publish succe
 mutation/version-conflict and authority acquisition/conflict totals, matchmaking
 queue/completion/cancellation totals, current queue depth, oldest queue-entry age, and retention
 deletion totals for sessions, completed rooms, abandoned queue entries, closed moderation cases,
-integrity signals, and the privacy-preserving new-player funnel below.
+integrity signals, the privacy-preserving new-player funnel, and bounded real-user performance
+histograms below.
 
 ### New-player funnel
 
@@ -61,6 +62,39 @@ volume. Match completion is monitored separately by mode because match duration 
 surrender make a single global threshold misleading. Compare a candidate with the stable release
 and the same acquisition/channel mix; do not compare raw counters across process restarts.
 
+### Real-user performance
+
+The browser reports one page-lifecycle sample for LCP, CLS, and INP plus one attack-command sample
+for each authoritative result. Only fixed `route` (`landing`, `tutorial`, `lobby`, `join`, `room`,
+`account`, `replay`, `other`) and `device_tier` (`desktop`, `mobile`, `low_mobile`) labels are
+accepted. LCP, INP, and attack latency use milliseconds; CLS uses its unitless value multiplied by
+1000. The server rejects unknown fields and out-of-range values, then immediately folds accepted
+samples into cumulative histograms:
+
+- `mk01_rum_lcp_milliseconds`;
+- `mk01_rum_cls_milli`;
+- `mk01_rum_inp_milliseconds`;
+- `mk01_rum_battle_interaction_milliseconds`.
+
+The dashboard must show sample volume and p75 by route/device for all three Web Vitals, plus p50,
+p95, and p99 attack latency by device. Example LCP p75:
+
+`histogram_quantile(0.75, sum by (le,route,device_tier) (rate(mk01_rum_lcp_milliseconds_bucket[1h])))`
+
+Use the corresponding `_count` increase as the denominator guard. The good release targets are LCP
+p75 ≤ 2500 ms, CLS p75 ≤ 100 milli, INP p75 ≤ 200 ms, and battle-interaction p95 ≤ 750 ms. Open a
+release-blocking investigation when at least 100 Web Vital or 50 battle samples exist for the same
+route/tier and LCP exceeds 4000 ms, CLS exceeds 250 milli, INP exceeds 500 ms, or battle p95 exceeds
+1500 ms for 15 minutes. Before a canary reaches 100%, retain at least 100 landing samples for each
+supported device tier over the rolling seven-day window; low-volume tiers require an explicit QA
+traffic run rather than silently dropping the gate.
+
+The browser calculates CLS using the maximum 1-second-gap/5-second session window and INP from the
+98th-percentile interaction duration. Attack timing starts only when `attack:fire` is sent and ends
+on the matching authoritative `attack:result`; the request ID never leaves browser memory through
+the telemetry endpoint. Individual samples are never persisted by the application and must not be
+joined to access logs or used for player scoring, moderation, or anti-cheat decisions.
+
 Minimum paging alerts:
 
 - readiness is non-200 for two minutes in two or more instances;
@@ -72,8 +106,8 @@ Minimum paging alerts:
 - PostgreSQL replication, disk, connection saturation, or backup age violates provider limits.
 
 Ticket alerts cover a single-instance readiness failure, sustained rate-limit growth, elevated
-version conflicts, funnel threshold violations, bundle-budget regression attempts, and backup age
-above 12 hours.
+version conflicts, funnel or RUM threshold violations, bundle-budget regression attempts, and
+backup age above 12 hours.
 
 The complete code-split artifact and the production gameplay journey share the versioned limits in
 `config/performance-budgets.json`. `npm run budget` gates JavaScript, CSS, WOFF2 fonts, images, and

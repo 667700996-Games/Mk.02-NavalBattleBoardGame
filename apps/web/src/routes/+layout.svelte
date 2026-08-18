@@ -7,6 +7,7 @@
   import { Crosshair, History, Radio, Settings } from '@lucide/svelte';
   import { api } from '$lib/api';
   import { installFunnelAbandonmentTracking } from '$lib/funnel';
+  import { installRealUserMonitoring } from '$lib/performance';
   import {
     dismissHudNotification,
     gameError,
@@ -23,6 +24,7 @@
 
   onMount(() => {
     const removeFunnelTracking = installFunnelAbandonmentTracking();
+    const removePerformanceTracking = installRealUserMonitoring();
     const keyboardKeys = new Set([
       'Tab',
       'Enter',
@@ -54,6 +56,7 @@
       .catch(() => session.set(null));
     return () => {
       removeFunnelTracking();
+      removePerformanceTracking();
       clearInterval(timer);
       window.removeEventListener('keydown', onKeydown, true);
       window.removeEventListener('pointerdown', onPointerdown, true);

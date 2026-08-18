@@ -205,7 +205,7 @@ The program is complete only when all gates below are satisfied in a production-
 - [x] Route JS/CSS, fonts, images, audio, memory, CPU, animation frame time, and WebSocket bandwidth
       have budgets by device tier.
 - [x] Korean fonts are subsetted and modern formats are preferred without redundant transfer.
-- [ ] Core Web Vitals and battle interaction latency are captured from real users by release.
+- [x] Core Web Vitals and battle interaction latency are captured from real users by release.
 - [x] Low-end mobile play remains readable and responsive during the heaviest effects sequence.
 - Evidence: `check-font-subsets.mjs` scans all production Rust/Svelte/TypeScript copy, proves every
   static Korean glyph maps to one of 28 disjoint 400/700 WOFF2 slices, rejects duplicate selection
@@ -220,8 +220,13 @@ The program is complete only when all gates below are satisfied in a production-
   reference run passed 3/3 with zero long tasks; low mobile held 18.6 ms frame p95 under 6× CPU
   throttle while retaining a 14 px status heading, 24 px board-cell floor, 40 px fire-control floor,
   and no horizontal overflow. Its report attaches 360×640 sunk-carrier and unobscured result
-  captures. Desktop frame p95 improved from 66.7 to 33.4 ms after redundant full-surface backdrop
-  filters were removed. CI reruns this release-blocking gate. See `FONT_DELIVERY.md` and
+  captures. Desktop frame p95 improved from 66.7 to 33.7 ms after redundant full-surface backdrop
+  filters were removed. The browser now reports lifecycle LCP, maximum-session CLS, p98 INP, and
+  request-matched attack-result latency into fixed route/device Prometheus histograms. No identity,
+  URL parameter, device model, or request ID is accepted or retained. API integration rejects
+  unknown/high-cardinality dimensions and out-of-range values; a real Chromium practice attack
+  proves all four histograms increase. Operations defines p75/p95 targets, minimum sample counts,
+  and canary stop thresholds. CI reruns both release-blocking gates. See `FONT_DELIVERY.md` and
   `PERFORMANCE_BUDGETS.md` for generation, measurement, and review contracts.
 
 ## Gate E — Engineering quality and delivery

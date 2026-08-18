@@ -892,6 +892,144 @@ async fn new_player_funnel_accepts_only_bounded_anonymous_dimensions() {
 }
 
 #[tokio::test]
+async fn real_user_performance_accepts_only_bounded_anonymous_histogram_samples() {
+    let app = test_app();
+    for sample in [
+        json!({
+            "metric": "lcp",
+            "route": "landing",
+            "deviceTier": "desktop",
+            "value": 2400
+        }),
+        json!({
+            "metric": "cls",
+            "route": "landing",
+            "deviceTier": "desktop",
+            "value": 80
+        }),
+        json!({
+            "metric": "inp",
+            "route": "lobby",
+            "deviceTier": "mobile",
+            "value": 180
+        }),
+        json!({
+            "metric": "battle_interaction",
+            "route": "room",
+            "deviceTier": "low_mobile",
+            "value": 420
+        }),
+    ] {
+        let response = send(
+            &app,
+            Request::builder()
+                .method("POST")
+                .uri("/api/telemetry/performance")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(sample.to_string()))
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+    }
+
+    for invalid in [
+        json!({
+            "metric": "lcp",
+            "route": "landing",
+            "deviceTier": "desktop",
+            "value": 60001
+        }),
+        json!({
+            "metric": "cls",
+            "route": "landing",
+            "deviceTier": "desktop",
+            "value": 5001
+        }),
+        json!({
+            "metric": "fps",
+            "route": "landing",
+            "deviceTier": "desktop",
+            "value": 60
+        }),
+        json!({
+            "metric": "inp",
+            "route": "player-123",
+            "deviceTier": "mobile",
+            "value": 100
+        }),
+        json!({
+            "metric": "inp",
+            "route": "lobby",
+            "deviceTier": "phone-model-123",
+            "value": 100
+        }),
+        json!({
+            "metric": "inp",
+            "route": "lobby",
+            "deviceTier": "mobile",
+            "value": -1
+        }),
+        json!({
+            "metric": "inp",
+            "route": "lobby",
+            "deviceTier": "mobile",
+            "value": 1.5
+        }),
+        json!({
+            "metric": "inp",
+            "route": "lobby",
+            "deviceTier": "mobile",
+            "value": 100,
+            "sessionId": "secret"
+        }),
+    ] {
+        let response = send(
+            &app,
+            Request::builder()
+                .method("POST")
+                .uri("/api/telemetry/performance")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(invalid.to_string()))
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    let response = send(
+        &app,
+        Request::builder()
+            .uri("/api/metrics")
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    let metrics = String::from_utf8(
+        to_bytes(response.into_body(), 256 * 1024)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap();
+    assert!(metrics.contains(
+        "mk01_rum_lcp_milliseconds_bucket{route=\"landing\",device_tier=\"desktop\",le=\"2500\"} 1"
+    ));
+    assert!(
+        metrics.contains("mk01_rum_cls_milli_sum{route=\"landing\",device_tier=\"desktop\"} 80")
+    );
+    assert!(
+        metrics
+            .contains("mk01_rum_inp_milliseconds_count{route=\"lobby\",device_tier=\"mobile\"} 1")
+    );
+    assert!(metrics.contains(
+        "mk01_rum_battle_interaction_milliseconds_bucket{route=\"room\",device_tier=\"low_mobile\",le=\"500\"} 1"
+    ));
+    assert!(!metrics.contains("sessionId"));
+    assert!(!metrics.contains("secret"));
+}
+
+#[tokio::test]
 async fn global_and_session_creation_limits_reject_excess_requests() {
     let global_app = test_app_with_settings(Settings {
         http_requests_per_minute_per_ip: 1,

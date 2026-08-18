@@ -12,7 +12,7 @@ WOFF files. The current production artifact is:
 
 | Category | Measured bytes | Total budget |
 | --- | ---: | ---: |
-| JavaScript | 315,183 | 320,000 |
+| JavaScript | 317,857 | 320,000 |
 | CSS | 184,601 | 185,000 |
 | WOFF2 fonts | 483,304 | 1,200,000 |
 | Images | 2,137,055 | 2,200,000 |
@@ -44,12 +44,12 @@ The August 18, 2026 reference run passed all tiers:
 
 | Tier | JS / CSS / fonts | Heap | CPU tasks | Long tasks | Frame p50 / p95 | WebSocket |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| Desktop | 253,915 / 144,713 / 429,840 B | 9.9 MiB | 963 ms | 0 ms | 16.7 / 33.4 ms | 50,702 B |
-| Mobile | 253,915 / 144,713 / 429,840 B | 14.0 MiB | 3,059 ms | 0 ms | 16.7 / 18.5 ms | 58,723 B |
-| Low mobile | 253,915 / 144,713 / 429,840 B | 9.0 MiB | 6,444 ms | 0 ms | 16.7 / 18.6 ms | 58,756 B |
+| Desktop | 256,584 / 144,713 / 429,840 B | 12.1 MiB | 1,238 ms | 0 ms | 16.7 / 33.7 ms | 54,588 B |
+| Mobile | 256,584 / 144,713 / 429,840 B | 9.3 MiB | 2,285 ms | 0 ms | 16.7 / 18.4 ms | 54,608 B |
+| Low mobile | 256,584 / 144,713 / 429,840 B | 12.1 MiB | 6,106 ms | 0 ms | 16.7 / 18.6 ms | 54,645 B |
 
 Large translucent surfaces formerly used nested `backdrop-filter` blurs. The reference desktop
-sequence measured 66.7 ms frame p95 before those redundant filters were removed and 33.4 ms in the
+sequence measured 66.7 ms frame p95 before those redundant filters were removed and 33.7 ms in the
 five-hit reference run, while the existing opaque gradients, borders, and shadows preserved the
 visual hierarchy.
 
@@ -62,7 +62,13 @@ visual hierarchy.
   transition.
 - Every tier rejects horizontal overflow and controls smaller than the documented readable/touch
   floor. The low-mobile report attaches 360×640 carrier-sunk and unobscured result captures.
-- Synthetic CI catches deterministic regressions but does not replace field Core Web Vitals or
-  battle interaction telemetry. That real-user monitoring remains a separate release gate.
+- Synthetic CI is paired with aggregate field histograms for LCP, CLS, INP, and attack-command to
+  authoritative-result latency. The field collector uses only bounded route/device labels, keeps no
+  player or request identifier, and flushes queued observer entries when the page hides.
 - CI attaches one JSON report per tier. Compare candidate and stable runs on the same runner class;
   investigate material movement even when both remain below the hard limit.
+
+The field dashboard queries, minimum sample counts, good/poor thresholds, and canary stop rules are
+defined in `OPERATIONS.md`. `performance-rum.spec.ts` proves a real Chromium lifecycle and practice
+attack reach every histogram; the server integration test proves arbitrary dimensions, identifiers,
+and out-of-range samples are rejected.

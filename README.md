@@ -309,7 +309,9 @@ npm run budget      # JS/CSS/폰트/이미지/오디오 파일·총량 제한과
 재생성합니다. 사용자 닉네임·방 이름·채팅의 임의 글리프는 시스템 한국어 폰트로
 폴백하며, 전체 Korean 웹폰트를 추가로 내려받지 않습니다.
 기기 등급별 전송량·메모리·CPU·프레임·WebSocket 기준과 측정 방법은
-[성능 예산 계약](docs/PERFORMANCE_BUDGETS.md)에 정의합니다.
+[성능 예산 계약](docs/PERFORMANCE_BUDGETS.md)에 정의합니다. 실제 사용자 LCP·CLS·INP와
+발사 판정 지연은 식별자 없이 고정 경로·기기 등급 Prometheus 히스토그램으로 집계하며,
+표본 수·p75/p95·카나리 중단 기준은 [운영 런북](docs/OPERATIONS.md)을 따릅니다.
 
 운영 백업은 `scripts/backup-postgres.sh`와 `scripts/export-deletion-ledger.sh`를 각각 다른
 수명주기 객체로 저장합니다. 복구 시 `scripts/restore-postgres-drill.sh`는 두 객체의

@@ -300,6 +300,138 @@ pub struct FunnelEventInput {
     pub reason: Option<FunnelFailureReason>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RumMetric {
+    Lcp,
+    Cls,
+    Inp,
+    BattleInteraction,
+}
+
+impl RumMetric {
+    pub const ALL: [Self; 4] = [Self::Lcp, Self::Cls, Self::Inp, Self::BattleInteraction];
+    pub const COUNT: usize = Self::ALL.len();
+
+    pub const fn index(self) -> usize {
+        self as usize
+    }
+
+    pub const fn prometheus_name(self) -> &'static str {
+        match self {
+            Self::Lcp => "mk01_rum_lcp_milliseconds",
+            Self::Cls => "mk01_rum_cls_milli",
+            Self::Inp => "mk01_rum_inp_milliseconds",
+            Self::BattleInteraction => "mk01_rum_battle_interaction_milliseconds",
+        }
+    }
+
+    pub const fn help(self) -> &'static str {
+        match self {
+            Self::Lcp => "Real-user Largest Contentful Paint in milliseconds.",
+            Self::Cls => "Real-user Cumulative Layout Shift multiplied by 1000.",
+            Self::Inp => "Real-user Interaction to Next Paint in milliseconds.",
+            Self::BattleInteraction => {
+                "Real-user attack command to authoritative result latency in milliseconds."
+            }
+        }
+    }
+
+    pub const fn buckets(self) -> [u64; 5] {
+        match self {
+            Self::Lcp => [1_000, 2_500, 4_000, 8_000, 16_000],
+            Self::Cls => [50, 100, 250, 500, 1_000],
+            Self::Inp | Self::BattleInteraction => [100, 200, 500, 1_000, 2_500],
+        }
+    }
+
+    pub const fn maximum(self) -> u32 {
+        match self {
+            Self::Lcp | Self::BattleInteraction => 60_000,
+            Self::Cls => 5_000,
+            Self::Inp => 30_000,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RumRoute {
+    Landing,
+    Tutorial,
+    Lobby,
+    Join,
+    Room,
+    Account,
+    Replay,
+    Other,
+}
+
+impl RumRoute {
+    pub const ALL: [Self; 8] = [
+        Self::Landing,
+        Self::Tutorial,
+        Self::Lobby,
+        Self::Join,
+        Self::Room,
+        Self::Account,
+        Self::Replay,
+        Self::Other,
+    ];
+    pub const COUNT: usize = Self::ALL.len();
+
+    pub const fn index(self) -> usize {
+        self as usize
+    }
+
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Landing => "landing",
+            Self::Tutorial => "tutorial",
+            Self::Lobby => "lobby",
+            Self::Join => "join",
+            Self::Room => "room",
+            Self::Account => "account",
+            Self::Replay => "replay",
+            Self::Other => "other",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RumDeviceTier {
+    Desktop,
+    Mobile,
+    LowMobile,
+}
+
+impl RumDeviceTier {
+    pub const ALL: [Self; 3] = [Self::Desktop, Self::Mobile, Self::LowMobile];
+    pub const COUNT: usize = Self::ALL.len();
+
+    pub const fn index(self) -> usize {
+        self as usize
+    }
+
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Desktop => "desktop",
+            Self::Mobile => "mobile",
+            Self::LowMobile => "low_mobile",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RumMetricInput {
+    pub metric: RumMetric,
+    pub route: RumRoute,
+    pub device_tier: RumDeviceTier,
+    pub value: u32,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RoomReference {

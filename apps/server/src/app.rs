@@ -57,7 +57,7 @@ use crate::{
     error::GameError,
     protocol::{
         CreateRoomInput, FunnelFailureReason, FunnelOutcome, FunnelStage, ProtocolError,
-        ServerEvent,
+        RumDeviceTier, RumMetric, RumRoute, ServerEvent,
     },
     rate_limit::FixedWindowRateLimiter,
     store::{
@@ -113,6 +113,16 @@ pub struct ServerMetrics {
     pub integrity_stalling: AtomicU64,
     funnel_events: [[AtomicU64; FunnelOutcome::COUNT]; FunnelStage::COUNT],
     funnel_failures: [AtomicU64; FunnelFailureReason::COUNT],
+    rum: [[[RumDistribution; RumDeviceTier::COUNT]; RumRoute::COUNT]; RumMetric::COUNT],
+}
+
+const RUM_BUCKET_COUNT: usize = 5;
+
+#[derive(Debug, Default)]
+struct RumDistribution {
+    buckets: [AtomicU64; RUM_BUCKET_COUNT],
+    count: AtomicU64,
+    sum: AtomicU64,
 }
 
 impl Default for ServerMetrics {
@@ -143,6 +153,9 @@ impl Default for ServerMetrics {
             integrity_stalling: AtomicU64::new(0),
             funnel_events: std::array::from_fn(|_| std::array::from_fn(|_| AtomicU64::new(0))),
             funnel_failures: std::array::from_fn(|_| AtomicU64::new(0)),
+            rum: std::array::from_fn(|_| {
+                std::array::from_fn(|_| std::array::from_fn(|_| RumDistribution::default()))
+            }),
         }
     }
 }
@@ -158,6 +171,25 @@ impl ServerMetrics {
         if let Some(reason) = reason {
             self.funnel_failures[reason.index()].fetch_add(1, Ordering::Relaxed);
         }
+    }
+
+    pub fn record_rum_metric(
+        &self,
+        metric: RumMetric,
+        route: RumRoute,
+        device_tier: RumDeviceTier,
+        value: u32,
+    ) {
+        let distribution = &self.rum[metric.index()][route.index()][device_tier.index()];
+        for (index, upper_bound) in metric.buckets().into_iter().enumerate() {
+            if u64::from(value) <= upper_bound {
+                distribution.buckets[index].fetch_add(1, Ordering::Relaxed);
+            }
+        }
+        distribution.count.fetch_add(1, Ordering::Relaxed);
+        distribution
+            .sum
+            .fetch_add(u64::from(value), Ordering::Relaxed);
     }
 
     pub fn render_prometheus(&self, matchmaking: MatchmakingQueueStats) -> String {
@@ -322,6 +354,43 @@ impl ServerMetrics {
                 reason.label(),
                 self.funnel_failures[reason.index()].load(Ordering::Relaxed)
             ));
+        }
+        for metric in RumMetric::ALL {
+            let name = metric.prometheus_name();
+            output.push_str(&format!(
+                "# HELP {name} {}\n# TYPE {name} histogram\n",
+                metric.help()
+            ));
+            for route in RumRoute::ALL {
+                for device_tier in RumDeviceTier::ALL {
+                    let distribution =
+                        &self.rum[metric.index()][route.index()][device_tier.index()];
+                    let count = distribution.count.load(Ordering::Relaxed);
+                    if count == 0 {
+                        continue;
+                    }
+                    for (index, upper_bound) in metric.buckets().into_iter().enumerate() {
+                        output.push_str(&format!(
+                            "{name}_bucket{{route=\"{}\",device_tier=\"{}\",le=\"{upper_bound}\"}} {}\n",
+                            route.label(),
+                            device_tier.label(),
+                            distribution.buckets[index].load(Ordering::Relaxed)
+                        ));
+                    }
+                    output.push_str(&format!(
+                        "{name}_bucket{{route=\"{}\",device_tier=\"{}\",le=\"+Inf\"}} {count}\n\
+{name}_sum{{route=\"{}\",device_tier=\"{}\"}} {}\n\
+{name}_count{{route=\"{}\",device_tier=\"{}\"}} {count}\n",
+                        route.label(),
+                        device_tier.label(),
+                        route.label(),
+                        device_tier.label(),
+                        distribution.sum.load(Ordering::Relaxed),
+                        route.label(),
+                        device_tier.label()
+                    ));
+                }
+            }
         }
         output
     }

@@ -12,6 +12,11 @@
   import WaitingView from '$lib/components/WaitingView.svelte';
   import { api, ApiError } from '$lib/api';
   import { trackFunnelAbandoned, trackFunnelFailure, trackFunnelReached } from '$lib/funnel';
+  import {
+    cancelBattleInteraction,
+    trackBattleInteractionResult,
+    trackBattleInteractionStarted
+  } from '$lib/performance';
   import { realtime } from '$lib/realtime';
   import { sounds } from '$lib/sound';
   import { Button, Modal } from '$lib/ui';
@@ -142,6 +147,7 @@
     if (!attack || attack.requestId === lastSoundRequest) return;
     lastSoundRequest = attack.requestId;
     attackPending = false;
+    trackBattleInteractionResult(attack.requestId);
     if (attack.attackerId === snapshot?.selfPlayerId) trackFunnelReached('first_attack');
     if (attack.outcome === 'MISS') sounds.miss();
     else if (attack.outcome === 'SUNK') sounds.sunk();
@@ -261,6 +267,7 @@
     if (!snapshot || attackPending || snapshot.turnNumber === null) return;
     const requestId = crypto.randomUUID();
     attackPending = true;
+    trackBattleInteractionStarted(requestId);
     const sent = realtime.send({
       type: 'attack:fire',
       payload: {
@@ -273,6 +280,7 @@
       }
     });
     if (!sent) {
+      cancelBattleInteraction(requestId);
       attackPending = false;
       trackFunnelFailure('first_attack', 'network');
       gameError.set({

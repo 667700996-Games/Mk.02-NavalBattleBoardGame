@@ -11,7 +11,7 @@ documented, and no longer than the values below without a legal basis.
 | Cancelled and completed rooms | 90 days | The room snapshot, chat, replay timeline, result, and participant index are deleted together. Redis room cache entries are evicted in the same sweep. |
 | Active rooms | Until resolved | Durable reconnect/turn deadlines resolve abandoned games; active state is never deleted solely because a process stopped. |
 | Account identity | Until user deletion | Accounts survive session expiry so the recovery credential can issue a fresh session. |
-| Operational metrics | Aggregated only | The application endpoint exposes counters and gauges without player identifiers. New-player funnel input accepts only fixed stage/outcome/reason enums, is deduplicated within browser session storage, and never accepts an account, session, room, IP, nickname, or free-text label. Infrastructure retention must not exceed 30 days. |
+| Operational metrics | Aggregated only | The application endpoint exposes counters, gauges, and histograms without player identifiers. Funnel and real-user performance input accepts only fixed enums and bounded numeric values; it never accepts an account, session, room, request ID, IP, nickname, URL parameter, device model, or free-text label. Infrastructure retention must not exceed 30 days. |
 | Closed moderation cases | 365 days after closure | Reports and their action audit rows are removed together. Open/reviewing cases are retained until resolved; legal holds require a separately audited export before closure. |
 | Integrity telemetry | 180 days after last observation | Deduplicated anti-cheat signals and evidence are removed by the same hourly worker. Aggregated counters contain no player identity. |
 | Privacy request audit | Operational audit lifetime | Only a random request ID, one-way subject fingerprint, request type, status, and timestamps survive deletion; credentials and account IDs are never written. |
@@ -39,6 +39,12 @@ checkpoint names and deduplication flags, not identity or gameplay data, and exp
 session-storage lifetime. Because no subject identifier exists in the application metric, export or
 account deletion has no individual funnel record to retrieve or erase. Prometheus/storage systems
 must apply the 30-day operational-metric maximum above.
+
+Real-user performance samples are converted immediately into fixed route/device histogram buckets.
+The server stores no event row or browser identifier, and the client keeps an attack request ID only
+in an in-memory timer map until its matching result or a 60-second expiry. Export and account
+deletion therefore have no individual RUM record to retrieve or erase. Metrics infrastructure must
+not enrich these histograms from access logs, fingerprints, or account/session data.
 
 ## Player export and deletion
 

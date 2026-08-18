@@ -27,7 +27,8 @@ use crate::{
         CreateSessionInput, FunnelEventInput, FunnelOutcome, HealthResponse, IntegritySignalQuery,
         JoinRoomInput, MatchmakingResponse, ModerationActionInput, ModerationActionResponse,
         ModerationReportQuery, PlayerReportInput, PlayerReportResponse, RoomCreatedResponse,
-        RoomListResponse, SessionResponse, SocialRelationshipInput, SocialRelationshipsResponse,
+        RoomListResponse, RumMetricInput, SessionResponse, SocialRelationshipInput,
+        SocialRelationshipsResponse,
     },
     store::GameHistoryItem,
 };
@@ -38,6 +39,7 @@ pub fn router() -> Router<AppState> {
         .route("/ready", get(readiness))
         .route("/metrics", get(metrics))
         .route("/telemetry/funnel", post(record_funnel_event))
+        .route("/telemetry/performance", post(record_performance_metric))
         .route("/sessions", post(create_session))
         .route("/accounts/upgrade", post(upgrade_account))
         .route("/accounts/login", post(login_account))
@@ -109,6 +111,20 @@ async fn record_funnel_event(
     state
         .metrics
         .record_funnel_event(input.stage, input.outcome, input.reason);
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn record_performance_metric(
+    State(state): State<AppState>,
+    input: Result<Json<RumMetricInput>, JsonRejection>,
+) -> Result<StatusCode, GameError> {
+    let input = parse_json(input)?;
+    if input.value > input.metric.maximum() {
+        return Err(GameError::InvalidRequest);
+    }
+    state
+        .metrics
+        .record_rum_metric(input.metric, input.route, input.device_tier, input.value);
     Ok(StatusCode::NO_CONTENT)
 }
 
