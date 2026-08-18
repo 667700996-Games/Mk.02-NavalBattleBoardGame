@@ -11,6 +11,7 @@
     KeyRound,
     LogOut,
     Monitor,
+    Palette,
     ShieldCheck,
     Trash2,
     UserRound,
@@ -18,7 +19,7 @@
   } from '@lucide/svelte';
   import { api, ApiError } from '$lib/api';
   import { realtime } from '$lib/realtime';
-  import { gameSnapshot, preferences, session } from '$lib/stores';
+  import { gameSnapshot, preferences, session, type ColorVisionMode } from '$lib/stores';
   import { sounds } from '$lib/sound';
   import type { AccountSession } from '$lib/types';
 
@@ -35,6 +36,11 @@
   let deletingAccount = $state(false);
   let deletionRecoveryKey = $state('');
   let deletionConfirmation = $state('');
+
+  function setColorVision(event: Event) {
+    const colorVision = (event.currentTarget as HTMLSelectElement).value as ColorVisionMode;
+    preferences.update((current) => ({ ...current, colorVision }));
+  }
 
   onMount(async () => {
     try {
@@ -186,6 +192,7 @@
           <label class="switch"
             ><input
               type="checkbox"
+              aria-label="작전 사운드"
               bind:checked={$preferences.sound}
               onchange={() => $preferences.sound && sounds.select()}
             /><span></span><em>{$preferences.sound ? '켜짐' : '꺼짐'}</em></label
@@ -198,9 +205,11 @@
             <p>레이더 회전과 전투 효과 등 비필수 애니메이션을 최소화합니다.</p>
           </div>
           <label class="switch"
-            ><input type="checkbox" bind:checked={$preferences.reducedMotion} /><span></span><em
-              >{$preferences.reducedMotion ? '켜짐' : '꺼짐'}</em
-            ></label
+            ><input
+              type="checkbox"
+              aria-label="동작 줄이기"
+              bind:checked={$preferences.reducedMotion}
+            /><span></span><em>{$preferences.reducedMotion ? '켜짐' : '꺼짐'}</em></label
           >
         </div>
         <div class="setting-row">
@@ -210,10 +219,28 @@
             <p>격자선과 텍스트의 대비를 높여 전장 정보를 더 명확하게 표시합니다.</p>
           </div>
           <label class="switch"
-            ><input type="checkbox" bind:checked={$preferences.highContrast} /><span></span><em
-              >{$preferences.highContrast ? '켜짐' : '꺼짐'}</em
-            ></label
+            ><input
+              type="checkbox"
+              aria-label="고대비 모드"
+              bind:checked={$preferences.highContrast}
+            /><span></span><em>{$preferences.highContrast ? '켜짐' : '꺼짐'}</em></label
           >
+        </div>
+        <div class="setting-row">
+          <span class="setting-icon"><Palette size={20} /></span>
+          <div>
+            <strong>색각 표시 프리셋</strong>
+            <p>적록·청황 구분을 보완하는 전술 색상 팔레트를 선택합니다.</p>
+          </div>
+          <label class="vision-select">
+            <span class="sr-only">색각 표시 프리셋</span>
+            <select class="select" value={$preferences.colorVision} onchange={setColorVision}>
+              <option value="standard">표준</option>
+              <option value="protanopia">적색맹 보정</option>
+              <option value="deuteranopia">녹색맹 보정</option>
+              <option value="tritanopia">청황색맹 보정</option>
+            </select>
+          </label>
         </div>
       </section>
       <aside class="security-note">
@@ -776,6 +803,13 @@
     font-size: 9px;
     font-style: normal;
   }
+  .vision-select {
+    width: 172px;
+  }
+  .vision-select .select {
+    height: 42px;
+    font-size: 11px;
+  }
   .security-note {
     display: flex;
     gap: 12px;
@@ -807,6 +841,10 @@
     }
     .switch {
       grid-column: 2;
+    }
+    .vision-select {
+      grid-column: 2;
+      width: min(100%, 220px);
     }
     .setting-row p {
       line-height: 1.6;

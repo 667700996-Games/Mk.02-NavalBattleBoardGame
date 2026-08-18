@@ -54,6 +54,7 @@
     if (typeof document === 'undefined') return;
     document.documentElement.dataset.motion = $preferences.reducedMotion ? 'reduced' : 'full';
     document.documentElement.dataset.contrast = $preferences.highContrast ? 'high' : 'standard';
+    document.documentElement.dataset.colorVision = $preferences.colorVision;
   });
 </script>
 

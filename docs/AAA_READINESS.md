@@ -172,7 +172,7 @@ The program is complete only when all gates below are satisfied in a production-
 - [x] The complete flow, not only the landing page, is responsive on supported mobile/tablet/desktop
       classes.
 - [x] Keyboard focus, dialogs, grids, chat, timers, errors, and live announcements pass WCAG 2.2 AA.
-- [ ] Color is never the only carrier of game state; color-vision presets are tested.
+- [x] Color is never the only carrier of game state; color-vision presets are tested.
 - [ ] All user-facing copy uses localization keys with Korean, English, and the launch locale set.
 - [ ] Pseudolocalization, text expansion, locale dates/numbers, and font fallback are automated gates.
 - Evidence: the two-client full-match suite asserts no horizontal document overflow at the lobby,
@@ -183,7 +183,11 @@ The program is complete only when all gates below are satisfied in a production-
   waiting, invitation, placement, both battle clients, chat/error, and both results. Its behavioral
   assertions prove modal focus trapping/restoration, roving grid focus and arrow/Space input,
   chat Enter/Escape input and focus restoration, scrollable log access, timer announcements, and
-  alert/status live regions. The full Chromium suite and six-profile full-match regression pass.
+  alert/status live regions. Protanopia, deuteranopia, and tritanopia palettes persist per device,
+  retain four distinct semantic colors, and pass the same WCAG rules in settings and live battle.
+  Combat legends, coordinate labels, outcome-specific Wave/Flame shapes, text, selection, and
+  status icons ensure that no state depends on color alone. The full Chromium suite and
+  six-profile full-match regression pass.
 
 ### D4. Performance budgets
 

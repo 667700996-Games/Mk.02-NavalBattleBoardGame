@@ -10,7 +10,13 @@ test('document security policy permits nonce-based hydration and blocks unsafe s
     }
   });
 
+  const sessionProbe = page.waitForResponse(
+    (response) =>
+      new URL(response.url()).pathname === '/api/sessions/current' &&
+      response.request().method() === 'GET'
+  );
   const response = await page.goto('/');
+  await sessionProbe;
   expect(response).not.toBeNull();
   const headers = response!.headers();
   const csp = headers['content-security-policy'];

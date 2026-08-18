@@ -1523,6 +1523,57 @@ p {
   --panel: rgba(4, 18, 27, 0.98);
 }
 
+[data-color-vision='protanopia'] {
+  --tactical: #56b4e9;
+  --safe: #f0e442;
+  --warning: #e69f00;
+  --critical: #cc79a7;
+  --cyan-200: #d8f3ff;
+  --cyan-300: #7bc8ef;
+  --cyan-400: #56b4e9;
+  --cyan-500: #0072b2;
+  --green-400: #f5ea65;
+  --green-500: #f0e442;
+  --amber-400: #ffc44d;
+  --amber-500: #e69f00;
+  --red-400: #e89ac9;
+  --red-500: #cc79a7;
+}
+
+[data-color-vision='deuteranopia'] {
+  --tactical: #6cc9ff;
+  --safe: #f2d45c;
+  --warning: #ff9f5a;
+  --critical: #d78cff;
+  --cyan-200: #dcf4ff;
+  --cyan-300: #91d8ff;
+  --cyan-400: #6cc9ff;
+  --cyan-500: #2387c8;
+  --green-400: #f6df7d;
+  --green-500: #f2d45c;
+  --amber-400: #ffb77c;
+  --amber-500: #ff9f5a;
+  --red-400: #e7b0ff;
+  --red-500: #d78cff;
+}
+
+[data-color-vision='tritanopia'] {
+  --tactical: #59d6a7;
+  --safe: #f39ac7;
+  --warning: #ffad66;
+  --critical: #ff6f7f;
+  --cyan-200: #d6ffe9;
+  --cyan-300: #83e5bd;
+  --cyan-400: #59d6a7;
+  --cyan-500: #009e73;
+  --green-400: #f8b8d8;
+  --green-500: #f39ac7;
+  --amber-400: #ffc28c;
+  --amber-500: #ffad66;
+  --red-400: #ff9aa5;
+  --red-500: #ff6f7f;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

@@ -41,10 +41,13 @@ export function resetRoomRealtimeState(): void {
   chatHistoryLoaded.set(false);
 }
 
+export type ColorVisionMode = 'standard' | 'protanopia' | 'deuteranopia' | 'tritanopia';
+
 export interface Preferences {
   sound: boolean;
   reducedMotion: boolean;
   highContrast: boolean;
+  colorVision: ColorVisionMode;
   tutorialCompleted: boolean;
 }
 
@@ -52,6 +55,7 @@ const defaults: Preferences = {
   sound: true,
   reducedMotion: false,
   highContrast: false,
+  colorVision: 'standard',
   tutorialCompleted: false
 };
 
@@ -71,5 +75,6 @@ if (browser) {
     localStorage.setItem('mk01_preferences', JSON.stringify(value));
     document.documentElement.dataset.motion = value.reducedMotion ? 'reduced' : 'full';
     document.documentElement.dataset.contrast = value.highContrast ? 'high' : 'normal';
+    document.documentElement.dataset.colorVision = value.colorVision;
   });
 }
