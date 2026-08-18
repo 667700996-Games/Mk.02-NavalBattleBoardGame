@@ -26,7 +26,9 @@ operations approval.
 
 Game-result participant rows preserve the account-to-player mapping independently of device
 sessions. This lets expired session tokens be deleted without breaking an account owner's retained
-history. The participant index is deleted by the same database cascade as its room and result.
+history. Ranked matchmaking derives a 30-minute recent-opponent count from these retained rows and
+stores no separate opponent profile or identity in metrics. The participant index is deleted by
+the same database cascade as its room and result.
 
 Deletion sweeps expose cumulative Prometheus counters for sessions, rooms, matchmaking rows,
 closed moderation cases, and integrity signals.

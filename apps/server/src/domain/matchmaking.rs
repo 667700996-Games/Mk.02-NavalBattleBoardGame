@@ -8,6 +8,9 @@ pub const DEFAULT_RANKED_RATING: i32 = 1_500;
 pub const MIN_RANKED_RATING: i32 = 0;
 pub const MAX_RANKED_RATING: i32 = 4_000;
 pub const MAX_RANKED_LATENCY_MS: u16 = 300;
+pub const RECENT_OPPONENT_LOOKBACK_MINUTES: i64 = 30;
+pub const REMATCH_RELAX_SECONDS: u64 = 90;
+pub const REMATCH_STARVATION_SECONDS: u64 = 180;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
@@ -239,6 +242,24 @@ pub struct MatchmakingQuality {
     pub rating_delta: u16,
     pub max_reported_latency_ms: u16,
     pub party_size: u8,
+    #[serde(default)]
+    pub recent_pairings: u16,
+    #[serde(default)]
+    pub rematch_relaxed: bool,
+    #[serde(default)]
+    pub shared_wait_seconds: u64,
+    #[serde(default)]
+    pub wait_skew_seconds: u64,
+}
+
+impl MatchmakingQuality {
+    pub const fn rematch_priority(self) -> u16 {
+        if self.shared_wait_seconds >= REMATCH_STARVATION_SECONDS {
+            0
+        } else {
+            self.recent_pairings
+        }
+    }
 }
 
 pub fn matchmaking_quality(
@@ -247,6 +268,7 @@ pub fn matchmaking_quality(
     second: MatchmakingCriteria,
     second_queued_at: DateTime<Utc>,
     now: DateTime<Utc>,
+    recent_pairings: u16,
 ) -> Option<MatchmakingQuality> {
     if first.pool != second.pool
         || first.party_id == second.party_id
@@ -261,6 +283,10 @@ pub fn matchmaking_quality(
             rating_delta: 0,
             max_reported_latency_ms: 0,
             party_size: 1,
+            recent_pairings: 0,
+            rematch_relaxed: false,
+            shared_wait_seconds: 0,
+            wait_skew_seconds: 0,
         });
     }
 
@@ -270,6 +296,12 @@ pub fn matchmaking_quality(
 
     let first_window = MatchmakingSearchWindow::at(first_queued_at, now);
     let second_window = MatchmakingSearchWindow::at(second_queued_at, now);
+    let shared_wait_seconds = first_window
+        .elapsed_seconds
+        .min(second_window.elapsed_seconds);
+    if recent_pairings > 0 && shared_wait_seconds < REMATCH_RELAX_SECONDS {
+        return None;
+    }
     if first.latency_ms > first_window.max_latency_ms
         || second.latency_ms > second_window.max_latency_ms
     {
@@ -301,6 +333,12 @@ pub fn matchmaking_quality(
         rating_delta: u16::try_from(rating_delta).unwrap_or(u16::MAX),
         max_reported_latency_ms: first.latency_ms.max(second.latency_ms),
         party_size: first.party_size,
+        recent_pairings,
+        rematch_relaxed: recent_pairings > 0,
+        shared_wait_seconds,
+        wait_skew_seconds: first_window
+            .elapsed_seconds
+            .abs_diff(second_window.elapsed_seconds),
     })
 }
 
@@ -356,9 +394,9 @@ mod tests {
         let korea = ranked(Uuid::new_v4(), MatchmakingRegion::Korea, 80, 1_500);
         let japan = ranked(Uuid::new_v4(), MatchmakingRegion::Japan, 90, 1_680);
 
-        assert!(matchmaking_quality(korea, now, japan, now, now).is_none());
+        assert!(matchmaking_quality(korea, now, japan, now, now, 0).is_none());
         assert!(
-            matchmaking_quality(korea, now - Duration::seconds(31), japan, now, now).is_none(),
+            matchmaking_quality(korea, now - Duration::seconds(31), japan, now, now, 0).is_none(),
             "one player's wider window must not override the other player's exact search"
         );
         let regional = matchmaking_quality(
@@ -367,6 +405,7 @@ mod tests {
             japan,
             now - Duration::seconds(31),
             now,
+            0,
         )
         .unwrap();
         assert_eq!(regional.phase, MatchmakingSearchPhase::Regional);
@@ -380,6 +419,7 @@ mod tests {
                 europe,
                 now - Duration::seconds(91),
                 now,
+                0,
             )
             .is_some(),
             "both global windows accept a cross-region 320-point match"
@@ -392,13 +432,13 @@ mod tests {
         let party_id = Uuid::new_v4();
         let first = ranked(party_id, MatchmakingRegion::Korea, 80, 1_500);
         let same_party = ranked(party_id, MatchmakingRegion::Korea, 80, 1_510);
-        assert!(matchmaking_quality(first, now, same_party, now, now).is_none());
+        assert!(matchmaking_quality(first, now, same_party, now, now, 0).is_none());
 
         let far_rating = ranked(Uuid::new_v4(), MatchmakingRegion::Korea, 80, 1_700);
-        assert!(matchmaking_quality(first, now, far_rating, now, now).is_none());
+        assert!(matchmaking_quality(first, now, far_rating, now, now, 0).is_none());
 
         let high_latency = ranked(Uuid::new_v4(), MatchmakingRegion::Korea, 180, 1_510);
-        assert!(matchmaking_quality(first, now, high_latency, now, now).is_none());
+        assert!(matchmaking_quality(first, now, high_latency, now, now, 0).is_none());
         assert!(
             matchmaking_quality(
                 first,
@@ -406,8 +446,57 @@ mod tests {
                 high_latency,
                 now - Duration::seconds(31),
                 now,
+                0,
             )
             .is_some()
         );
+    }
+
+    #[test]
+    fn ranked_rematches_require_mutual_global_wait_and_eventually_restore_fifo_priority() {
+        let now = Utc::now();
+        let first = ranked(Uuid::new_v4(), MatchmakingRegion::Korea, 60, 1_500);
+        let second = ranked(Uuid::new_v4(), MatchmakingRegion::Korea, 65, 1_510);
+
+        assert!(matchmaking_quality(first, now, second, now, now, 1).is_none());
+        assert!(
+            matchmaking_quality(
+                first,
+                now - Duration::seconds(91),
+                second,
+                now - Duration::seconds(89),
+                now,
+                1,
+            )
+            .is_none(),
+            "one player's global wait must not force the other into a rematch"
+        );
+
+        let relaxed = matchmaking_quality(
+            first,
+            now - Duration::seconds(95),
+            second,
+            now - Duration::seconds(91),
+            now,
+            2,
+        )
+        .unwrap();
+        assert_eq!(relaxed.phase, MatchmakingSearchPhase::Global);
+        assert_eq!(relaxed.recent_pairings, 2);
+        assert!(relaxed.rematch_relaxed);
+        assert_eq!(relaxed.shared_wait_seconds, 91);
+        assert_eq!(relaxed.wait_skew_seconds, 4);
+        assert_eq!(relaxed.rematch_priority(), 2);
+
+        let starved = matchmaking_quality(
+            first,
+            now - Duration::seconds(185),
+            second,
+            now - Duration::seconds(181),
+            now,
+            2,
+        )
+        .unwrap();
+        assert_eq!(starved.rematch_priority(), 0);
     }
 }

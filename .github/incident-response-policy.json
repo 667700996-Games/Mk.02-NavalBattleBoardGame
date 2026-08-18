@@ -34,7 +34,8 @@
     "Core Web Vitals",
     "Battle interaction",
     "New-player funnel",
-    "Retention and backup"
+    "Retention and backup",
+    "Ranked rematch quality"
   ],
   "requiredAlerts": [
     "Mk01AvailabilityFastBurn",
@@ -42,6 +43,7 @@
     "Mk01InstanceNotReady",
     "Mk01CommandLatency",
     "Mk01MatchmakingLatency",
+    "Mk01RankedRematchRate",
     "Mk01UnexpectedDisconnectRate",
     "Mk01ActiveMatchRecovery",
     "Mk01DistributedEventFailure",

@@ -34,6 +34,9 @@ persistence revisions, checks migration status and orphan invariants, and emits 
 It also decodes every durable matchmaking profile, including rolling-compatible legacy casual and
 pre-season-key ranked rows, and reports queue, rating, seasonal-standing, settlement, and ranked-
 reward counts.
+The matchmaking fairness expansion adds only composite indexes over retained result timestamps and
+participant identities. Candidate servers use those indexes for a bounded 30-minute recent-
+opponent query; stable servers continue using the same result and participant rows unchanged.
 It also decodes every live-content payload and compares its revision, schema, activation, operator,
 change note, rollback source, and creation timestamp with the immutable relational audit columns.
 It also fails if a deletion tombstone has any surviving account, session, reward, participant, or

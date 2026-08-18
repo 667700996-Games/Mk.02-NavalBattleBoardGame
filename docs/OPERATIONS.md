@@ -52,7 +52,12 @@ client-side telemetry cannot silently dilute product availability or command lat
   Compare `mk01_ranked_matchmaking_queue_depth` with `mk01_matchmaking_queue_depth`, and alert on
   ranked completion starvation when ranked queue depth is non-zero but
   `increase(mk01_ranked_matchmaking_completed_total[15m])` remains zero. Search phase and widening
-  limits are defined in `RANKED_MATCHMAKING.md`; do not expand them ad hoc during an incident.
+  limits are defined in `RANKED_MATCHMAKING.md`; do not expand them ad hoc during an incident. The
+  recent-opponent health ratio is
+  `sum(increase(mk01_ranked_matchmaking_rematches_total[30m])) /
+  clamp_min(sum(increase(mk01_ranked_matchmaking_completed_total[30m])), 1)`. Ticket above 25% only
+  after at least 20 completions; first inspect regional pool diversity, RTT distribution, rating
+  bands, and abusive queue cycling rather than disabling rematch protection.
   For settlement audits, compare finished rooms carrying `rankedMatch` with
   `ranked_match_settlements`; each room must have exactly two `ranked_match_participants` and match
   rewards. `--verify-restore` reports standing, settlement, and reward totals after every drill.
@@ -150,16 +155,16 @@ Minimum paging alerts:
 - PostgreSQL replication, disk, connection saturation, or backup age violates provider limits.
 
 Ticket alerts cover a single-instance readiness failure, sustained rate-limit growth, elevated
-version conflicts, funnel or RUM threshold violations, bundle-budget regression attempts, and
-backup age above 12 hours.
+version conflicts, ranked rematch relaxation above 25% with at least 20 completions, funnel or RUM
+threshold violations, bundle-budget regression attempts, and backup age above 12 hours.
 
 The deployable alert source is `ops/observability/prometheus-rules.json`; Alertmanager routing in
 the same directory sends `severity=page` to the on-call bridge and `severity=ticket` to the owned
 work queue. The versioned Grafana dashboard provides the required availability, command,
 matchmaking, disconnect, recovery, distributed-correctness, Web Vital, battle interaction, funnel,
-retention and backup panels. `npm run observability:check` cross-checks every expression against the
-application metric surface, while CI's official `promtool check rules` and `amtool check-config`
-jobs reject invalid PromQL and alert routing.
+retention, backup, and ranked-rematch-quality panels. `npm run observability:check` cross-checks
+every expression against the application metric surface, while CI's official
+`promtool check rules` and `amtool check-config` jobs reject invalid PromQL and alert routing.
 Environment deployment must deliver a synthetic page and retain the receipt before production
 promotion; repository validation cannot prove pager-provider connectivity.
 

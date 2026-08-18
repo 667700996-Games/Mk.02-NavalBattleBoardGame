@@ -117,6 +117,7 @@ pub struct ServerMetrics {
     pub ranked_matchmaking_queued: AtomicU64,
     pub matchmaking_completed: AtomicU64,
     pub ranked_matchmaking_completed: AtomicU64,
+    pub ranked_matchmaking_rematches: AtomicU64,
     pub matchmaking_cancelled: AtomicU64,
     pub retention_sessions_deleted: AtomicU64,
     pub retention_rooms_deleted: AtomicU64,
@@ -213,6 +214,7 @@ impl Default for ServerMetrics {
             ranked_matchmaking_queued: AtomicU64::new(0),
             matchmaking_completed: AtomicU64::new(0),
             ranked_matchmaking_completed: AtomicU64::new(0),
+            ranked_matchmaking_rematches: AtomicU64::new(0),
             matchmaking_cancelled: AtomicU64::new(0),
             retention_sessions_deleted: AtomicU64::new(0),
             retention_rooms_deleted: AtomicU64::new(0),
@@ -407,6 +409,11 @@ impl ServerMetrics {
                 "mk01_ranked_matchmaking_completed_total",
                 "Durably completed ranked matchmaking pairs.",
                 &self.ranked_matchmaking_completed,
+            ),
+            counter(
+                "mk01_ranked_matchmaking_rematches_total",
+                "Durably completed ranked pairs that required recent-opponent relaxation.",
+                &self.ranked_matchmaking_rematches,
             ),
             counter(
                 "mk01_matchmaking_cancelled_total",
@@ -2977,6 +2984,11 @@ impl AppState {
                 self.metrics
                     .ranked_matchmaking_completed
                     .fetch_add(1, Ordering::Relaxed);
+                if quality.rematch_relaxed {
+                    self.metrics
+                        .ranked_matchmaking_rematches
+                        .fetch_add(1, Ordering::Relaxed);
+                }
             }
             self.rooms
                 .insert(room.id, Arc::new(Mutex::new(room.clone())));
@@ -3691,6 +3703,9 @@ mod tests {
         metrics
             .ranked_matchmaking_completed
             .store(1, Ordering::Relaxed);
+        metrics
+            .ranked_matchmaking_rematches
+            .store(1, Ordering::Relaxed);
 
         let output = metrics.render_prometheus(MatchmakingQueueStats {
             queued: 3,
@@ -3708,6 +3723,7 @@ mod tests {
         assert!(output.contains("mk01_matchmaking_duration_seconds_count 1"));
         assert!(output.contains("mk01_ranked_matchmaking_queued_total 2"));
         assert!(output.contains("mk01_ranked_matchmaking_completed_total 1"));
+        assert!(output.contains("mk01_ranked_matchmaking_rematches_total 1"));
         assert!(output.contains("mk01_ranked_matchmaking_queue_depth 2"));
         assert!(output.contains("mk01_active_match_recovery_milliseconds_count 1"));
         assert!(output.contains("mk01_unexpected_disconnects_total 1"));

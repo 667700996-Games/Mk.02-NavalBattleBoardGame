@@ -11,10 +11,10 @@ use crate::{
         GameRoom, IntegritySignal, IntegritySignalKind, IntegritySignalPage, LiveContentRevision,
         MatchmakingCriteria, MatchmakingPool, ModerationAction, ModerationActionKind,
         ModerationCase, ModerationCasePage, NewIntegritySignal, NewModerationAction,
-        NewPlayerReport, PlayerAccount, PlayerReport, RankedProfile, RankedStandingRecord,
-        ReportStatus, RoomStatus, RoomSummary, RoomVisibility, SocialRelationship, UserSession,
-        matchmaking_quality, next_season_seed, ranked_match_reward_xp, ranked_placement_reward_xp,
-        ranked_season_key,
+        NewPlayerReport, PlayerAccount, PlayerReport, RECENT_OPPONENT_LOOKBACK_MINUTES,
+        RankedProfile, RankedStandingRecord, ReportStatus, RoomStatus, RoomSummary, RoomVisibility,
+        SocialRelationship, UserSession, matchmaking_quality, next_season_seed,
+        ranked_match_reward_xp, ranked_placement_reward_xp, ranked_season_key,
     },
     error::GameError,
 };
@@ -61,6 +61,40 @@ pub struct MemoryStore {
 }
 
 impl MemoryStore {
+    fn stored_identity_for_session(&self, session_id: Uuid) -> Option<Uuid> {
+        self.session_hash_by_id
+            .get(&session_id)
+            .and_then(|hash| self.sessions_by_hash.get(hash.value()))
+            .map(|session| session.account_id.unwrap_or(session.id))
+    }
+
+    fn recent_pairing_count(
+        &self,
+        first_identity_id: Uuid,
+        second_identity_id: Uuid,
+        since: DateTime<Utc>,
+    ) -> u16 {
+        let count = self
+            .rooms
+            .iter()
+            .filter(|room| {
+                let Some(result) = room.game.as_ref().and_then(|game| game.result.as_ref()) else {
+                    return false;
+                };
+                if result.finished_at < since {
+                    return false;
+                }
+                let identities: Vec<_> = room
+                    .players
+                    .iter()
+                    .filter_map(|player| self.stored_identity_for_session(player.session_id))
+                    .collect();
+                identities.contains(&first_identity_id) && identities.contains(&second_identity_id)
+            })
+            .count();
+        u16::try_from(count).unwrap_or(u16::MAX)
+    }
+
     fn standing_or_seed(&self, account_id: Uuid, season_id: &str) -> RankedStandingRecord {
         if let Some(standing) = self
             .ranked_standings
@@ -1035,12 +1069,6 @@ impl GameStore for MemoryStore {
         second_identity_id: Uuid,
         since: DateTime<Utc>,
     ) -> Result<u64, GameError> {
-        let identity_for_session = |session_id: Uuid| {
-            self.session_hash_by_id
-                .get(&session_id)
-                .and_then(|hash| self.sessions_by_hash.get(hash.value()))
-                .map(|session| session.account_id.unwrap_or(session.id))
-        };
         Ok(self
             .rooms
             .iter()
@@ -1057,7 +1085,7 @@ impl GameStore for MemoryStore {
                 let identities: Vec<_> = room
                     .players
                     .iter()
-                    .filter_map(|player| identity_for_session(player.session_id))
+                    .filter_map(|player| self.stored_identity_for_session(player.session_id))
                     .collect();
                 identities.contains(&first_identity_id) && identities.contains(&second_identity_id)
             })
@@ -1260,10 +1288,33 @@ impl GameStore for MemoryStore {
                 if own_blocks || opponent_blocks {
                     return None;
                 }
-                matchmaking_quality(criteria, queued_at, entry.criteria, entry.queued_at, now)
-                    .map(|quality| (*session_id, entry.queued_at, quality))
+                let recent_pairings = if criteria.pool == MatchmakingPool::Ranked {
+                    self.recent_pairing_count(
+                        own_identity,
+                        opponent_identity,
+                        now - Duration::minutes(RECENT_OPPONENT_LOOKBACK_MINUTES),
+                    )
+                } else {
+                    0
+                };
+                matchmaking_quality(
+                    criteria,
+                    queued_at,
+                    entry.criteria,
+                    entry.queued_at,
+                    now,
+                    recent_pairings,
+                )
+                .map(|quality| (*session_id, entry.queued_at, quality))
             })
-            .min_by_key(|(_, opponent_queued_at, _)| *opponent_queued_at);
+            .min_by_key(|(_, opponent_queued_at, quality)| {
+                (
+                    quality.rematch_priority(),
+                    *opponent_queued_at,
+                    quality.rating_delta,
+                    quality.max_reported_latency_ms,
+                )
+            });
         let Some((opponent_id, _, quality)) = opponent_match else {
             return Ok(MatchmakingEnqueueResult {
                 queued_at,
@@ -1602,6 +1653,57 @@ mod tests {
         session
     }
 
+    fn finished_ranked_room(
+        first: &UserSession,
+        second: &UserSession,
+        season_id: &str,
+        finished_at: DateTime<Utc>,
+    ) -> GameRoom {
+        let mut room = GameRoom::new(
+            Uuid::new_v4().simple().to_string()[..6].to_ascii_uppercase(),
+            "Ranked result".to_string(),
+            RoomVisibility::Private,
+            first,
+        )
+        .unwrap();
+        room.join(second).unwrap();
+        let winner_id = room.players[0].id;
+        let loser_id = room.players[1].id;
+        room.status = RoomStatus::Finished;
+        room.game_id = Some(Uuid::new_v4());
+        room.ranked_match = Some(crate::domain::RankedMatchContext {
+            season_id: season_id.to_string(),
+            content_revision: 1,
+        });
+        room.game = Some(crate::domain::Game {
+            boards: HashMap::new(),
+            attacks: Vec::new(),
+            timeline: Vec::new(),
+            first_player_id: winner_id,
+            mode: crate::domain::GameMode::Classic,
+            shots_remaining_in_turn: 0,
+            current_player_id: winner_id,
+            turn_number: 1,
+            started_at: finished_at - Duration::minutes(1),
+            turn_duration_seconds: 60,
+            turn_started_at: None,
+            turn_deadline_at: None,
+            consecutive_timeout_counts: HashMap::new(),
+            total_timeout_counts: HashMap::new(),
+            result: Some(crate::domain::GameResult {
+                winner_id,
+                loser_id,
+                total_turns: 1,
+                duration_seconds: 60,
+                finished_at,
+                players: Vec::new(),
+                finish_reason: FinishReason::FleetDestroyed,
+                win_type: crate::domain::WinType::NormalVictory,
+            }),
+        });
+        room
+    }
+
     #[tokio::test]
     async fn stale_room_snapshots_cannot_overwrite_a_newer_revision() {
         let store = MemoryStore::default();
@@ -1864,54 +1966,130 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn ranked_matchmaking_avoids_recent_opponents_then_relaxes_without_starving_them() {
+        let store = MemoryStore::default();
+        let first = ranked_session(&store, "Fair Alpha").await;
+        let recent = ranked_session(&store, "Fair Bravo").await;
+        let novel = ranked_session(&store, "Fair Charlie").await;
+        let first_account = first.account_id.unwrap();
+        let recent_account = recent.account_id.unwrap();
+        let novel_account = novel.account_id.unwrap();
+        let now = Utc::now();
+        let mut previous = finished_ranked_room(&first, &recent, "TEST_SEASON", now);
+        store.save_room(&mut previous).await.unwrap();
+
+        let criteria = |session: &UserSession, rating: i32| {
+            MatchmakingCriteria::ranked(
+                session.account_id.unwrap(),
+                crate::domain::MatchmakingRegion::Korea,
+                55,
+                rating,
+                ranked_season_key("TEST_SEASON"),
+            )
+            .unwrap()
+        };
+        let first_criteria = criteria(
+            &first,
+            store.ranked_rating(first_account).await.unwrap().rating,
+        );
+        let recent_criteria = criteria(
+            &recent,
+            store.ranked_rating(recent_account).await.unwrap().rating,
+        );
+        let novel_criteria = criteria(
+            &novel,
+            store.ranked_rating(novel_account).await.unwrap().rating,
+        );
+
+        {
+            let mut queue = store.matchmaking.lock().await;
+            queue.insert(
+                recent.id,
+                MatchmakingEntry {
+                    session: recent.clone(),
+                    queued_at: now - Duration::seconds(100),
+                    criteria: recent_criteria,
+                    claim_id: None,
+                    claimed_at: None,
+                },
+            );
+        }
+        assert!(
+            store
+                .enqueue_matchmaking(&first, first_criteria)
+                .await
+                .unwrap()
+                .claim
+                .is_none(),
+            "a recent opponent must be excluded before both tickets reach global search"
+        );
+        {
+            let mut queue = store.matchmaking.lock().await;
+            for entry in queue.values_mut() {
+                entry.queued_at = now - Duration::seconds(100);
+            }
+            queue.insert(
+                novel.id,
+                MatchmakingEntry {
+                    session: novel.clone(),
+                    queued_at: now - Duration::seconds(91),
+                    criteria: novel_criteria,
+                    claim_id: None,
+                    claimed_at: None,
+                },
+            );
+        }
+        let novel_match = store
+            .enqueue_matchmaking(&first, first_criteria)
+            .await
+            .unwrap()
+            .claim
+            .expect("a novel opponent must outrank an older eligible rematch");
+        assert_eq!(novel_match.opponent.id, novel.id);
+        assert_eq!(novel_match.quality.recent_pairings, 0);
+        assert!(!novel_match.quality.rematch_relaxed);
+        store
+            .release_matchmaking_claim(novel_match.id)
+            .await
+            .unwrap();
+        assert!(store.cancel_matchmaking(first.id).await.unwrap());
+        assert!(store.cancel_matchmaking(novel.id).await.unwrap());
+
+        assert!(
+            store
+                .enqueue_matchmaking(&first, first_criteria)
+                .await
+                .unwrap()
+                .claim
+                .is_none()
+        );
+        {
+            let mut queue = store.matchmaking.lock().await;
+            for entry in queue.values_mut() {
+                entry.queued_at = Utc::now() - Duration::seconds(91);
+            }
+        }
+        let relaxed = store
+            .enqueue_matchmaking(&first, first_criteria)
+            .await
+            .unwrap()
+            .claim
+            .expect("mutual global wait must eventually permit the only recent opponent");
+        assert_eq!(relaxed.opponent.id, recent.id);
+        assert_eq!(relaxed.quality.recent_pairings, 1);
+        assert!(relaxed.quality.rematch_relaxed);
+        assert!(relaxed.quality.shared_wait_seconds >= 90);
+    }
+
+    #[tokio::test]
     async fn ranked_results_update_rating_and_rewards_exactly_once() {
         let store = MemoryStore::default();
         let first = ranked_session(&store, "Settle Alpha").await;
         let second = ranked_session(&store, "Settle Bravo").await;
         let first_account = first.account_id.unwrap();
         let second_account = second.account_id.unwrap();
-        let mut room = GameRoom::new(
-            "RANK01".to_string(),
-            "Ranked result".to_string(),
-            RoomVisibility::Private,
-            &first,
-        )
-        .unwrap();
-        room.join(&second).unwrap();
-        let winner_id = room.players[0].id;
-        let loser_id = room.players[1].id;
         let finished_at = Utc::now();
-        room.status = RoomStatus::Finished;
-        room.ranked_match = Some(crate::domain::RankedMatchContext {
-            season_id: "TEST_SEASON".to_string(),
-            content_revision: 1,
-        });
-        room.game = Some(crate::domain::Game {
-            boards: HashMap::new(),
-            attacks: Vec::new(),
-            timeline: Vec::new(),
-            first_player_id: winner_id,
-            mode: crate::domain::GameMode::Classic,
-            shots_remaining_in_turn: 0,
-            current_player_id: winner_id,
-            turn_number: 1,
-            started_at: finished_at - Duration::minutes(1),
-            turn_duration_seconds: 60,
-            turn_started_at: None,
-            turn_deadline_at: None,
-            consecutive_timeout_counts: HashMap::new(),
-            total_timeout_counts: HashMap::new(),
-            result: Some(crate::domain::GameResult {
-                winner_id,
-                loser_id,
-                total_turns: 1,
-                duration_seconds: 60,
-                finished_at,
-                players: Vec::new(),
-                finish_reason: FinishReason::FleetDestroyed,
-                win_type: crate::domain::WinType::NormalVictory,
-            }),
-        });
+        let mut room = finished_ranked_room(&first, &second, "TEST_SEASON", finished_at);
 
         store.save_room(&mut room).await.unwrap();
         let winner = store

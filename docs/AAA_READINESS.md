@@ -146,7 +146,7 @@ The program is complete only when all gates below are satisfied in a production-
 
 - [x] Casual classic mode is joined by rapid, salvo, and configurable private rules.
 - [x] Ranked play has rating, placement matches, seasons, tiers, decay/inactivity policy, and rewards.
-- [ ] Match fairness considers rating, latency, region, rematches, and queue time.
+- [x] Match fairness considers rating, latency, region, rematches, and queue time.
 - [ ] Leaderboards are abuse-resistant, paginated, privacy-aware, and seasonally archived.
 - [ ] Balance changes are versioned so replays and historical results remain interpretable.
 - Evidence: `RANKED_COMPETITION.md` fixes the five-match placement, expected-score rating, tier,
@@ -154,10 +154,19 @@ The program is complete only when all gates below are satisfied in a production-
   season; only active seasons accept queues, and season keys prevent cross-season pairing. The
   PostgreSQL result transaction locks both standings, inserts one room settlement marker, updates
   rating projections, and writes unique match/placement/season rewards atomically. Memory/domain/
-  API tests plus a fresh 15-migration PostgreSQL 16 database and the eight-test PostgreSQL/Redis
+  API tests plus a fresh 16-migration PostgreSQL 16 database and the nine-test PostgreSQL/Redis
   suite prove spoof resistance, idempotent settlement, five placements, rollover rewards, export,
   deletion, restore verification, and mixed-version queue behavior. The stats view exposes the
   active provisional/tier rating and multi-browser E2E covers the player flow.
+- Evidence: ranked candidates satisfy both players' server-owned rating, RTT, region, season, solo
+  party, block-list, and durable wait windows. Authoritative results identify opponents seen in the
+  previous 30 minutes: both tickets must reach 90-second `GLOBAL` before a repeat is eligible,
+  novel opponents retain priority through 179 seconds, and 180-second mutual wait restores FIFO to
+  prevent starvation. Rooms persist only anonymous recent-pair count, relaxation, shared-wait, and
+  skew evidence. Domain, memory, API, and real two-instance PostgreSQL/Redis tests prove mutual
+  widening, immediate-repeat rejection, novel-candidate priority, eventual relaxation, and
+  identity privacy. A metric, dashboard, 25%-with-volume ticket alert, runbook, and additive result
+  indexes make pool diversity observable without player labels.
 
 ### C3. Progression and live content
 

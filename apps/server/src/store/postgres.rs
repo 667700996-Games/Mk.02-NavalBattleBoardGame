@@ -12,10 +12,10 @@ use crate::{
         IntegritySignalKind, IntegritySignalPage, LiveContentRevision, MatchmakingCriteria,
         MatchmakingPool, MatchmakingRegion, ModerationAction, ModerationActionKind, ModerationCase,
         ModerationCasePage, NewIntegritySignal, NewModerationAction, NewPlayerReport,
-        PlayerAccount, PlayerReport, RankedProfile, RankedStandingRecord, ReportCategory,
-        ReportStatus, RoomStatus, RoomSummary, SocialRelationship, UserSession,
-        matchmaking_quality, next_season_seed, ranked_match_reward_xp, ranked_placement_reward_xp,
-        ranked_season_key,
+        PlayerAccount, PlayerReport, RECENT_OPPONENT_LOOKBACK_MINUTES, RankedProfile,
+        RankedStandingRecord, ReportCategory, ReportStatus, RoomStatus, RoomSummary,
+        SocialRelationship, UserSession, matchmaking_quality, next_season_seed,
+        ranked_match_reward_xp, ranked_placement_reward_xp, ranked_season_key,
     },
     error::GameError,
 };
@@ -116,6 +116,7 @@ struct MatchmakingCandidateRow {
     season_key: Option<Uuid>,
     party_id: Option<Uuid>,
     party_size: i16,
+    recent_pairings: i64,
 }
 
 #[derive(sqlx::FromRow)]
@@ -1592,9 +1593,35 @@ impl GameStore for PostgresRedisStore {
             r#"SELECT sessions.id, sessions.nickname, sessions.token_hash, sessions.created_at,
                 sessions.last_seen_at, sessions.current_room_id, sessions.account_id,
                 queue.queued_at, queue.pool, queue.region, queue.latency_ms, queue.rating,
-                queue.season_key, queue.party_id, queue.party_size
+                queue.season_key, queue.party_id, queue.party_size, recent.recent_pairings
               FROM matchmaking_queue queue
               JOIN user_sessions sessions ON sessions.id=queue.session_id
+              CROSS JOIN LATERAL (
+                SELECT count(DISTINCT results.room_id)::bigint AS recent_pairings
+                FROM game_results results
+                JOIN game_result_participants own_participant
+                  ON own_participant.room_id=results.room_id
+                JOIN game_result_participants opponent_participant
+                  ON opponent_participant.room_id=results.room_id
+                 AND opponent_participant.player_id<>own_participant.player_id
+                WHERE $3='RANKED'
+                  AND results.finished_at >= now()-($11::bigint * interval '1 minute')
+                  AND (
+                    COALESCE(own_participant.account_id,own_participant.session_id)=$2
+                    OR own_participant.session_id IN (
+                      SELECT own_session.id FROM user_sessions own_session WHERE own_session.account_id=$2
+                    )
+                  )
+                  AND (
+                    COALESCE(opponent_participant.account_id,opponent_participant.session_id)
+                      = COALESCE(sessions.account_id,sessions.id)
+                    OR opponent_participant.session_id IN (
+                      SELECT opponent_session.id
+                      FROM user_sessions opponent_session
+                      WHERE opponent_session.account_id=COALESCE(sessions.account_id,sessions.id)
+                    )
+                  )
+              ) recent
               WHERE queue.session_id<>$1
                 AND queue.claim_id IS NULL
                 AND queue.pool=$3
@@ -1625,6 +1652,13 @@ impl GameStore for PostgresRedisStore {
                       CASE WHEN now()-queue.queued_at >= interval '90 seconds' THEN 500 WHEN now()-queue.queued_at >= interval '30 seconds' THEN 250 ELSE 100 END
                     )
                     AND (
+                      recent.recent_pairings=0
+                      OR (
+                        now()-$9 >= interval '90 seconds'
+                        AND now()-queue.queued_at >= interval '90 seconds'
+                      )
+                    )
+                    AND (
                       queue.region=$8
                       OR (
                         now()-$9 >= interval '30 seconds'
@@ -1653,7 +1687,19 @@ impl GameStore for PostgresRedisStore {
                     )
                   )
                 )
-              ORDER BY queue.queued_at ASC
+              ORDER BY
+                CASE
+                  WHEN $3='RANKED'
+                    AND LEAST(
+                      EXTRACT(EPOCH FROM now()-$9),
+                      EXTRACT(EPOCH FROM now()-queue.queued_at)
+                    ) < 180
+                  THEN recent.recent_pairings
+                  ELSE 0
+                END ASC,
+                queue.queued_at ASC,
+                CASE WHEN $3='RANKED' THEN abs(queue.rating-$7) ELSE 0 END ASC,
+                GREATEST(queue.latency_ms,$6) ASC
               FOR UPDATE OF queue SKIP LOCKED
               LIMIT 1"#,
         )
@@ -1667,6 +1713,7 @@ impl GameStore for PostgresRedisStore {
         .bind(criteria.region.as_db_str())
         .bind(queued_at)
         .bind(criteria.season_key)
+        .bind(RECENT_OPPONENT_LOOKBACK_MINUTES)
         .fetch_optional(&mut *transaction)
         .await?;
 
@@ -1696,6 +1743,7 @@ impl GameStore for PostgresRedisStore {
             opponent_criteria,
             opponent.queued_at,
             Utc::now(),
+            u16::try_from(opponent.recent_pairings).unwrap_or(u16::MAX),
         )
         .ok_or(GameError::Internal)?;
         let claim_id = Uuid::new_v4();

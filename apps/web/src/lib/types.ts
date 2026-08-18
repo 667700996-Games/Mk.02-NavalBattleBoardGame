@@ -75,6 +75,10 @@ export interface MatchmakingQuality {
   ratingDelta: number;
   maxReportedLatencyMs: number;
   partySize: number;
+  recentPairings: number;
+  rematchRelaxed: boolean;
+  sharedWaitSeconds: number;
+  waitSkewSeconds: number;
 }
 
 export interface MatchmakingTicket {

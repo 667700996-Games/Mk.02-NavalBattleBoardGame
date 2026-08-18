@@ -463,6 +463,126 @@ async fn postgres_ranked_matchmaking_enforces_authority_and_mutual_widening_acro
 }
 
 #[tokio::test]
+async fn postgres_ranked_matchmaking_avoids_recent_opponents_and_relaxes_after_mutual_wait() {
+    let Some((database_url, redis_url)) = integration_urls() else {
+        eprintln!("skipping distributed integration test without TEST_DATABASE_URL/TEST_REDIS_URL");
+        return;
+    };
+    let store = store(&database_url, &redis_url).await;
+    let database = sqlx::PgPool::connect(&database_url).await.unwrap();
+    let (first, first_account) = account_session(&store, "FairPgAlpha").await;
+    let (recent, recent_account) = account_session(&store, "FairPgBravo").await;
+    let (novel, novel_account) = account_session(&store, "FairPgCharlie").await;
+    for account in [&first_account, &recent_account, &novel_account] {
+        store
+            .ranked_profile(
+                account.id,
+                "FAIRNESS_SEASON",
+                Utc::now() - chrono::Duration::days(1),
+                Utc::now(),
+            )
+            .await
+            .unwrap();
+    }
+    let mut previous = finished_ranked_room(&first, &recent, "FAIRNESS_SEASON");
+    store.save_room(&mut previous).await.unwrap();
+
+    let first_rating = store.ranked_rating(first_account.id).await.unwrap().rating;
+    let recent_rating = store.ranked_rating(recent_account.id).await.unwrap().rating;
+    let novel_rating = store.ranked_rating(novel_account.id).await.unwrap().rating;
+    let season_key = ranked_season_key("FAIRNESS_SEASON");
+    let first_criteria = MatchmakingCriteria::ranked(
+        first_account.id,
+        MatchmakingRegion::Korea,
+        55,
+        first_rating,
+        season_key,
+    )
+    .unwrap();
+    let recent_criteria = MatchmakingCriteria::ranked(
+        recent_account.id,
+        MatchmakingRegion::Korea,
+        55,
+        recent_rating,
+        season_key,
+    )
+    .unwrap();
+    let novel_criteria = MatchmakingCriteria::ranked(
+        novel_account.id,
+        MatchmakingRegion::Korea,
+        55,
+        novel_rating,
+        season_key,
+    )
+    .unwrap();
+    for (session, criteria, seconds) in [
+        (&recent, recent_criteria, 100_i64),
+        (&novel, novel_criteria, 91_i64),
+    ] {
+        sqlx::query(
+            "INSERT INTO matchmaking_queue (session_id,queued_at,pool,region,latency_ms,rating,season_key,party_id,party_size) VALUES ($1,now()-($2::bigint * interval '1 second'),$3,$4,$5,$6,$7,$8,1)",
+        )
+        .bind(session.id)
+        .bind(seconds)
+        .bind(criteria.pool.as_db_str())
+        .bind(criteria.region.as_db_str())
+        .bind(i32::from(criteria.latency_ms))
+        .bind(criteria.rating)
+        .bind(criteria.season_key)
+        .bind(criteria.party_id)
+        .execute(&database)
+        .await
+        .unwrap();
+    }
+
+    let novel_match = store
+        .enqueue_matchmaking(&first, first_criteria)
+        .await
+        .unwrap()
+        .claim
+        .expect("a novel opponent must be selected instead of the older recent opponent");
+    assert_eq!(novel_match.opponent.id, novel.id);
+    assert_eq!(novel_match.quality.recent_pairings, 0);
+    assert!(!novel_match.quality.rematch_relaxed);
+    store
+        .release_matchmaking_claim(novel_match.id)
+        .await
+        .unwrap();
+    assert!(store.cancel_matchmaking(first.id).await.unwrap());
+    assert!(store.cancel_matchmaking(novel.id).await.unwrap());
+
+    assert!(
+        store
+            .enqueue_matchmaking(&first, first_criteria)
+            .await
+            .unwrap()
+            .claim
+            .is_none(),
+        "an exact search must reject the recent opponent"
+    );
+    sqlx::query(
+        "UPDATE matchmaking_queue SET queued_at=now()-interval '91 seconds' WHERE session_id=ANY($1)",
+    )
+    .bind(vec![first.id, recent.id])
+    .execute(&database)
+    .await
+    .unwrap();
+    let relaxed = store
+        .enqueue_matchmaking(&first, first_criteria)
+        .await
+        .unwrap()
+        .claim
+        .expect("mutual global wait must allow the only available recent opponent");
+    assert_eq!(relaxed.opponent.id, recent.id);
+    assert_eq!(relaxed.quality.recent_pairings, 1);
+    assert!(relaxed.quality.rematch_relaxed);
+    assert!(relaxed.quality.shared_wait_seconds >= 90);
+    store.release_matchmaking_claim(relaxed.id).await.unwrap();
+    assert!(store.cancel_matchmaking(first.id).await.unwrap());
+    assert!(store.cancel_matchmaking(recent.id).await.unwrap());
+}
+
+#[tokio::test]
 async fn postgres_ranked_results_settle_once_complete_placements_and_issue_season_rewards() {
     let Some((database_url, redis_url)) = integration_urls() else {
         eprintln!("skipping distributed integration test without TEST_DATABASE_URL/TEST_REDIS_URL");

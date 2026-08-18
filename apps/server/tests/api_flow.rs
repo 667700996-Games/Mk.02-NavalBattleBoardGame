@@ -1299,6 +1299,10 @@ async fn ranked_matchmaking_requires_accounts_rejects_client_authority_and_retur
     assert_eq!(matched["matchQuality"]["pool"], "RANKED");
     assert_eq!(matched["matchQuality"]["phase"], "EXACT");
     assert_eq!(matched["matchQuality"]["ratingDelta"], 0);
+    assert_eq!(matched["matchQuality"]["recentPairings"], 0);
+    assert_eq!(matched["matchQuality"]["rematchRelaxed"], false);
+    assert!(matched["matchQuality"]["sharedWaitSeconds"].is_number());
+    assert!(matched["matchQuality"]["waitSkewSeconds"].is_number());
     assert_eq!(
         matched["snapshot"]["matchmakingQuality"],
         matched["matchQuality"]
