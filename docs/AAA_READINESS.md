@@ -204,9 +204,16 @@ The program is complete only when all gates below are satisfied in a production-
 
 - [ ] Route JS/CSS, fonts, images, audio, memory, CPU, animation frame time, and WebSocket bandwidth
       have budgets by device tier.
-- [ ] Korean fonts are subsetted and modern formats are preferred without redundant transfer.
+- [x] Korean fonts are subsetted and modern formats are preferred without redundant transfer.
 - [ ] Core Web Vitals and battle interaction latency are captured from real users by release.
 - [ ] Low-end mobile play remains readable and responsive during the heaviest effects sequence.
+- Evidence: `check-font-subsets.mjs` scans all production Rust/Svelte/TypeScript copy, proves every
+  static Korean glyph maps to one of 28 disjoint 400/700 WOFF2 slices, rejects duplicate selection
+  and stale generated CSS, and caps the Korean payload at 450 KB. The production artifact fell from
+  1,091,828 to 483,304 WOFF2 bytes (55.7%) while the unchanged JS/CSS/font budgets pass. The browser
+  transfer test rejects full Korean faces, WOFF/TTF, duplicate requests, missing regular/bold faces,
+  and a route font transfer above 500 KB. Dynamic player copy uses the documented system fallback.
+  See `FONT_DELIVERY.md` for the generation and review contract.
 
 ## Gate E — Engineering quality and delivery
 

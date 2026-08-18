@@ -296,12 +296,17 @@ npm run lint        # rustfmt + clippy -D warnings + Prettier + ESLint
 npm run test        # Rust unit/integration + Vitest
 npm run contract    # Rust/TypeScript 버전·이벤트·생성 매니페스트 일치
 npm run security:drill # 취약점 대응 역할·타임라인·패치 SLO·증거 검증
+npm run fonts:check # 정적 한국어 글리프의 WOFF2 서브셋·중복·용량 검증
 npx playwright install chromium firefox webkit
 npm run test:a11y   # WCAG 2.2 AA 전체 흐름 + 키보드·라이브 알림 검증
 npm run test:e2e    # Chromium/Firefox/WebKit 전체 경기 + 모바일 2종 + 태블릿 1종
 npm run build       # Rust release + SvelteKit adapter-node
 npm run budget      # JS/CSS/WOFF2 파일·총량 제한과 기존 WOFF 차단
 ```
+
+한국어 제품 문구를 추가한 뒤에는 `npm run fonts:generate`로 소스 기반 서브셋 목록을
+재생성합니다. 사용자 닉네임·방 이름·채팅의 임의 글리프는 시스템 한국어 폰트로
+폴백하며, 전체 Korean 웹폰트를 추가로 내려받지 않습니다.
 
 운영 백업은 `scripts/backup-postgres.sh`와 `scripts/export-deletion-ledger.sh`를 각각 다른
 수명주기 객체로 저장합니다. 복구 시 `scripts/restore-postgres-drill.sh`는 두 객체의

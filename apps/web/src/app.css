@@ -1,7 +1,7 @@
 :root {
   color-scheme: dark;
   font-family:
-    'IBM Plex Sans KR',
+    var(--font-korean),
     -apple-system,
     BlinkMacSystemFont,
     'Segoe UI',
@@ -11,7 +11,7 @@
   color: #d9e7ee;
   background: #02070c;
 
-  --font-display: 'Rajdhani', 'IBM Plex Sans KR', sans-serif;
+  --font-display: 'Rajdhani', var(--font-korean), sans-serif;
   --font-mono: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
   --bg-primary: #02090d;
   --bg-secondary: #041117;

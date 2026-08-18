@@ -78,7 +78,9 @@ above 12 hours.
 The current complete code-split client artifact gates are 320 KB raw JavaScript, 185 KB raw CSS,
 and 1.2 MB WOFF2, with no individual JS/CSS chunk above 100/90 KB. The August 2026 increase from
 300/180 KB allocates the authenticated privacy export/deletion controls; it does not relax the
-largest-route or font limits. `npm run budget` remains a release-blocking check.
+largest-route or font limits. The generated Korean subsets currently reduce the complete WOFF2
+artifact from 1,091,828 to 483,304 bytes; `npm run fonts:check` enforces source-glyph coverage and a
+450 KB Korean-slice cap. `npm run budget` remains a release-blocking check.
 
 ## Deployment and rollback
 
