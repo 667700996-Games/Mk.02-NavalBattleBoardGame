@@ -28,9 +28,13 @@ false green CI result.
 
 ## Covered failure and concurrency boundaries
 
-The eleven cases prove these controls against actual PostgreSQL and Redis protocols:
+The twelve cases prove these controls against actual PostgreSQL and Redis protocols:
 
 - all immutable SQLx migrations apply to an empty PostgreSQL 16 database;
+- a stable binary fails on known checksum drift but restarts after an unknown future additive
+  migration; stable and candidate session/room/result projections remain mutually readable, the
+  legacy-result dual write populates candidate identity indexes, and the same rule covers normal
+  startup, migrate-only, deletion replay, and restore verification;
 - persistence-revision CAS and room-owner fencing admit one concurrent writer;
 - distributed matchmaking claims and creates each pair exactly once;
 - Redis Pub/Sub delivers events between separate store instances;
@@ -50,8 +54,8 @@ JSON evidence. CI derives the expected migration count from `migrations/checksum
 rooms and results from the real suite, requires at least one balance catalog entry, and retains the
 report for 90 days as `postgres-redis-integration-<commit>`.
 
-The August 18, 2026 clean-service parity run passed 11/11 cases in 10.71 seconds. Its verifier
-decoded 18 migrations, 18 sessions, 22 rooms, 16 results, 15 ranked settlements, 30 ranked rewards,
+The August 18, 2026 clean-service parity run passed 12/12 cases in 10.77 seconds. Its verifier
+decoded 19 migrations, 18 sessions, 22 rooms, 16 results, 15 ranked settlements, 30 ranked rewards,
 one balance catalog entry, four privacy requests, three deletion tombstones, and three live-content
 revisions with no orphan, migration, snapshot, or resurrection failure.
 

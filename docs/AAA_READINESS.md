@@ -112,7 +112,7 @@ The program is complete only when all gates below are satisfied in a production-
       and deletion policies.
 - [x] User export and deletion cover every datastore, cache, backup policy, and derived record.
 - [x] PostgreSQL backups are encrypted and automated; restore drills meet RPO/RTO.
-- [ ] Migrations are backward compatible with mixed-version rolling deployments.
+- [x] Migrations are backward compatible with mixed-version rolling deployments.
 - Evidence: `DATA_LIFECYCLE.md` defines enforced boundaries for every data class. The hourly worker
   prunes inactive sessions, abandoned matchmaking, terminal room/chat/replay records, closed
   moderation cases, and integrity signals using configurable UTC cutoffs and publishes per-class
@@ -126,7 +126,17 @@ The program is complete only when all gates below are satisfied in a production-
   backup and independent deletion ledger, refuses stale/corrupt inputs and non-isolated targets,
   reapplies tombstones, runs migrations and full restore verification, enforces RPO/RTO, and retains
   90-day JSON evidence. The clean parity drill restored in one second and found zero resurrected
-  personal records across the comprehensive fixture.
+  personal records across the comprehensive fixture. Every database entry point now verifies all
+  known checksums while tolerating a later additive migration already applied by a candidate. The
+  real PostgreSQL compatibility case corrupts a known checksum and proves fail-closed behavior,
+  restores it, adds an unknown future migration and nullable column, then proves stable startup,
+  migrate-only, deletion-ledger replay, restore verification, and old/new SQL projections remain
+  bidirectionally writable. A database dual-write trigger indexes results written with the original
+  stable column set, so candidate history, account identity, and deletion paths cannot miss a match
+  completed during the mixed window. The self-testing migration policy rejects destructive data,
+  DDL, defaults, type, RLS, and permission changes and guarantees new migration files invalidate the
+  embedded release build. The clean 12-case service run passed in 10.77 seconds, and the encrypted
+  restore drill reapplied all 19 migrations with zero resurrected personal rows.
 
 ## Gate C — Game product and player retention
 
@@ -160,7 +170,7 @@ The program is complete only when all gates below are satisfied in a production-
   season; only active seasons accept queues, and season keys prevent cross-season pairing. The
   PostgreSQL result transaction locks both standings, inserts one room settlement marker, updates
   rating projections, and writes unique match/placement/season rewards atomically. Memory/domain/
-  API tests plus a fresh 18-migration PostgreSQL 16 database and the eleven-test PostgreSQL/Redis
+  API tests plus a fresh 19-migration PostgreSQL 16 database and the twelve-test PostgreSQL/Redis
   suite prove spoof resistance, idempotent settlement, five placements, rollover rewards, export,
   deletion, restore verification, and mixed-version queue behavior. The stats view exposes the
   active provisional/tier rating and multi-browser E2E covers the player flow.
@@ -188,7 +198,7 @@ The program is complete only when all gates below are satisfied in a production-
   becomes V1 rather than the latest default. Unknown or altered active pins fail before execution or
   persistence. Composite database foreign keys prevent version/checksum reuse, a trigger rejects
   catalog edits/deletes, and restore verification compares catalog, room, game, and result copies.
-  Domain/API tests, a fresh 18-migration PostgreSQL 16 database, the eleven-test PostgreSQL/Redis
+  Domain/API tests, a fresh 19-migration PostgreSQL 16 database, the twelve-test PostgreSQL/Redis
   suite, and multi-browser full-match replay cover legacy recovery, tampering, immutable history,
   exact UI interpretation, and rollback-safe retention.
 
@@ -319,8 +329,8 @@ The program is complete only when all gates below are satisfied in a production-
   two Redis-backed instances, recovers an active match through instance replacement, and proves
   PostgreSQL remains authoritative when the optional Redis cache cannot connect. The dedicated CI
   job uses health-checked PostgreSQL 16 and Redis 7 containers, requires both URLs so no test can
-  silently skip, serializes the eleven shared-database cases, and blocks browser and backup jobs.
-  Its post-suite restore verifier checks all 18 migrations and retained snapshots, then uploads a
+  silently skip, serializes the twelve shared-database cases, and blocks browser and backup jobs.
+  Its post-suite restore verifier checks all 19 migrations and retained snapshots, then uploads a
   90-day JSON evidence artifact. `DISTRIBUTED_INTEGRATION.md` fixes the local reproduction, covered
   boundaries, acceptance rules, and failure triage.
 

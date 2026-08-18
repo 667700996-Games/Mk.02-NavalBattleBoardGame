@@ -32,6 +32,20 @@ const DELETION_RESURRECTION_COUNT_QUERY: &str = "SELECT (SELECT count(*) FROM pl
 const LIVE_CONTENT_ADVISORY_LOCK: i64 = 7_190_120_260;
 const REDIS_INITIAL_CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
 
+async fn run_compatible_migrations(
+    pool: &PgPool,
+    operation: &'static str,
+) -> Result<(), GameError> {
+    let mut migrator = sqlx::migrate!("./migrations");
+    // A stable instance may restart after the candidate has applied a newer additive migration.
+    // Known checksums are still verified, while future versions remain intentionally readable.
+    migrator.set_ignore_missing(true);
+    migrator.run(pool).await.map_err(|error| {
+        tracing::error!(%error, operation, "database migration failed");
+        GameError::StorageUnavailable
+    })
+}
+
 fn decode_live_content(value: serde_json::Value) -> Result<LiveContentRevision, GameError> {
     serde_json::from_value(value).map_err(|error| {
         tracing::error!(%error, "stored live-content revision is invalid");
@@ -437,13 +451,7 @@ impl PostgresRedisStore {
             .max_connections(2)
             .connect(database_url)
             .await?;
-        sqlx::migrate!("./migrations")
-            .run(&pool)
-            .await
-            .map_err(|error| {
-                tracing::error!(%error, "database migration failed");
-                GameError::StorageUnavailable
-            })?;
+        run_compatible_migrations(&pool, "migrate-only").await?;
         pool.close().await;
         Ok(())
     }
@@ -688,13 +696,7 @@ impl PostgresRedisStore {
             .max_connections(4)
             .connect(database_url)
             .await?;
-        sqlx::migrate!("./migrations")
-            .run(&pool)
-            .await
-            .map_err(|error| {
-                tracing::error!(%error, "deletion ledger migration failed");
-                GameError::StorageUnavailable
-            })?;
+        run_compatible_migrations(&pool, "deletion-ledger").await?;
         let store = Self { pool, cache: None };
         let mut applied = 0_u64;
         let mut already_absent = 0_u64;
@@ -760,13 +762,7 @@ impl PostgresRedisStore {
             .min_connections(1)
             .connect(database_url)
             .await?;
-        sqlx::migrate!("./migrations")
-            .run(&pool)
-            .await
-            .map_err(|error| {
-                tracing::error!(%error, "database migration failed");
-                GameError::StorageUnavailable
-            })?;
+        run_compatible_migrations(&pool, "server-startup").await?;
         let cache = match redis::Client::open(redis_url) {
             Ok(client) => match tokio::time::timeout(
                 REDIS_INITIAL_CONNECT_TIMEOUT,

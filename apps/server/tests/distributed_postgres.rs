@@ -297,6 +297,229 @@ async fn postgres_fences_stale_writes_and_atomically_completes_distributed_match
 }
 
 #[tokio::test]
+async fn stable_server_restarts_after_a_future_additive_migration_and_keeps_old_writes_readable() {
+    let Some((database_url, redis_url)) = integration_urls() else {
+        eprintln!("skipping distributed integration test without TEST_DATABASE_URL/TEST_REDIS_URL");
+        return;
+    };
+    let bootstrap = store(&database_url, &redis_url).await;
+    drop(bootstrap);
+
+    let database = sqlx::PgPool::connect(&database_url).await.unwrap();
+    let future_version = 209912319999_i64;
+    sqlx::query(
+        "ALTER TABLE user_sessions ADD COLUMN IF NOT EXISTS future_candidate_metadata JSONB NULL",
+    )
+    .execute(&database)
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO _sqlx_migrations (version,description,success,checksum,execution_time) VALUES ($1,'future additive compatibility fixture',true,$2,0)")
+        .bind(future_version)
+        .bind(vec![0x42_u8; 32])
+        .execute(&database)
+        .await
+        .unwrap();
+
+    let (known_version, known_checksum): (i64, Vec<u8>) = sqlx::query_as(
+        "SELECT version,checksum FROM _sqlx_migrations WHERE version<>$1 ORDER BY version LIMIT 1",
+    )
+    .bind(future_version)
+    .fetch_one(&database)
+    .await
+    .unwrap();
+    sqlx::query("UPDATE _sqlx_migrations SET checksum=$2 WHERE version=$1")
+        .bind(known_version)
+        .bind(vec![0x24_u8; 32])
+        .execute(&database)
+        .await
+        .unwrap();
+    assert!(
+        PostgresRedisStore::migrate_database(&database_url)
+            .await
+            .is_err(),
+        "known migration checksum drift must still fail closed"
+    );
+    sqlx::query("UPDATE _sqlx_migrations SET checksum=$2 WHERE version=$1")
+        .bind(known_version)
+        .bind(known_checksum)
+        .execute(&database)
+        .await
+        .unwrap();
+
+    PostgresRedisStore::migrate_database(&database_url)
+        .await
+        .expect("migrate-only must tolerate a newer additive schema during rollback");
+    let ledger_report = PostgresRedisStore::apply_deletion_ledger(
+        &database_url,
+        PrivacyDeletionLedger {
+            format_version: 1,
+            generated_at: Utc::now(),
+            tombstones: Vec::new(),
+        },
+    )
+    .await
+    .expect("restore replay must tolerate a newer additive schema");
+    assert_eq!(ledger_report.remaining_personal_records, 0);
+
+    let stable_store = store(&database_url, &redis_url).await;
+    let legacy_session = session("Stable legacy writer");
+    sqlx::query("INSERT INTO user_sessions (id,nickname,token_hash,created_at,last_seen_at,current_room_id) VALUES ($1,$2,$3,$4,$4,NULL)")
+        .bind(legacy_session.id)
+        .bind(&legacy_session.nickname)
+        .bind(&legacy_session.token_hash)
+        .bind(legacy_session.created_at)
+        .execute(&database)
+        .await
+        .unwrap();
+    assert_eq!(
+        stable_store
+            .session_by_token_hash(&legacy_session.token_hash)
+            .await
+            .unwrap()
+            .unwrap()
+            .nickname,
+        legacy_session.nickname
+    );
+
+    let legacy_opponent = session("Stable result opponent");
+    sqlx::query("INSERT INTO user_sessions (id,nickname,token_hash,created_at,last_seen_at,current_room_id) VALUES ($1,$2,$3,$4,$4,NULL)")
+        .bind(legacy_opponent.id)
+        .bind(&legacy_opponent.nickname)
+        .bind(&legacy_opponent.token_hash)
+        .bind(legacy_opponent.created_at)
+        .execute(&database)
+        .await
+        .unwrap();
+    let mut legacy_finished =
+        finished_ranked_room(&legacy_session, &legacy_opponent, "STABLE_RESULT_SEASON");
+    legacy_finished.ranked_match = None;
+    let legacy_result = legacy_finished
+        .game
+        .as_ref()
+        .and_then(|game| game.result.as_ref())
+        .unwrap();
+    sqlx::query("INSERT INTO game_rooms (id,code,name,visibility,status,snapshot,created_at,updated_at) VALUES ($1,$2,$3,'PRIVATE','FINISHED',$4,$5,$6)")
+        .bind(legacy_finished.id)
+        .bind(&legacy_finished.code)
+        .bind(&legacy_finished.name)
+        .bind(serde_json::to_value(&legacy_finished).unwrap())
+        .bind(legacy_finished.created_at)
+        .bind(legacy_finished.updated_at)
+        .execute(&database)
+        .await
+        .unwrap();
+    let (legacy_trigger_exists, serialized_players): (bool, i32) = sqlx::query_as(
+        "SELECT EXISTS(SELECT 1 FROM pg_trigger WHERE tgname='game_results_legacy_participant_dual_write'),jsonb_array_length(snapshot->'players') FROM game_rooms WHERE id=$1",
+    )
+    .bind(legacy_finished.id)
+    .fetch_one(&database)
+    .await
+    .unwrap();
+    assert!(legacy_trigger_exists);
+    assert_eq!(serialized_players, 2);
+    sqlx::query("INSERT INTO game_results (room_id,room_name,participant_session_ids,result,finished_at) VALUES ($1,$2,$3,$4,$5)")
+        .bind(legacy_finished.id)
+        .bind(&legacy_finished.name)
+        .bind(vec![legacy_session.id, legacy_opponent.id])
+        .bind(serde_json::to_value(legacy_result).unwrap())
+        .bind(legacy_result.finished_at)
+        .execute(&database)
+        .await
+        .unwrap();
+    let indexed_participants: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM game_result_participants WHERE room_id=$1")
+            .bind(legacy_finished.id)
+            .fetch_one(&database)
+            .await
+            .unwrap();
+    assert_eq!(indexed_participants, 2);
+    assert_eq!(
+        stable_store
+            .history_for_session(legacy_session.id)
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
+    let mut candidate_room = stable_store
+        .room_by_id_authoritative(legacy_finished.id)
+        .await
+        .unwrap()
+        .unwrap();
+    candidate_room.name = "Candidate-readable stable result".to_string();
+    candidate_room.updated_at = Utc::now();
+    stable_store.save_room(&mut candidate_room).await.unwrap();
+    let stable_room_projection: (String, serde_json::Value) =
+        sqlx::query_as("SELECT name,snapshot FROM game_rooms WHERE id=$1")
+            .bind(legacy_finished.id)
+            .fetch_one(&database)
+            .await
+            .unwrap();
+    assert_eq!(stable_room_projection.0, candidate_room.name);
+    assert!(stable_room_projection.1.is_object());
+    let stable_result_projection: (String, Vec<Uuid>, serde_json::Value) = sqlx::query_as(
+        "SELECT room_name,participant_session_ids,result FROM game_results WHERE room_id=$1",
+    )
+    .bind(legacy_finished.id)
+    .fetch_one(&database)
+    .await
+    .unwrap();
+    assert_eq!(stable_result_projection.0, legacy_finished.name);
+    assert_eq!(stable_result_projection.1.len(), 2);
+    assert!(stable_result_projection.2.is_object());
+
+    let candidate_session = session("Candidate writer");
+    stable_store.save_session(&candidate_session).await.unwrap();
+    let stable_projection: (Uuid, String, Option<Uuid>) =
+        sqlx::query_as("SELECT id,nickname,current_room_id FROM user_sessions WHERE id=$1")
+            .bind(candidate_session.id)
+            .fetch_one(&database)
+            .await
+            .unwrap();
+    assert_eq!(stable_projection.0, candidate_session.id);
+    assert_eq!(stable_projection.1, candidate_session.nickname);
+    assert_eq!(stable_projection.2, None);
+
+    let applied_migrations: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM _sqlx_migrations WHERE success")
+            .fetch_one(&database)
+            .await
+            .unwrap();
+    assert_eq!(
+        PostgresRedisStore::verify_database(&database_url)
+            .await
+            .unwrap()
+            .migrations_applied,
+        applied_migrations
+    );
+
+    drop(stable_store);
+    sqlx::query("DELETE FROM game_rooms WHERE id=$1")
+        .bind(legacy_finished.id)
+        .execute(&database)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM user_sessions WHERE id=ANY($1)")
+        .bind(vec![
+            legacy_session.id,
+            legacy_opponent.id,
+            candidate_session.id,
+        ])
+        .execute(&database)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM _sqlx_migrations WHERE version=$1")
+        .bind(future_version)
+        .execute(&database)
+        .await
+        .unwrap();
+    sqlx::query("ALTER TABLE user_sessions DROP COLUMN future_candidate_metadata")
+        .execute(&database)
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
 async fn postgres_ranked_matchmaking_enforces_authority_and_mutual_widening_across_instances() {
     let Some((database_url, redis_url)) = integration_urls() else {
         eprintln!("skipping distributed integration test without TEST_DATABASE_URL/TEST_REDIS_URL");
@@ -1154,14 +1377,15 @@ async fn postgres_account_export_and_deletion_cover_migrations_and_anonymized_ro
         .execute(&audit_pool)
         .await
         .unwrap();
-    sqlx::query("INSERT INTO game_result_participants (room_id,player_id,session_id,account_id) VALUES ($1,$2,$3,$4)")
-        .bind(room.id)
-        .bind(historical_player_id)
-        .bind(account_session.id)
-        .bind(account.id)
-        .execute(&audit_pool)
-        .await
-        .unwrap();
+    let indexed_account_id: Option<Uuid> = sqlx::query_scalar(
+        "SELECT account_id FROM game_result_participants WHERE room_id=$1 AND player_id=$2",
+    )
+    .bind(room.id)
+    .bind(historical_player_id)
+    .fetch_one(&audit_pool)
+    .await
+    .unwrap();
+    assert_eq!(indexed_account_id, Some(account.id));
     store.room_by_id(room.id).await.unwrap().unwrap();
     sqlx::query("DELETE FROM user_sessions WHERE id=$1")
         .bind(account_session.id)

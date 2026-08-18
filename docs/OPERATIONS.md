@@ -190,6 +190,8 @@ Korean-slice cap. Baselines, measurement definitions, and budget review rules ar
 1. Build one immutable server/web artifact and record its Git SHA, protocol version, migration
    list, balance ruleset/checksum, dependency audit, test report, and bundle-budget output.
 2. Verify migrations are additive and compatible with both the current and candidate server.
+   The service-backed gate must show that known checksum drift fails, while the stable artifact can
+   restart after a candidate-only additive migration and both SQL write projections remain readable.
 3. Deploy to staging, run a complete two-browser match, then terminate one server during an active
    turn and verify recovery plus event delivery through the remaining instance.
 4. Deploy one canary instance. Hold for at least 15 minutes and compare availability, p95/p99,
@@ -275,12 +277,13 @@ non-personal leaderboard snapshot shell, with stricter five-minute RPO and two-m
 gates.
 
 The August 18, 2026 local parity drill verified both SHA-256 sidecars, decrypted the independent GPG
-AES-256 backup and deletion ledger, applied all 18 migrations, and restored into an isolated
-database. Backup age was 37 seconds, ledger age 13 seconds, and full restore time 1 second against
-the 300 / 300 / 120-second fixture gates. The restored database contained zero accounts, sessions,
-queue rows, rewards, ratings, standings, leaderboard entries, relationships, account reports,
-direct-target actions, or integrity signals; it retained one unrelated report, one empty snapshot
-shell, and one deletion tombstone. At least quarterly in production-like staging:
+AES-256 backup and deletion ledger, applied all 19 migrations, and restored into an isolated
+database. The latest run reported zero whole seconds for backup age, ledger age, and restore time
+(each under the one-second measurement resolution) against the 300 / 300 / 120-second fixture
+gates. The restored database contained zero accounts, sessions, queue rows, rewards, ratings,
+standings, leaderboard entries, relationships, account reports, direct-target actions, or integrity
+signals; it retained one unrelated report, one empty snapshot shell, and one deletion tombstone. At
+least quarterly in production-like staging:
 
 1. restore the latest full backup and point-in-time logs into an isolated staging database;
 2. run migrations with the release artifact;

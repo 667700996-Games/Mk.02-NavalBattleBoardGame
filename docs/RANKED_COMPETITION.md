@@ -22,15 +22,15 @@ Results use expected-score rating with a 400-point scale. Placement K-factor is 
 K-factor is 32. A win gains at least one point and a loss loses at least one point, with every
 result clamped to the supported 0–4000 range.
 
-| State/rating | Tier |
-| --- | --- |
+| State/rating         | Tier          |
+| -------------------- | ------------- |
 | Fewer than 5 matches | `PROVISIONAL` |
-| 0–1199 | `BRONZE` |
-| 1200–1499 | `SILVER` |
-| 1500–1799 | `GOLD` |
-| 1800–2099 | `PLATINUM` |
-| 2100–2399 | `DIAMOND` |
-| 2400–4000 | `ADMIRAL` |
+| 0–1199               | `BRONZE`      |
+| 1200–1499            | `SILVER`      |
+| 1500–1799            | `GOLD`        |
+| 1800–2099            | `PLATINUM`    |
+| 2100–2399            | `DIAMOND`     |
+| 2400–4000            | `ADMIRAL`     |
 
 The settlement reads both locked pre-match standings before computing either update. Concurrent
 finishes therefore serialize without lost updates, and the current `ranked_ratings` projection is
@@ -44,12 +44,12 @@ profile or queue reads idempotent. Playing a ranked match resets the inactivity 
 
 Rewards are non-pay-to-win progression XP in a dedicated immutable ledger:
 
-| Source | XP |
-| --- | ---: |
-| Ranked win | 100 |
-| Ranked loss | 40 |
-| Five-placement completion | 500 |
-| Prior season Bronze / Silver / Gold | 500 / 750 / 1000 |
+| Source                                    |                 XP |
+| ----------------------------------------- | -----------------: |
+| Ranked win                                |                100 |
+| Ranked loss                               |                 40 |
+| Five-placement completion                 |                500 |
+| Prior season Bronze / Silver / Gold       |   500 / 750 / 1000 |
 | Prior season Platinum / Diamond / Admiral | 1500 / 2000 / 3000 |
 
 Match rewards are unique by account, room, source, and season. Placement and season rewards are
@@ -82,7 +82,7 @@ correctness boundary.
 Account export contains current rating, all seasonal standings, per-match deltas, ranked rewards,
 and leaderboard visibility. Verified account deletion removes every account-bound ranked row by
 explicit deletion or foreign-key cascade; anonymous settlement markers retain no account identity.
-Restore verification checks all 18 migrations, queue profiles, ranked and leaderboard table counts,
+Restore verification checks all 19 migrations, queue profiles, ranked and leaderboard table counts,
 references, and deletion tombstones.
 
 Acceptance evidence includes domain and memory-store tests, API profile/snapshot contracts, a fresh
