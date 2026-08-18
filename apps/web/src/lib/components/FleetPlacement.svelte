@@ -565,6 +565,7 @@
 
   .placement {
     position: relative;
+    overflow-x: clip;
     padding: 4px 0 28px;
   }
   .placement::before {

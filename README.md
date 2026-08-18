@@ -297,7 +297,7 @@ npm run test        # Rust unit/integration + Vitest
 npm run contract    # Rust/TypeScript 버전·이벤트·생성 매니페스트 일치
 npm run security:drill # 취약점 대응 역할·타임라인·패치 SLO·증거 검증
 npx playwright install chromium firefox webkit
-npm run test:e2e    # Chromium/Firefox/WebKit 전체 경기 + 모바일 2종
+npm run test:e2e    # Chromium/Firefox/WebKit 전체 경기 + 모바일 2종 + 태블릿 1종
 npm run build       # Rust release + SvelteKit adapter-node
 npm run budget      # JS/CSS/WOFF2 파일·총량 제한과 기존 WOFF 차단
 ```
@@ -307,7 +307,7 @@ npm run budget      # JS/CSS/WOFF2 파일·총량 제한과 기존 WOFF 차단
 체크섬·암호화를 검증하고, 과거 백업에 되살아난 계정 삭제를 먼저 재적용한 뒤에만
 스냅샷·참조 무결성과 RPO/RTO 증거를 승인합니다.
 
-Rust 테스트는 대기실 상태 머신, 멱등성, 버전 충돌, 배치, AI의 결정적·비반복 공격, 공격/만료 경쟁, 재시작 복구, 채팅 검증과 공개 정보 필터를 검증합니다. CI의 PostgreSQL/Redis 통합 테스트는 동시 CAS 쓰기에서 단 하나만 성공함, 권위 임대 만료 후 인수와 오래 멈춘 소유자의 펜싱, 분산 매칭의 원자적 확정, 두 AppState 사이 Pub/Sub 이벤트 전달을 검증합니다. Playwright는 Chromium·Firefox·WebKit과 Pixel 7·iPhone 13 프로필에서 독립 브라우저 2개의 전체 경기·변조 요청 거절·새로고침 복구·숨은 정보 비노출을 검증하고, 문서 CSP 아래의 실제 hydration과 모바일 오버플로를 검사합니다.
+Rust 테스트는 대기실 상태 머신, 멱등성, 버전 충돌, 배치, AI의 결정적·비반복 공격, 공격/만료 경쟁, 재시작 복구, 채팅 검증과 공개 정보 필터를 검증합니다. CI의 PostgreSQL/Redis 통합 테스트는 동시 CAS 쓰기에서 단 하나만 성공함, 권위 임대 만료 후 인수와 오래 멈춘 소유자의 펜싱, 분산 매칭의 원자적 확정, 두 AppState 사이 Pub/Sub 이벤트 전달을 검증합니다. Playwright는 Chromium·Firefox·WebKit과 Pixel 7·iPhone 13·iPad Pro 11 프로필에서 독립 브라우저 2개의 전체 경기·변조 요청 거절·새로고침 복구·숨은 정보 비노출을 검증하고, 로비에서 결과까지의 가로 오버플로와 문서 CSP 아래의 실제 hydration을 검사합니다.
 
 Security workflow는 취약점 대응 모의훈련, Rust·JavaScript/TypeScript·GitHub Actions
 CodeQL, PR 의존성 심사, RustSec/cargo-deny, 저장소·비밀·라이선스·Docker/IaC Trivy

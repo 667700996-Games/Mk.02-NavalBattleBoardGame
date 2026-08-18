@@ -169,12 +169,16 @@ The program is complete only when all gates below are satisfied in a production-
 
 ### D3. UX, accessibility, localization
 
-- [ ] The complete flow, not only the landing page, is responsive on supported mobile/tablet/desktop
+- [x] The complete flow, not only the landing page, is responsive on supported mobile/tablet/desktop
       classes.
 - [ ] Keyboard focus, dialogs, grids, chat, timers, errors, and live announcements pass WCAG 2.2 AA.
 - [ ] Color is never the only carrier of game state; color-vision presets are tested.
 - [ ] All user-facing copy uses localization keys with Korean, English, and the launch locale set.
 - [ ] Pseudolocalization, text expansion, locale dates/numbers, and font fallback are automated gates.
+- Evidence: the two-client full-match suite asserts no horizontal document overflow at the lobby,
+  waiting room, fleet placement, battle, refresh recovery, and result stages. It completes on
+  Desktop Chrome, Desktop Firefox, Desktop Safari, Pixel 7, iPhone 13, and iPad Pro 11 profiles;
+  the dedicated responsive landing smoke test also passes all six profiles.
 
 ### D4. Performance budgets
 
@@ -204,6 +208,11 @@ The program is complete only when all gates below are satisfied in a production-
 - [ ] Component, accessibility, visual-regression, property, fuzz, load, soak, and chaos suites have
       owned thresholds.
 - [ ] Coverage reports identify untested behavior; targets are risk-based rather than cosmetic.
+- Evidence: the service-backed integration suite applies embedded migrations, races revision-CAS
+  writes, fences stale owners, completes distributed matchmaking atomically, fans events between
+  two Redis-backed instances, recovers an active match through instance replacement, and proves
+  PostgreSQL remains authoritative when the optional Redis cache cannot connect. This gate remains
+  open until the corrected suite passes in CI with real PostgreSQL and Redis services.
 
 ### E3. Release and service operations
 

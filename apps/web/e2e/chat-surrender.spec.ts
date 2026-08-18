@@ -21,8 +21,14 @@ async function register(page: Page, nickname: string) {
 
 async function deploy(page: Page) {
   await expect(page.getByRole('heading', { name: '함대 배치' })).toBeVisible();
-  await page.getByRole('button', { name: '자동 배치' }).click();
-  await page.getByRole('button', { name: '배치 확정' }).click();
+  await expect(page.locator('.launch-sequence')).toBeHidden();
+  const autoDeploy = page.getByRole('button', { name: '자동 배치' });
+  await expect(autoDeploy).toBeEnabled();
+  await autoDeploy.click();
+  await expect(page.getByText('5/5 함선 배치')).toBeVisible();
+  const confirm = page.getByRole('button', { name: '배치 확정' });
+  await expect(confirm).toBeEnabled();
+  await confirm.click();
 }
 
 async function startOperation(host: Page, guest: Page) {
@@ -49,7 +55,7 @@ test('room chat restores after refresh and surrender ends both clients immediate
   await register(first, 'Alpha');
   await first.getByRole('button', { name: '작전실 생성' }).click();
   await first.getByLabel('작전실 이름').fill('Surrender Channel');
-  await first.getByText('비공개', { exact: true }).click();
+  await first.getByRole('radio', { name: /비공개/ }).check();
   await first.getByRole('button', { name: '작전실 편성' }).click();
   await expect(first).toHaveURL(/\/room\/[A-Z0-9]{6}$/);
   const roomCode = new URL(first.url()).pathname.split('/').at(-1)!;

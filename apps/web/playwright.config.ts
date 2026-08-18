@@ -58,6 +58,11 @@ export default defineConfig({
       name: 'mobile-safari',
       use: { ...devices['iPhone 13'] },
       testMatch: /(full-game|responsive)\.spec\.ts/
+    },
+    {
+      name: 'tablet-chrome',
+      use: { ...devices['iPad Pro 11'] },
+      testMatch: /(full-game|responsive)\.spec\.ts/
     }
   ]
 });

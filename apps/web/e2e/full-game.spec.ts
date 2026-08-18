@@ -17,11 +17,28 @@ async function register(page: Page, nickname: string) {
   expect((await sessionCreated).status()).toBe(201);
   await expect(page).toHaveURL(/\/lobby$/);
   await expect(page.getByRole('heading', { name: '작전 로비' })).toBeVisible();
+  await expectNoHorizontalOverflow(page);
+}
+
+async function expectNoHorizontalOverflow(page: Page) {
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) <=
+          document.documentElement.clientWidth + 1
+      )
+    )
+    .toBe(true);
 }
 
 async function deploy(page: Page) {
   await expect(page.getByRole('heading', { name: '함대 배치' })).toBeVisible();
-  await page.getByRole('button', { name: '자동 배치' }).click();
+  await expect(page.locator('.launch-sequence')).toBeHidden();
+  const autoDeploy = page.getByRole('button', { name: '자동 배치' });
+  await expect(autoDeploy).toBeEnabled();
+  await autoDeploy.click();
+  await expect(page.getByText('5/5 함선 배치')).toBeVisible();
   const confirm = page.getByRole('button', { name: '배치 확정' });
   await expect(confirm).toBeEnabled();
   await confirm.click();
@@ -34,6 +51,8 @@ async function startOperation(host: Page, guest: Page) {
   await expect(
     guest.getByRole('heading', { name: '모든 지휘관이 준비를 완료해야 합니다.' })
   ).toBeVisible();
+  await expectNoHorizontalOverflow(host);
+  await expectNoHorizontalOverflow(guest);
   await host.getByRole('button', { name: '준비 완료' }).click();
   await expect(host.getByRole('button', { name: '작전 시작' })).toBeDisabled();
   await guest.getByRole('button', { name: '준비 완료' }).click();
@@ -45,6 +64,8 @@ async function startOperation(host: Page, guest: Page) {
   await modal.getByRole('button', { name: '작전 시작' }).click();
   await expect(host.getByRole('heading', { name: '함대 배치' })).toBeVisible();
   await expect(guest.getByRole('heading', { name: '함대 배치' })).toBeVisible();
+  await expectNoHorizontalOverflow(host);
+  await expectNoHorizontalOverflow(guest);
 }
 
 async function shipCoordinates(page: Page): Promise<string[]> {
@@ -103,11 +124,12 @@ test('two isolated browser sessions complete a secure game and recover after ref
   await register(first, 'Alpha');
   await first.getByRole('button', { name: '작전실 생성' }).click();
   await first.getByLabel('작전실 이름').fill('E2E North Sea');
-  await first.getByText('비공개', { exact: true }).click();
+  await first.getByRole('radio', { name: /비공개/ }).check();
   await first.getByRole('button', { name: '작전실 편성' }).click();
   await expect(
     first.getByRole('heading', { name: '상대 지휘관의 입장을 기다리고 있습니다.' })
   ).toBeVisible();
+  await expectNoHorizontalOverflow(first);
   const roomCode = new URL(first.url()).pathname.split('/').at(-1)!;
 
   await second.goto(`/join/${roomCode}`);
@@ -119,6 +141,8 @@ test('two isolated browser sessions complete a secure game and recover after ref
 
   await expect(first.getByText('상대 공격 보드')).toBeVisible();
   await expect(second.getByText('상대 공격 보드')).toBeVisible();
+  await expectNoHorizontalOverflow(first);
+  await expectNoHorizontalOverflow(second);
   const firstFleet = await shipCoordinates(first);
   const secondFleet = await shipCoordinates(second);
   expect(firstFleet).toHaveLength(17);
@@ -143,6 +167,7 @@ test('two isolated browser sessions complete a secure game and recover after ref
         .count();
       await first.reload();
       await expect(first.getByText('상대 공격 보드')).toBeVisible();
+      await expectNoHorizontalOverflow(first);
       await expect(
         first.locator(
           '[data-testid^="target-cell-"].cell--hit, [data-testid^="target-cell-"].cell--sunk'
@@ -156,6 +181,8 @@ test('two isolated browser sessions complete a secure game and recover after ref
 
   await expect(first.getByRole('heading', { name: /작전 (승리|패배)/ })).toBeVisible();
   await expect(second.getByRole('heading', { name: /작전 (승리|패배)/ })).toBeVisible();
+  await expectNoHorizontalOverflow(first);
+  await expectNoHorizontalOverflow(second);
   const firstWon = await first.getByRole('heading', { name: '작전 승리' }).isVisible();
   const secondWon = await second.getByRole('heading', { name: '작전 승리' }).isVisible();
   expect(firstWon).not.toBe(secondWon);

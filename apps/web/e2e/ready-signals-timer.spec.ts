@@ -15,7 +15,11 @@ async function register(page: Page, nickname: string) {
 
 async function deploy(page: Page) {
   await expect(page.getByRole('heading', { name: '함대 배치' })).toBeVisible();
-  await page.getByRole('button', { name: '자동 배치' }).click();
+  await expect(page.locator('.launch-sequence')).toBeHidden();
+  const autoDeploy = page.getByRole('button', { name: '자동 배치' });
+  await expect(autoDeploy).toBeEnabled();
+  await autoDeploy.click();
+  await expect(page.getByText('5/5 함선 배치')).toBeVisible();
   const confirm = page.getByRole('button', { name: '배치 확정' });
   await expect(confirm).toBeEnabled();
   await confirm.click();
@@ -39,7 +43,7 @@ test('ready cancellation, tactical signals, deadline recovery and timeout defeat
   await register(first, 'TimerAlpha');
   await first.getByRole('button', { name: '작전실 생성' }).click();
   await first.getByLabel('작전실 이름').fill('Deadline Protocol');
-  await first.getByText('비공개', { exact: true }).click();
+  await first.getByRole('radio', { name: /비공개/ }).check();
   await first.locator('#turn-duration').evaluate((select: HTMLSelectElement) => {
     const option = new Option('10초 E2E fixture', '10');
     (option as HTMLOptionElement & { __value?: number }).__value = 10;

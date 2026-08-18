@@ -367,6 +367,40 @@ async fn postgres_account_export_and_deletion_cover_migrations_and_anonymized_ro
 }
 
 #[tokio::test]
+async fn postgres_remains_authoritative_when_the_optional_redis_cache_is_unavailable() {
+    let Some((database_url, _)) = integration_urls() else {
+        eprintln!("skipping distributed integration test without TEST_DATABASE_URL/TEST_REDIS_URL");
+        return;
+    };
+    let store = PostgresRedisStore::connect(&database_url, "redis://127.0.0.1:1/")
+        .await
+        .expect("an unavailable optional Redis cache must not disable PostgreSQL authority");
+    let captain = session("CacheFailure");
+    store.save_session(&captain).await.unwrap();
+    let mut room = GameRoom::new(
+        Uuid::new_v4().simple().to_string()[..6].to_ascii_uppercase(),
+        "Cache failure authority".to_string(),
+        RoomVisibility::Private,
+        &captain,
+    )
+    .unwrap();
+    store.save_room(&mut room).await.unwrap();
+
+    let recovered = store.room_by_id(room.id).await.unwrap().unwrap();
+    let authoritative = store
+        .room_by_id_authoritative(room.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(recovered.id, room.id);
+    assert_eq!(recovered.persistence_revision, room.persistence_revision);
+    assert_eq!(
+        authoritative.persistence_revision,
+        room.persistence_revision
+    );
+}
+
+#[tokio::test]
 async fn redis_fans_events_out_between_application_instances() {
     let Some((database_url, redis_url)) = integration_urls() else {
         eprintln!("skipping distributed integration test without TEST_DATABASE_URL/TEST_REDIS_URL");

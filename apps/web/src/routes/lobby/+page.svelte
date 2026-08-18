@@ -1066,6 +1066,7 @@
   .lobby {
     position: relative;
     max-width: 1480px;
+    overflow-x: clip;
     padding-top: 42px;
   }
   .lobby-heading {
