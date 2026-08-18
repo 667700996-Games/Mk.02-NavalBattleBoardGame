@@ -4033,6 +4033,7 @@ mod tests {
             room_id: Uuid::new_v4(),
             room_name: "Progression test".to_string(),
             self_player_id: player_id,
+            balance: crate::domain::BalancePin::current(),
             result: GameResult {
                 winner_id: player_id,
                 loser_id: Uuid::new_v4(),

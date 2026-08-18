@@ -366,9 +366,11 @@
             >{#if won(game)}<Trophy size={20} />{:else}<Medal size={20} />{/if}</span
           >
           <div class="history-name">
-            <small>{new Date(game.result.finishedAt).toLocaleDateString('ko-KR')}</small><strong
-              >{game.roomName}</strong
-            ><em>{won(game) ? '승리' : '패배'}</em><span class="win-type">{winTypeLabel(game)}</span
+            <small
+              >{new Date(game.result.finishedAt).toLocaleDateString('ko-KR')} · RULESET V{game
+                .balance.rulesetVersion}</small
+            ><strong>{game.roomName}</strong><em>{won(game) ? '승리' : '패배'}</em><span
+              class="win-type">{winTypeLabel(game)}</span
             >
           </div>
           <div>

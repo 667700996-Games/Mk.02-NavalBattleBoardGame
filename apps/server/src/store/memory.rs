@@ -1212,6 +1212,9 @@ impl GameStore for MemoryStore {
     }
 
     async fn save_room(&self, room: &mut GameRoom) -> Result<(), GameError> {
+        if !room.has_valid_balance_pin() {
+            return Err(GameError::InvalidState);
+        }
         if self
             .rooms
             .get(&room.id)
@@ -1298,6 +1301,7 @@ impl GameStore for MemoryStore {
                         room_id: room.id,
                         room_name: room.name.clone(),
                         self_player_id: player.id,
+                        balance: room.balance.clone(),
                         result,
                     });
                 }
@@ -2002,6 +2006,7 @@ mod tests {
             content_revision: 1,
         });
         room.game = Some(crate::domain::Game {
+            balance: room.balance.clone(),
             boards: HashMap::new(),
             attacks: Vec::new(),
             timeline: Vec::new(),

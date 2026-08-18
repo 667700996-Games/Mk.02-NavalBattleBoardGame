@@ -13,8 +13,8 @@ code-split entry JavaScript and CSS. The current production artifact is:
 
 | Category | Measured bytes | Total budget |
 | --- | ---: | ---: |
-| JavaScript | 340,709 | 341,000 |
-| CSS | 197,747 | 198,000 |
+| JavaScript | 343,826 | 344,000 |
+| CSS | 198,328 | 198,500 |
 | WOFF2 fonts | 505,756 | 1,200,000 |
 | Images | 2,137,055 | 2,200,000 |
 | Audio | 0 | 4,000,000 |
@@ -41,6 +41,15 @@ remains an isolated route entry, now measured at 18,350 JavaScript and 13,473 CS
 19,000 and 14,000 bytes. The landing-to-result runtime ceilings remain 320 KB JavaScript and 185 KB
 CSS; the complete production journey is still measured independently on every device tier.
 
+Immutable balance pins and the manifest-driven board expanded that artifact from 340,709 to 343,826
+JavaScript bytes and from 197,747 to 198,328 CSS bytes. The first presentation candidate measured
+344,445 / 199,361 bytes overall and made `/replay/[roomId]` exceed both route caps at 20,194 / 11,327
+bytes. Reusing the existing panel treatment reduced the route to 19,575 JavaScript and 10,294 CSS
+bytes, so its 20,000 / 10,500 limits remain unchanged. The complete-artifact ceilings admit only the
+measured feature cost at 344,000 / 198,500 bytes. `/stats` remains within its unchanged route cap at
+18,403 / 13,473 bytes. The gameplay journey rose only to 261,414 JavaScript and 146,037 CSS bytes,
+so no runtime transfer or device-tier limit changed.
+
 ## Runtime gate
 
 `npm run test:performance` builds and serves the production adapter, then completes a real practice
@@ -63,9 +72,9 @@ The August 18, 2026 reference run passed all tiers:
 
 | Tier | JS / CSS / fonts | Heap | CPU tasks | Long tasks | Frame p50 / p95 | WebSocket |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| Desktop | 259,738 / 145,971 / 429,840 B | 12.0 MiB | 1,281 ms | 0 ms | 16.7 / 33.4 ms | 55,171 B |
-| Mobile | 259,738 / 145,971 / 429,840 B | 14.1 MiB | 3,253 ms | 0 ms | 16.7 / 17.6 ms | 59,562 B |
-| Low mobile | 259,738 / 145,971 / 429,840 B | 11.4 MiB | 7,271 ms | 0 ms | 16.7 / 17.6 ms | 59,317 B |
+| Desktop | 261,414 / 146,037 / 429,840 B | 13.7 MiB | 1,246 ms | 0 ms | 16.7 / 33.4 ms | 60,392 B |
+| Mobile | 261,414 / 146,037 / 429,840 B | 10.0 MiB | 2,781 ms | 0 ms | 16.7 / 18.5 ms | 69,274 B |
+| Low mobile | 261,414 / 146,037 / 429,840 B | 12.6 MiB | 5,565 ms | 0 ms | 16.7 / 18.6 ms | 64,562 B |
 
 Large translucent surfaces formerly used nested `backdrop-filter` blurs. The reference desktop
 sequence measured 66.7 ms frame p95 before those redundant filters were removed and 33.7 ms in the

@@ -8,9 +8,9 @@
   import { Button, Modal } from '$lib/ui';
   import Vessel from './Vessel.svelte';
   import {
-    FLEET,
     coordinateKey,
     coordinateLabel,
+    fleetForBalance,
     shipName,
     type AttackOutcome,
     type Coordinate,
@@ -54,6 +54,7 @@
   let observedTurnPlayer = '';
 
   let myTurn = $derived(snapshot.currentPlayerId === snapshot.selfPlayerId);
+  let balanceFleet = $derived(fleetForBalance(snapshot.balance.manifest));
   let me = $derived(snapshot.players.find((player) => player.id === snapshot.selfPlayerId));
   let opponent = $derived(snapshot.players.find((player) => player.id !== snapshot.selfPlayerId));
   let serverOffsetMs = $derived(new Date(snapshot.serverTimestamp).getTime() - Date.now());
@@ -271,7 +272,8 @@
       </div>
       <div class="elapsed-clock">
         <small>ELAPSED</small><strong>{formatClock(elapsedSeconds)}</strong><span
-          >TIMEOUT {me?.consecutiveTimeoutCount ?? 0}/3</span
+          >TIMEOUT {me?.consecutiveTimeoutCount ?? 0}/{snapshot.balance.manifest
+            .consecutiveTimeoutForfeit}</span
         >
       </div>
     </div>
@@ -300,7 +302,10 @@
   <span class="sr-only" aria-live="assertive">{timerAnnouncement}</span>
 
   <div class="combat-strip" aria-label="전투 상태 요약">
-    <span><i></i> BATTLESPACE / SECTOR 10×10</span>
+    <span
+      ><i></i> BATTLESPACE / SECTOR {snapshot.balance.manifest.boardSize}×{snapshot.balance.manifest
+        .boardSize}</span
+    >
     <span>ROUND {String(snapshot.turnNumber ?? 0).padStart(2, '0')}</span>
     <span
       >{snapshot.rules.mode}{snapshot.rules.mode === 'SALVO'
@@ -374,6 +379,7 @@
         >
       </div>
       <GridBoard
+        balance={snapshot.balance.manifest}
         mode="own"
         label="아군 함선 방어 보드"
         ownBoard={snapshot.ownBoard}
@@ -399,6 +405,7 @@
         >
       </div>
       <GridBoard
+        balance={snapshot.balance.manifest}
         mode="target"
         label="상대 해역 공격 보드"
         targetBoard={snapshot.targetBoard}
@@ -435,7 +442,7 @@
 
       <div class="enemy-fleet">
         <small>ENEMY FLEET / INTEL STATUS</small>
-        {#each FLEET as ship (ship.kind)}
+        {#each balanceFleet as ship (ship.kind)}
           <div class:sunk={sunkShips.has(ship.kind)}>
             <span>{ship.name}</span><span class="mini-ship"
               ><Vessel

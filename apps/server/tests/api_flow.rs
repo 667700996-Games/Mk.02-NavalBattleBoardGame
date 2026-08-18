@@ -202,6 +202,19 @@ async fn guest_sessions_create_join_and_recover_a_two_player_room() {
     );
     assert_eq!(created["snapshot"]["canStartGame"], false);
     assert_eq!(created["snapshot"]["rules"]["mode"], "SALVO");
+    assert_eq!(created["snapshot"]["balance"]["rulesetVersion"], 1);
+    assert_eq!(
+        created["snapshot"]["balance"]["checksum"],
+        "6e6a17885e5203e30456ec9fe2f6d663541ec6d01df153cf352bac0314aafa76"
+    );
+    assert_eq!(created["snapshot"]["balance"]["manifest"]["boardSize"], 10);
+    assert_eq!(
+        created["snapshot"]["balance"]["manifest"]["fleet"]
+            .as_array()
+            .unwrap()
+            .len(),
+        5
+    );
     assert_eq!(
         created["snapshot"]["room"]["rules"]["turnDurationSeconds"],
         90
@@ -362,6 +375,86 @@ async fn practice_room_is_server_authoritative_and_keeps_the_ai_fleet_private() 
             .iter()
             .find(|player| player["kind"] == "AI")
             .is_some_and(|player| player["placementConfirmed"] == true)
+    );
+}
+
+#[tokio::test]
+async fn completed_history_and_replay_keep_the_original_balance_interpretation() {
+    let store = Arc::new(MemoryStore::default());
+    let app = build_router(AppState::with_store(test_settings(), store.clone()));
+    let (alpha_cookie, _) = create_session(&app, "Balance Alpha").await;
+    let (bravo_cookie, _) = create_session(&app, "Balance Bravo").await;
+    let alpha_token = alpha_cookie.split_once('=').unwrap().1;
+    let bravo_token = bravo_cookie.split_once('=').unwrap().1;
+    let alpha = store
+        .session_by_token_hash(&hash_token(alpha_token))
+        .await
+        .unwrap()
+        .unwrap();
+    let bravo = store
+        .session_by_token_hash(&hash_token(bravo_token))
+        .await
+        .unwrap()
+        .unwrap();
+    let mut room = GameRoom::new(
+        "BAL001".to_string(),
+        "Pinned operation".to_string(),
+        RoomVisibility::Private,
+        &alpha,
+    )
+    .unwrap();
+    room.join(&bravo).unwrap();
+    let alpha_player = room.player_for_session(alpha.id).unwrap().id;
+    let bravo_player = room.player_for_session(bravo.id).unwrap().id;
+    room.set_lobby_ready(alpha.id, uuid::Uuid::new_v4(), alpha_player, true)
+        .unwrap();
+    room.set_lobby_ready(bravo.id, uuid::Uuid::new_v4(), bravo_player, true)
+        .unwrap();
+    room.start_placement(alpha.id, uuid::Uuid::new_v4(), alpha_player, room.version)
+        .unwrap();
+    room.place_ships(alpha.id, fleet(0)).unwrap();
+    room.place_ships(bravo.id, fleet(5)).unwrap();
+    room.confirm_placement(alpha.id, &fleet(0), 60).unwrap();
+    room.confirm_placement(bravo.id, &fleet(5), 60).unwrap();
+    room.surrender(bravo.id, bravo_player).unwrap();
+    let room_id = room.id;
+    store.save_room(&mut room).await.unwrap();
+
+    let history = json_body(
+        send(
+            &app,
+            Request::builder()
+                .uri("/api/games/history")
+                .header(header::COOKIE, &alpha_cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(history["games"][0]["balance"]["rulesetVersion"], 1);
+    assert_eq!(
+        history["games"][0]["balance"]["manifest"]["consecutiveTimeoutForfeit"],
+        3
+    );
+
+    let replay = json_body(
+        send(
+            &app,
+            Request::builder()
+                .uri(format!("/api/games/{room_id}/replay"))
+                .header(header::COOKIE, &alpha_cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(replay["rulesetVersion"], 1);
+    assert_eq!(replay["balance"], history["games"][0]["balance"]);
+    assert_eq!(
+        replay["balance"]["checksum"],
+        "6e6a17885e5203e30456ec9fe2f6d663541ec6d01df153cf352bac0314aafa76"
     );
 }
 

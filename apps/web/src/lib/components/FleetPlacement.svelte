@@ -11,8 +11,9 @@
     validatePlacement
   } from '$lib/game/placement';
   import {
-    FLEET,
+    fleetForBalance,
     shipName,
+    type BalanceManifest,
     type Coordinate,
     type Orientation,
     type ShipKind,
@@ -22,24 +23,32 @@
   import { preferences } from '$lib/stores';
 
   interface Props {
+    balance: BalanceManifest;
     initialPlacement?: ShipPlacement[] | null;
     confirmed?: boolean;
     submitting?: boolean;
     onconfirm: (placements: ShipPlacement[]) => void;
   }
   let {
+    balance,
     initialPlacement = null,
     confirmed = false,
     submitting = false,
     onconfirm
   }: Props = $props();
 
+  let balanceFleet = $derived(fleetForBalance(balance));
+
   let placements = $state<ShipPlacement[]>(
     untrack(() => (initialPlacement ? structuredClone(initialPlacement) : []))
   );
   let selectedKind = $state<ShipKind | null>(
-    FLEET.find((ship) => !placements.some((placement) => placement.kind === ship.kind))?.kind ??
-      'CARRIER'
+    untrack(
+      () =>
+        fleetForBalance(balance).find(
+          (ship) => !placements.some((placement) => placement.kind === ship.kind)
+        )?.kind ?? 'CARRIER'
+    )
   );
   let orientation = $state<Orientation>('HORIZONTAL');
   let hover = $state<Coordinate | null>(null);
@@ -50,9 +59,9 @@
     selectedKind && hover ? { kind: selectedKind, origin: hover, orientation } : null
   );
   let preview = $derived(
-    candidate ? validatePlacement(candidate, placements) : { valid: true, cells: [] }
+    candidate ? validatePlacement(candidate, placements, balance) : { valid: true, cells: [] }
   );
-  let fleet = $derived(validateFleet(placements));
+  let fleet = $derived(validateFleet(placements, balance));
 
   function selectShip(kind: ShipKind) {
     if (confirmed || autoDeploying) return;
@@ -65,7 +74,7 @@
   function place(coordinate: Coordinate) {
     if (!selectedKind || confirmed || autoDeploying) return;
     const next: ShipPlacement = { kind: selectedKind, origin: coordinate, orientation };
-    const validation = validatePlacement(next, placements);
+    const validation = validatePlacement(next, placements, balance);
     if (!validation.valid) {
       notice =
         validation.reason === 'OVERLAP'
@@ -76,8 +85,8 @@
     placements = [...placements.filter((placement) => placement.kind !== selectedKind), next];
     notice = `${shipName(selectedKind)} 배치 완료`;
     selectedKind =
-      FLEET.find((ship) => !placements.some((placement) => placement.kind === ship.kind))?.kind ??
-      selectedKind;
+      balanceFleet.find((ship) => !placements.some((placement) => placement.kind === ship.kind))
+        ?.kind ?? selectedKind;
     if (selectedKind)
       orientation =
         placements.find((placement) => placement.kind === selectedKind)?.orientation ?? orientation;
@@ -92,7 +101,7 @@
       return;
     }
     const rotated = rotatePlacement(existing);
-    const validation = validatePlacement(rotated, placements);
+    const validation = validatePlacement(rotated, placements, balance);
     if (!validation.valid) {
       notice = '현재 위치에서는 회전할 공간이 부족합니다.';
       return;
@@ -106,7 +115,7 @@
 
   async function autoPlace() {
     if (confirmed || autoDeploying) return;
-    const deployed = autoPlaceFleet();
+    const deployed = autoPlaceFleet(Math.random, balance);
     autoDeploying = true;
     placements = [];
     notice = '자동 배치 순서 실행 중…';
@@ -174,6 +183,7 @@
         ><InputPrompt context="placement" compact />
       </div>
       <GridBoard
+        {balance}
         mode="placement"
         label="내 함대 배치 보드"
         {placements}
@@ -197,7 +207,7 @@
         <Grip size={18} />
       </div>
       <div class="fleet-list">
-        {#each FLEET as ship (ship.kind)}
+        {#each balanceFleet as ship (ship.kind)}
           {@const placed = placements.find((placement) => placement.kind === ship.kind)}
           <button
             type="button"

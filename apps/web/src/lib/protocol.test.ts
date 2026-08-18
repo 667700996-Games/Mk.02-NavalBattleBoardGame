@@ -8,6 +8,17 @@ import {
 
 const currentSnapshot = {
   protocolVersion: GAME_PROTOCOL_VERSION,
+  balance: {
+    rulesetVersion: 1,
+    checksum: 'a'.repeat(64),
+    manifest: {
+      schemaVersion: 1,
+      rulesetVersion: 1,
+      boardSize: 10,
+      fleet: [{ kind: 'CARRIER', cells: 5 }],
+      consecutiveTimeoutForfeit: 3
+    }
+  },
   roomId: 'room-id',
   roomState: 'WAITING_FOR_OPPONENT',
   hostPlayerId: 'host-id',
@@ -50,6 +61,25 @@ describe('game protocol compatibility', () => {
         ...currentSnapshot,
         roomState: 'READY_TO_START',
         room: { status: 'WAITING_FOR_READY' }
+      })
+    ).toBe(false);
+  });
+
+  it('rejects snapshots without an intact balance interpretation pin', () => {
+    expect(isCompatibleGameSnapshot({ ...currentSnapshot, balance: undefined })).toBe(false);
+    expect(
+      isCompatibleGameSnapshot({
+        ...currentSnapshot,
+        balance: { ...currentSnapshot.balance, checksum: 'tampered' }
+      })
+    ).toBe(false);
+    expect(
+      isCompatibleGameSnapshot({
+        ...currentSnapshot,
+        balance: {
+          ...currentSnapshot.balance,
+          rulesetVersion: 2
+        }
       })
     ).toBe(false);
   });

@@ -121,6 +121,7 @@ fn finished_ranked_room(first: &UserSession, second: &UserSession, season_id: &s
         content_revision: 0,
     });
     room.game = Some(Game {
+        balance: room.balance.clone(),
         boards: HashMap::new(),
         attacks: Vec::new(),
         timeline: Vec::new(),
@@ -938,6 +939,92 @@ async fn postgres_ranked_leaderboard_uses_authoritative_snapshots_privacy_and_pe
         .await
         .unwrap();
     assert!(verification.ranked_leaderboard_snapshots >= 2);
+}
+
+#[tokio::test]
+async fn postgres_balance_catalog_pins_results_and_rejects_mutation() {
+    let Some((database_url, redis_url)) = integration_urls() else {
+        eprintln!("skipping distributed integration test without TEST_DATABASE_URL/TEST_REDIS_URL");
+        return;
+    };
+    let store = store(&database_url, &redis_url).await;
+    let alpha = session("BalancePgAlpha");
+    let bravo = session("BalancePgBravo");
+    store.save_session(&alpha).await.unwrap();
+    store.save_session(&bravo).await.unwrap();
+    let mut room = GameRoom::new(
+        Uuid::new_v4().simple().to_string()[..6].to_ascii_uppercase(),
+        "Pinned postgres operation".to_string(),
+        RoomVisibility::Private,
+        &alpha,
+    )
+    .unwrap();
+    room.join(&bravo).unwrap();
+    let alpha_player = room.player_for_session(alpha.id).unwrap().id;
+    let bravo_player = room.player_for_session(bravo.id).unwrap().id;
+    room.set_lobby_ready(alpha.id, Uuid::new_v4(), alpha_player, true)
+        .unwrap();
+    room.set_lobby_ready(bravo.id, Uuid::new_v4(), bravo_player, true)
+        .unwrap();
+    room.start_placement(alpha.id, Uuid::new_v4(), alpha_player, room.version)
+        .unwrap();
+    room.place_ships(alpha.id, fleet(0)).unwrap();
+    room.place_ships(bravo.id, fleet(5)).unwrap();
+    room.confirm_placement(alpha.id, &fleet(0), 60).unwrap();
+    room.confirm_placement(bravo.id, &fleet(5), 60).unwrap();
+    room.surrender(bravo.id, bravo_player).unwrap();
+    let room_id = room.id;
+    store.save_room(&mut room).await.unwrap();
+
+    let database = sqlx::PgPool::connect(&database_url).await.unwrap();
+    let room_pin: (i16, String) =
+        sqlx::query_as("SELECT ruleset_version,balance_checksum FROM game_rooms WHERE id=$1")
+            .bind(room_id)
+            .fetch_one(&database)
+            .await
+            .unwrap();
+    let result_pin: (i16, String, serde_json::Value) = sqlx::query_as(
+        "SELECT ruleset_version,balance_checksum,balance_manifest FROM game_results WHERE room_id=$1",
+    )
+    .bind(room_id)
+    .fetch_one(&database)
+    .await
+    .unwrap();
+    assert_eq!(room_pin.0, 1);
+    assert_eq!(room_pin.1.trim(), room.balance.checksum);
+    assert_eq!(result_pin.0, room_pin.0);
+    assert_eq!(result_pin.1.trim(), room_pin.1.trim());
+    assert_eq!(result_pin.2["boardSize"], 10);
+
+    let history = store.history_for_session(alpha.id).await.unwrap();
+    assert_eq!(history[0].balance, room.balance);
+    let persisted = store
+        .room_by_id_authoritative(room_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        persisted.replay_for(alpha.id).unwrap().balance,
+        room.balance
+    );
+
+    let changed_catalog = sqlx::query(
+        "UPDATE balance_rulesets SET change_note='Attempted forbidden rewrite' WHERE version=1",
+    )
+    .execute(&database)
+    .await;
+    assert!(changed_catalog.is_err());
+    let changed_pin = sqlx::query("UPDATE game_rooms SET balance_checksum=$2 WHERE id=$1")
+        .bind(room_id)
+        .bind("0".repeat(64))
+        .execute(&database)
+        .await;
+    assert!(changed_pin.is_err());
+
+    let verification = PostgresRedisStore::verify_database(&database_url)
+        .await
+        .unwrap();
+    assert!(verification.balance_rulesets >= 1);
 }
 
 #[tokio::test]

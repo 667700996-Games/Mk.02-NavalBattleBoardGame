@@ -66,6 +66,26 @@ function replay(
   return {
     protocolVersion: 2,
     rulesetVersion: 1,
+    balance: {
+      rulesetVersion: 1,
+      checksum: '6e6a17885e5203e30456ec9fe2f6d663541ec6d01df153cf352bac0314aafa76',
+      manifest: {
+        schemaVersion: 1,
+        rulesetVersion: 1,
+        label: 'Founders Fleet',
+        boardSize: 10,
+        fleet: [],
+        classicShotsPerTurn: 1,
+        rapidTurnDurationSeconds: 30,
+        maximumTurnDurationSeconds: 300,
+        consecutiveTimeoutForfeit: 3,
+        salvoShotPolicy: 'SURVIVING_SHIPS',
+        turnAdvancePolicy: 'AFTER_SHOT_ALLOWANCE',
+        duplicateTargetPolicy: 'REJECT',
+        victoryCondition: 'SINK_ALL_SHIPS',
+        fleetRevealPolicy: 'MATCH_COMPLETE'
+      }
+    },
     roomId: '00000000-0000-4000-8000-000000000010',
     roomName: 'After action fixture',
     gameId: '00000000-0000-4000-8000-000000000020',

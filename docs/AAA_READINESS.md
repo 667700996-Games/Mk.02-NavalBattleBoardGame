@@ -148,13 +148,13 @@ The program is complete only when all gates below are satisfied in a production-
 - [x] Ranked play has rating, placement matches, seasons, tiers, decay/inactivity policy, and rewards.
 - [x] Match fairness considers rating, latency, region, rematches, and queue time.
 - [x] Leaderboards are abuse-resistant, paginated, privacy-aware, and seasonally archived.
-- [ ] Balance changes are versioned so replays and historical results remain interpretable.
+- [x] Balance changes are versioned so replays and historical results remain interpretable.
 - Evidence: `RANKED_COMPETITION.md` fixes the five-match placement, expected-score rating, tier,
   soft-reset, 14-day/weekly decay, and XP reward policies. Match rooms pin their immutable live
   season; only active seasons accept queues, and season keys prevent cross-season pairing. The
   PostgreSQL result transaction locks both standings, inserts one room settlement marker, updates
   rating projections, and writes unique match/placement/season rewards atomically. Memory/domain/
-  API tests plus a fresh 17-migration PostgreSQL 16 database and the ten-test PostgreSQL/Redis
+  API tests plus a fresh 18-migration PostgreSQL 16 database and the eleven-test PostgreSQL/Redis
   suite prove spoof resistance, idempotent settlement, five placements, rollover rewards, export,
   deletion, restore verification, and mixed-version queue behavior. The stats view exposes the
   active provisional/tier rating and multi-browser E2E covers the player flow.
@@ -175,6 +175,16 @@ The program is complete only when all gates below are satisfied in a production-
   remain filtered until reversal. Memory, API, real PostgreSQL, privacy-export, restore, and
   multi-browser tests cover ordering, cursor bounds, archive immutability, opt-out, and moderation.
   Anonymous counters, a dashboard, volume-gated empty-board alert, and runbook cover live integrity.
+- Evidence: `BALANCE_VERSIONING.md` defines an append-only gameplay catalog distinct from protocol,
+  room, and live-content revisions. Each room pins the full board, fleet, shot, timer, timeout,
+  victory, duplicate-target, and reveal manifest plus its SHA-256; the engine and adaptive web board
+  consume that pin, while snapshots, history, results, and replay retain it. Pre-catalog JSON always
+  becomes V1 rather than the latest default. Unknown or altered active pins fail before execution or
+  persistence. Composite database foreign keys prevent version/checksum reuse, a trigger rejects
+  catalog edits/deletes, and restore verification compares catalog, room, game, and result copies.
+  Domain/API tests, a fresh 18-migration PostgreSQL 16 database, the eleven-test PostgreSQL/Redis
+  suite, and multi-browser full-match replay cover legacy recovery, tampering, immutable history,
+  exact UI interpretation, and rollback-safe retention.
 
 ### C3. Progression and live content
 

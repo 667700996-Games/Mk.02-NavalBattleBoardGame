@@ -59,9 +59,28 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
 
+function isCompatibleBalancePin(value: unknown): boolean {
+  if (!isRecord(value) || !isRecord(value.manifest)) return false;
+  const manifest = value.manifest;
+  return (
+    Number.isInteger(value.rulesetVersion) &&
+    value.rulesetVersion === manifest.rulesetVersion &&
+    typeof value.checksum === 'string' &&
+    /^[0-9a-f]{64}$/.test(value.checksum) &&
+    manifest.schemaVersion === 1 &&
+    Number.isInteger(manifest.boardSize) &&
+    Number(manifest.boardSize) >= 5 &&
+    Number(manifest.boardSize) <= 20 &&
+    Array.isArray(manifest.fleet) &&
+    manifest.fleet.length > 0 &&
+    Number.isInteger(manifest.consecutiveTimeoutForfeit)
+  );
+}
+
 export function isCompatibleGameSnapshot(value: unknown): value is GameSnapshot {
   if (!isRecord(value) || value.protocolVersion !== GAME_PROTOCOL_VERSION) return false;
   if (!isRecord(value.room) || !ROOM_STATES.has(value.room.status as RoomStatus)) return false;
+  if (!isCompatibleBalancePin(value.balance)) return false;
 
   return (
     typeof value.roomId === 'string' &&

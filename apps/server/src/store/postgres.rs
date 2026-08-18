@@ -8,16 +8,16 @@ use uuid::Uuid;
 
 use crate::{
     domain::{
-        AccountSession, ActivePenalty, ChatMessageType, GameRoom, IntegritySignal,
-        IntegritySignalKind, IntegritySignalPage, LiveContentRevision, MatchmakingCriteria,
-        MatchmakingPool, MatchmakingRegion, ModerationAction, ModerationActionKind, ModerationCase,
-        ModerationCasePage, NewIntegritySignal, NewModerationAction, NewPlayerReport,
-        PlayerAccount, PlayerReport, RANKED_LEADERBOARD_MAX_LIMIT,
-        RECENT_OPPONENT_LOOKBACK_MINUTES, RankedLeaderboardEntry, RankedLeaderboardPage,
-        RankedLeaderboardSeason, RankedProfile, RankedStandingRecord, RankedTier, ReportCategory,
-        ReportStatus, RoomStatus, RoomSummary, SocialRelationship, UserSession,
-        matchmaking_quality, next_season_seed, ranked_match_reward_xp, ranked_placement_reward_xp,
-        ranked_season_key,
+        AccountSession, ActivePenalty, BalanceManifest, BalancePin, ChatMessageType, GameRoom,
+        IntegritySignal, IntegritySignalKind, IntegritySignalPage, LiveContentRevision,
+        MatchmakingCriteria, MatchmakingPool, MatchmakingRegion, ModerationAction,
+        ModerationActionKind, ModerationCase, ModerationCasePage, NewIntegritySignal,
+        NewModerationAction, NewPlayerReport, PlayerAccount, PlayerReport,
+        RANKED_LEADERBOARD_MAX_LIMIT, RECENT_OPPONENT_LOOKBACK_MINUTES, RankedLeaderboardEntry,
+        RankedLeaderboardPage, RankedLeaderboardSeason, RankedProfile, RankedStandingRecord,
+        RankedTier, ReportCategory, ReportStatus, RoomStatus, RoomSummary, SocialRelationship,
+        UserSession, matchmaking_quality, next_season_seed, ranked_match_reward_xp,
+        ranked_placement_reward_xp, ranked_season_key,
     },
     error::GameError,
 };
@@ -39,6 +39,52 @@ fn decode_live_content(value: serde_json::Value) -> Result<LiveContentRevision, 
     })
 }
 
+fn decode_balance_pin(
+    version: i16,
+    checksum: &str,
+    manifest: serde_json::Value,
+) -> Result<BalancePin, GameError> {
+    let manifest: BalanceManifest = serde_json::from_value(manifest).map_err(|error| {
+        tracing::error!(%error, "stored balance manifest is invalid");
+        GameError::Internal
+    })?;
+    let pin = BalancePin {
+        ruleset_version: u16::try_from(version).map_err(|_| GameError::Internal)?,
+        checksum: checksum.trim().to_string(),
+        manifest,
+    };
+    if !pin.has_valid_integrity() {
+        tracing::error!(
+            ruleset_version = version,
+            "stored balance pin failed integrity validation"
+        );
+        return Err(GameError::Internal);
+    }
+    Ok(pin)
+}
+
+fn decode_room_snapshot(
+    snapshot: serde_json::Value,
+    revision: i64,
+    ruleset_version: i16,
+    balance_checksum: &str,
+) -> Result<GameRoom, GameError> {
+    let mut room: GameRoom = serde_json::from_value(snapshot).map_err(|error| {
+        tracing::error!(%error, "stored room snapshot is invalid");
+        GameError::Internal
+    })?;
+    room.persistence_revision = revision.max(0) as u64;
+    if room.balance.ruleset_version
+        != u16::try_from(ruleset_version).map_err(|_| GameError::Internal)?
+        || room.balance.checksum != balance_checksum.trim()
+        || !room.has_valid_balance_pin()
+    {
+        tracing::error!(room_id = %room.id, "stored room balance pin disagrees with its index");
+        return Err(GameError::Internal);
+    }
+    Ok(room)
+}
+
 #[derive(Clone)]
 pub struct PostgresRedisStore {
     pool: PgPool,
@@ -58,6 +104,7 @@ pub struct DatabaseVerification {
     pub ranked_settlements: i64,
     pub ranked_rewards: i64,
     pub ranked_leaderboard_snapshots: i64,
+    pub balance_rulesets: i64,
     pub privacy_requests: i64,
     pub deletion_tombstones: i64,
     pub live_content_revisions: i64,
@@ -413,14 +460,59 @@ impl PostgresRedisStore {
         let migrations_applied: i64 = sqlx::query_scalar("SELECT count(*) FROM _sqlx_migrations")
             .fetch_one(&pool)
             .await?;
-        let snapshots: Vec<(serde_json::Value, i64)> =
-            sqlx::query_as("SELECT snapshot,persistence_revision FROM game_rooms")
-                .fetch_all(&pool)
-                .await?;
-        for (snapshot, revision) in &snapshots {
-            let room: GameRoom =
-                serde_json::from_value(snapshot.clone()).map_err(|_| GameError::Internal)?;
-            if room.persistence_revision != (*revision).max(0) as u64 {
+        let balance_rows: Vec<(i16, String, serde_json::Value)> = sqlx::query_as(
+            "SELECT version,checksum,manifest FROM balance_rulesets ORDER BY version",
+        )
+        .fetch_all(&pool)
+        .await?;
+        for (version, checksum, manifest) in &balance_rows {
+            decode_balance_pin(*version, checksum, manifest.clone())?;
+        }
+        let snapshots: Vec<(serde_json::Value, i64, i16, String)> = sqlx::query_as(
+            "SELECT snapshot,persistence_revision,ruleset_version,balance_checksum FROM game_rooms",
+        )
+        .fetch_all(&pool)
+        .await?;
+        for (snapshot, revision, ruleset_version, balance_checksum) in &snapshots {
+            decode_room_snapshot(
+                snapshot.clone(),
+                *revision,
+                *ruleset_version,
+                balance_checksum,
+            )?;
+        }
+        let result_balance_rows: Vec<(Uuid, i16, String, serde_json::Value, i16, String)> =
+            sqlx::query_as(
+                "SELECT result.room_id,result.ruleset_version,result.balance_checksum,result.balance_manifest,room.ruleset_version,room.balance_checksum FROM game_results result JOIN game_rooms room ON room.id=result.room_id",
+            )
+            .fetch_all(&pool)
+            .await?;
+        for (
+            room_id,
+            result_version,
+            result_checksum,
+            result_manifest,
+            room_version,
+            room_checksum,
+        ) in result_balance_rows
+        {
+            let pin = decode_balance_pin(result_version, &result_checksum, result_manifest)?;
+            let catalog_pin = balance_rows
+                .iter()
+                .find(|(version, checksum, _)| {
+                    *version == result_version && checksum.trim() == result_checksum.trim()
+                })
+                .map(|(version, checksum, manifest)| {
+                    decode_balance_pin(*version, checksum, manifest.clone())
+                })
+                .transpose()?
+                .ok_or(GameError::Internal)?;
+            if result_version != room_version
+                || result_checksum.trim() != room_checksum.trim()
+                || pin.checksum != room_checksum.trim()
+                || pin != catalog_pin
+            {
+                tracing::error!(%room_id, "result and room balance pins disagree");
                 return Err(GameError::Internal);
             }
         }
@@ -503,6 +595,8 @@ impl PostgresRedisStore {
             sqlx::query_scalar("SELECT count(*) FROM ranked_leaderboard_snapshots")
                 .fetch_one(&pool)
                 .await?;
+        let balance_rulesets =
+            i64::try_from(balance_rows.len()).map_err(|_| GameError::Internal)?;
         let privacy_requests: i64 = sqlx::query_scalar("SELECT count(*) FROM privacy_requests")
             .fetch_one(&pool)
             .await?;
@@ -530,6 +624,7 @@ impl PostgresRedisStore {
             ranked_settlements,
             ranked_rewards,
             ranked_leaderboard_snapshots,
+            balance_rulesets,
             privacy_requests,
             deletion_tombstones,
             live_content_revisions,
@@ -719,16 +814,14 @@ impl PostgresRedisStore {
     }
 
     async fn room_by_id_from_database(&self, id: Uuid) -> Result<Option<GameRoom>, GameError> {
-        let row: Option<(serde_json::Value, i64)> =
-            sqlx::query_as("SELECT snapshot, persistence_revision FROM game_rooms WHERE id=$1")
-                .bind(id)
-                .fetch_optional(&self.pool)
-                .await?;
-        row.map(|(snapshot, revision)| {
-            let mut room: GameRoom =
-                serde_json::from_value(snapshot).map_err(|_| GameError::Internal)?;
-            room.persistence_revision = revision.max(0) as u64;
-            Ok(room)
+        let row: Option<(serde_json::Value, i64, i16, String)> = sqlx::query_as(
+            "SELECT snapshot,persistence_revision,ruleset_version,balance_checksum FROM game_rooms WHERE id=$1",
+        )
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await?;
+        row.map(|(snapshot, revision, ruleset_version, balance_checksum)| {
+            decode_room_snapshot(snapshot, revision, ruleset_version, &balance_checksum)
         })
         .transpose()
     }
@@ -738,6 +831,9 @@ impl PostgresRedisStore {
         room: &mut GameRoom,
         lease: Option<RoomAuthorityLease>,
     ) -> Result<(), GameError> {
+        if !room.has_valid_balance_pin() {
+            return Err(GameError::InvalidState);
+        }
         let expected_revision =
             i64::try_from(room.persistence_revision).map_err(|_| GameError::Internal)?;
         let next_revision = expected_revision
@@ -757,11 +853,13 @@ impl PostgresRedisStore {
             .unwrap_or("PRIVATE")
             .to_string();
         let mut transaction = self.pool.begin().await?;
+        let ruleset_version =
+            i16::try_from(room.balance.ruleset_version).map_err(|_| GameError::Internal)?;
         let result = if let Some(lease) = lease {
             let fencing_token =
                 i64::try_from(lease.fencing_token).map_err(|_| GameError::Internal)?;
             sqlx::query(
-                "UPDATE game_rooms SET code=$2, name=$3, visibility=$4, status=$5, snapshot=$6, created_at=$7, updated_at=$8, persistence_revision=$9, authority_owner_id=NULL, authority_lease_expires_at=NULL WHERE id=$1 AND persistence_revision=$10 AND authority_owner_id=$11 AND authority_fencing_token=$12 AND authority_lease_expires_at > now()",
+                "UPDATE game_rooms SET code=$2, name=$3, visibility=$4, status=$5, snapshot=$6, created_at=$7, updated_at=$8, persistence_revision=$9, authority_owner_id=NULL, authority_lease_expires_at=NULL, ruleset_version=$13, balance_checksum=$14 WHERE id=$1 AND persistence_revision=$10 AND authority_owner_id=$11 AND authority_fencing_token=$12 AND authority_lease_expires_at > now()",
             )
             .bind(room.id)
             .bind(&room.code)
@@ -775,11 +873,13 @@ impl PostgresRedisStore {
             .bind(expected_revision)
             .bind(lease.owner_instance_id)
             .bind(fencing_token)
+            .bind(ruleset_version)
+            .bind(&room.balance.checksum)
             .execute(&mut *transaction)
             .await?
         } else {
             sqlx::query(
-                "INSERT INTO game_rooms (id, code, name, visibility, status, snapshot, created_at, updated_at, persistence_revision) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (id) DO UPDATE SET name=$3, visibility=$4, status=$5, snapshot=$6, updated_at=$8, persistence_revision=$9 WHERE game_rooms.persistence_revision=$10 AND game_rooms.authority_owner_id IS NULL",
+                "INSERT INTO game_rooms (id,code,name,visibility,status,snapshot,created_at,updated_at,persistence_revision,ruleset_version,balance_checksum) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$11,$12) ON CONFLICT (id) DO UPDATE SET name=$3,visibility=$4,status=$5,snapshot=$6,updated_at=$8,persistence_revision=$9,ruleset_version=$11,balance_checksum=$12 WHERE game_rooms.persistence_revision=$10 AND game_rooms.authority_owner_id IS NULL",
             )
             .bind(room.id)
             .bind(&room.code)
@@ -791,6 +891,8 @@ impl PostgresRedisStore {
             .bind(room.updated_at)
             .bind(next_revision)
             .bind(expected_revision)
+            .bind(ruleset_version)
+            .bind(&room.balance.checksum)
             .execute(&mut *transaction)
             .await?
         };
@@ -813,8 +915,10 @@ impl PostgresRedisStore {
                 .filter_map(|(_, account_id)| *account_id)
                 .collect();
             let result_json = serde_json::to_value(result).map_err(|_| GameError::Internal)?;
+            let balance_manifest =
+                serde_json::to_value(&room.balance.manifest).map_err(|_| GameError::Internal)?;
             sqlx::query(
-                "INSERT INTO game_results (room_id, room_name, participant_session_ids, participant_account_ids, result, finished_at) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (room_id) DO UPDATE SET participant_account_ids=$4, result=$5, finished_at=$6",
+                "INSERT INTO game_results (room_id,room_name,participant_session_ids,participant_account_ids,result,finished_at,ruleset_version,balance_checksum,balance_manifest) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (room_id) DO UPDATE SET participant_account_ids=$4,result=$5,finished_at=$6,ruleset_version=$7,balance_checksum=$8,balance_manifest=$9",
             )
             .bind(room.id)
             .bind(&room.name)
@@ -822,6 +926,9 @@ impl PostgresRedisStore {
             .bind(participant_account_ids)
             .bind(result_json)
             .bind(result.finished_at)
+            .bind(ruleset_version)
+            .bind(&room.balance.checksum)
+            .bind(balance_manifest)
             .execute(&mut *transaction)
             .await?;
             for player in &room.players {
@@ -1189,8 +1296,8 @@ impl GameStore for PostgresRedisStore {
             .collect();
         let mut identities = session_ids.clone();
         identities.push(account_id);
-        let room_rows: Vec<(Uuid, serde_json::Value)> = sqlx::query_as(
-            "SELECT id,snapshot FROM game_rooms room WHERE id=ANY($2) OR EXISTS (SELECT 1 FROM jsonb_array_elements(room.snapshot->'players') player WHERE (player->>'sessionId')::uuid=ANY($1)) FOR UPDATE",
+        let room_rows: Vec<(Uuid, serde_json::Value, i64, i16, String)> = sqlx::query_as(
+            "SELECT id,snapshot,persistence_revision,ruleset_version,balance_checksum FROM game_rooms room WHERE id=ANY($2) OR EXISTS (SELECT 1 FROM jsonb_array_elements(room.snapshot->'players') player WHERE (player->>'sessionId')::uuid=ANY($1)) FOR UPDATE",
         )
         .bind(&session_ids)
         .bind(known_room_ids)
@@ -1201,9 +1308,9 @@ impl GameStore for PostgresRedisStore {
             replacement_session_ids.push((*old_session_id, Uuid::new_v4()));
         }
         let mut affected_room_ids = Vec::with_capacity(room_rows.len());
-        for (room_id, snapshot) in room_rows {
-            let mut room: GameRoom =
-                serde_json::from_value(snapshot).map_err(|_| GameError::Internal)?;
+        for (room_id, snapshot, revision, ruleset_version, balance_checksum) in room_rows {
+            let mut room =
+                decode_room_snapshot(snapshot, revision, ruleset_version, &balance_checksum)?;
             let deleted_player_ids: Vec<_> = room
                 .players
                 .iter()
@@ -1425,17 +1532,15 @@ impl GameStore for PostgresRedisStore {
     }
 
     async fn room_by_code(&self, code: &str) -> Result<Option<GameRoom>, GameError> {
-        let row: Option<(serde_json::Value, i64)> =
-            sqlx::query_as("SELECT snapshot, persistence_revision FROM game_rooms WHERE code=$1")
-                .bind(code)
-                .fetch_optional(&self.pool)
-                .await?;
+        let row: Option<(serde_json::Value, i64, i16, String)> = sqlx::query_as(
+            "SELECT snapshot,persistence_revision,ruleset_version,balance_checksum FROM game_rooms WHERE code=$1",
+        )
+        .bind(code)
+        .fetch_optional(&self.pool)
+        .await?;
         let room = row
-            .map(|(snapshot, revision)| {
-                let mut room: GameRoom =
-                    serde_json::from_value(snapshot).map_err(|_| GameError::Internal)?;
-                room.persistence_revision = revision.max(0) as u64;
-                Ok::<GameRoom, GameError>(room)
+            .map(|(snapshot, revision, ruleset_version, balance_checksum)| {
+                decode_room_snapshot(snapshot, revision, ruleset_version, &balance_checksum)
             })
             .transpose()?;
         if let Some(room) = &room {
@@ -1445,32 +1550,28 @@ impl GameStore for PostgresRedisStore {
     }
 
     async fn active_rooms(&self) -> Result<Vec<GameRoom>, GameError> {
-        let snapshots: Vec<(serde_json::Value, i64)> = sqlx::query_as(
-            "SELECT snapshot, persistence_revision FROM game_rooms WHERE status NOT IN ('FINISHED', 'CANCELLED')",
+        let snapshots: Vec<(serde_json::Value, i64, i16, String)> = sqlx::query_as(
+            "SELECT snapshot,persistence_revision,ruleset_version,balance_checksum FROM game_rooms WHERE status NOT IN ('FINISHED', 'CANCELLED')",
         )
         .fetch_all(&self.pool)
         .await?;
         snapshots
             .into_iter()
-            .map(|(value, revision)| {
-                let mut room: GameRoom =
-                    serde_json::from_value(value).map_err(|_| GameError::Internal)?;
-                room.persistence_revision = revision.max(0) as u64;
-                Ok(room)
+            .map(|(value, revision, ruleset_version, balance_checksum)| {
+                decode_room_snapshot(value, revision, ruleset_version, &balance_checksum)
             })
             .collect()
     }
 
     async fn list_public_rooms(&self) -> Result<Vec<RoomSummary>, GameError> {
-        let snapshots: Vec<serde_json::Value> = sqlx::query_scalar(
-            "SELECT snapshot FROM game_rooms WHERE visibility='PUBLIC' AND status='WAITING_FOR_OPPONENT' ORDER BY created_at DESC LIMIT 100"
+        let snapshots: Vec<(serde_json::Value, i64, i16, String)> = sqlx::query_as(
+            "SELECT snapshot,persistence_revision,ruleset_version,balance_checksum FROM game_rooms WHERE visibility='PUBLIC' AND status='WAITING_FOR_OPPONENT' ORDER BY created_at DESC LIMIT 100"
         ).fetch_all(&self.pool).await?;
         snapshots
             .into_iter()
-            .map(|value| {
-                serde_json::from_value::<GameRoom>(value)
+            .map(|(value, revision, ruleset_version, balance_checksum)| {
+                decode_room_snapshot(value, revision, ruleset_version, &balance_checksum)
                     .map(|room| room.summary())
-                    .map_err(|_| GameError::Internal)
             })
             .collect()
     }
@@ -1479,19 +1580,23 @@ impl GameStore for PostgresRedisStore {
         &self,
         session_id: Uuid,
     ) -> Result<Vec<GameHistoryItem>, GameError> {
-        let rows: Vec<(Uuid, String, serde_json::Value, Uuid)> = sqlx::query_as(
-            "WITH identity AS (SELECT account_id FROM user_sessions WHERE id=$1) SELECT results.room_id, results.room_name, results.result, participants.player_id FROM game_results results JOIN game_result_participants participants ON participants.room_id=results.room_id WHERE participants.session_id=$1 OR ((SELECT account_id FROM identity) IS NOT NULL AND participants.account_id=(SELECT account_id FROM identity)) ORDER BY results.finished_at DESC LIMIT 5000"
+        let rows: Vec<(Uuid, String, serde_json::Value, Uuid, i16, String, serde_json::Value)> = sqlx::query_as(
+            "WITH identity AS (SELECT account_id FROM user_sessions WHERE id=$1) SELECT results.room_id,results.room_name,results.result,participants.player_id,results.ruleset_version,results.balance_checksum,results.balance_manifest FROM game_results results JOIN game_result_participants participants ON participants.room_id=results.room_id WHERE participants.session_id=$1 OR ((SELECT account_id FROM identity) IS NOT NULL AND participants.account_id=(SELECT account_id FROM identity)) ORDER BY results.finished_at DESC LIMIT 5000"
         ).bind(session_id).fetch_all(&self.pool).await?;
         rows.into_iter()
-            .map(|(room_id, room_name, value, self_player_id)| {
-                let result = serde_json::from_value(value).map_err(|_| GameError::Internal)?;
-                Ok(GameHistoryItem {
-                    room_id,
-                    room_name,
-                    self_player_id,
-                    result,
-                })
-            })
+            .map(
+                |(room_id, room_name, value, self_player_id, version, checksum, manifest)| {
+                    let result = serde_json::from_value(value).map_err(|_| GameError::Internal)?;
+                    let balance = decode_balance_pin(version, &checksum, manifest)?;
+                    Ok(GameHistoryItem {
+                        room_id,
+                        room_name,
+                        self_player_id,
+                        balance,
+                        result,
+                    })
+                },
+            )
             .collect()
     }
 
@@ -1810,6 +1915,9 @@ impl GameStore for PostgresRedisStore {
         claim_id: Uuid,
         room: &mut GameRoom,
     ) -> Result<(), GameError> {
+        if !room.has_valid_balance_pin() || !room.balance.is_registered_for_execution() {
+            return Err(GameError::InvalidState);
+        }
         let mut transaction = self.pool.begin().await?;
         let mut claimed_session_ids: Vec<Uuid> = sqlx::query_scalar(
             "SELECT session_id FROM matchmaking_queue WHERE claim_id=$1 ORDER BY session_id FOR UPDATE",
@@ -1845,7 +1953,7 @@ impl GameStore for PostgresRedisStore {
             .unwrap_or("PRIVATE")
             .to_string();
         let inserted = sqlx::query(
-            "INSERT INTO game_rooms (id, code, name, visibility, status, snapshot, created_at, updated_at, persistence_revision) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,1) ON CONFLICT (id) DO NOTHING",
+            "INSERT INTO game_rooms (id,code,name,visibility,status,snapshot,created_at,updated_at,persistence_revision,ruleset_version,balance_checksum) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,1,$9,$10) ON CONFLICT (id) DO NOTHING",
         )
         .bind(room.id)
         .bind(&room.code)
@@ -1855,6 +1963,8 @@ impl GameStore for PostgresRedisStore {
         .bind(snapshot)
         .bind(room.created_at)
         .bind(room.updated_at)
+        .bind(i16::try_from(room.balance.ruleset_version).map_err(|_| GameError::Internal)?)
+        .bind(&room.balance.checksum)
         .execute(&mut *transaction)
         .await?;
         if inserted.rows_affected() != 1 {

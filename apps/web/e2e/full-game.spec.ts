@@ -213,6 +213,12 @@ test('two isolated browser sessions complete a secure game and recover after ref
 
   await first.getByRole('link', { name: '전투 복기' }).click();
   await expect(first.getByRole('heading', { name: '전투 복기' })).toBeVisible();
+  await expect(first.getByRole('heading', { name: '검증된 밸런스 기록' })).toBeVisible();
+  await expect(first.getByText('RULESET V1 · PIN VERIFIED')).toBeVisible();
+  await expect(
+    first.getByText('SHA-256 6e6a17885e5203e30456ec9fe2f6d663541ec6d01df153cf352bac0314aafa76')
+  ).toBeVisible();
+  await expect(first.getByText(/항공모함 5칸/)).toBeVisible();
   const replayUrl = first.url();
   const copyReplayLink = first.getByRole('button', { name: '복기 링크 복사' });
   await expect(copyReplayLink).toBeVisible();
@@ -241,6 +247,7 @@ test('two isolated browser sessions complete a secure game and recover after ref
   await expect(first.getByRole('heading', { name: '전투 기록' })).toBeVisible();
   await expect(first.getByRole('region', { name: '현재 시즌 및 이벤트' })).toBeVisible();
   await expect(first.getByRole('heading', { name: '창립 함대 시즌' })).toBeVisible();
+  await expect(first.getByText(/RULESET V1/).first()).toBeVisible();
   await expectNoHorizontalOverflow(first);
 
   await firstContext.close();

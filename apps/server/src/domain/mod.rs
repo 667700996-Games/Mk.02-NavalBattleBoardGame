@@ -1,3 +1,4 @@
+mod balance;
 mod board;
 mod chat;
 mod game;
@@ -10,6 +11,7 @@ mod room;
 mod session;
 mod social;
 
+pub use balance::*;
 pub use board::*;
 pub use chat::*;
 pub use game::*;
@@ -35,7 +37,15 @@ pub struct Coordinate {
 
 impl Coordinate {
     pub fn new(row: u8, col: u8) -> Result<Self, crate::error::GameError> {
-        if row >= BOARD_SIZE || col >= BOARD_SIZE {
+        Self::new_for_board(row, col, BOARD_SIZE)
+    }
+
+    pub fn new_for_board(
+        row: u8,
+        col: u8,
+        board_size: u8,
+    ) -> Result<Self, crate::error::GameError> {
+        if row >= board_size || col >= board_size {
             return Err(crate::error::GameError::InvalidCoordinate);
         }
         Ok(Self { row, col })

@@ -400,6 +400,7 @@
         </section>
       {:else}
         <FleetPlacement
+          balance={snapshot.balance.manifest}
           initialPlacement={snapshot.placement}
           confirmed={selfPlayer?.placementConfirmed}
           submitting={placementSubmitting}

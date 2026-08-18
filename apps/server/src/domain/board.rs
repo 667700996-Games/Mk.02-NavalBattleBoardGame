@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::GameError;
 
-use super::{BOARD_SIZE, Coordinate};
+use super::{BOARD_SIZE, BalanceManifest, BalancePin, Coordinate};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
@@ -52,13 +52,20 @@ pub struct ShipPlacement {
 
 impl ShipPlacement {
     pub fn cells(&self) -> Result<Vec<Coordinate>, GameError> {
-        let mut cells = Vec::with_capacity(self.kind.size() as usize);
-        for offset in 0..self.kind.size() {
+        self.cells_for(&BalancePin::current().manifest)
+    }
+
+    pub fn cells_for(&self, balance: &BalanceManifest) -> Result<Vec<Coordinate>, GameError> {
+        let size = balance
+            .ship_cells(self.kind)
+            .ok_or(GameError::InvalidFleetComposition)?;
+        let mut cells = Vec::with_capacity(size as usize);
+        for offset in 0..size {
             let (row, col) = match self.orientation {
                 Orientation::Horizontal => (self.origin.row, self.origin.col + offset),
                 Orientation::Vertical => (self.origin.row + offset, self.origin.col),
             };
-            if row >= BOARD_SIZE || col >= BOARD_SIZE {
+            if row >= balance.board_size || col >= balance.board_size {
                 return Err(GameError::PlacementOutOfBounds);
             }
             cells.push(Coordinate { row, col });
@@ -89,11 +96,23 @@ pub enum AttackOutcome {
     Sunk,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Board {
+    #[serde(default = "default_board_size")]
+    board_size: u8,
     ships: Vec<Ship>,
     attacks_received: Vec<ReceivedAttack>,
+}
+
+impl Default for Board {
+    fn default() -> Self {
+        Self {
+            board_size: BOARD_SIZE,
+            ships: Vec::new(),
+            attacks_received: Vec::new(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -112,13 +131,20 @@ pub struct BoardAttackResult {
 
 impl Board {
     pub fn from_placements(placements: &[ShipPlacement]) -> Result<Self, GameError> {
-        if placements.len() != ShipKind::ALL.len() {
+        Self::from_placements_for(placements, &BalancePin::current().manifest)
+    }
+
+    pub fn from_placements_for(
+        placements: &[ShipPlacement],
+        balance: &BalanceManifest,
+    ) -> Result<Self, GameError> {
+        if !balance.has_valid_shape() || placements.len() != balance.fleet.len() {
             return Err(GameError::IncompleteFleet);
         }
 
         let kinds: HashSet<_> = placements.iter().map(|ship| ship.kind).collect();
-        if kinds.len() != ShipKind::ALL.len()
-            || !ShipKind::ALL.iter().all(|kind| kinds.contains(kind))
+        if kinds.len() != balance.fleet.len()
+            || !balance.fleet.iter().all(|ship| kinds.contains(&ship.kind))
         {
             return Err(GameError::InvalidFleetComposition);
         }
@@ -126,7 +152,7 @@ impl Board {
         let mut occupied = HashSet::new();
         let mut ships = Vec::with_capacity(placements.len());
         for placement in placements {
-            let cells = placement.cells()?;
+            let cells = placement.cells_for(balance)?;
             if cells.iter().any(|cell| !occupied.insert(*cell)) {
                 return Err(GameError::ShipsOverlap);
             }
@@ -138,13 +164,14 @@ impl Board {
         }
 
         Ok(Self {
+            board_size: balance.board_size,
             ships,
             attacks_received: Vec::new(),
         })
     }
 
     pub fn attack(&mut self, coordinate: Coordinate) -> Result<BoardAttackResult, GameError> {
-        Coordinate::new(coordinate.row, coordinate.col)?;
+        Coordinate::new_for_board(coordinate.row, coordinate.col, self.board_size)?;
         if self
             .attacks_received
             .iter()
@@ -189,6 +216,10 @@ impl Board {
     }
 }
 
+const fn default_board_size() -> u8 {
+    BOARD_SIZE
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -230,6 +261,38 @@ mod tests {
         assert_eq!(
             board.ships().iter().map(|s| s.cells.len()).sum::<usize>(),
             17
+        );
+    }
+
+    #[test]
+    fn a_self_contained_manifest_controls_board_and_ship_dimensions() {
+        let mut balance = BalanceManifest::v1();
+        balance.board_size = 8;
+        balance.fleet[0].cells = 4;
+        let placements = [
+            (ShipKind::Carrier, 0),
+            (ShipKind::Battleship, 1),
+            (ShipKind::Cruiser, 2),
+            (ShipKind::Submarine, 3),
+            (ShipKind::Destroyer, 4),
+        ]
+        .map(|(kind, row)| ShipPlacement {
+            kind,
+            origin: Coordinate { row, col: 0 },
+            orientation: Orientation::Horizontal,
+        });
+        let mut board = Board::from_placements_for(&placements, &balance).unwrap();
+        assert_eq!(
+            board
+                .ships()
+                .iter()
+                .map(|ship| ship.cells.len())
+                .sum::<usize>(),
+            16
+        );
+        assert_eq!(
+            board.attack(Coordinate { row: 8, col: 0 }).unwrap_err(),
+            GameError::InvalidCoordinate
         );
     }
 

@@ -3,11 +3,11 @@
   import { cellsForPlacement } from '$lib/game/placement';
   import Vessel from './Vessel.svelte';
   import {
-    ROW_LABELS,
     coordinateKey,
     coordinateLabel,
     shipName,
     type AttackOutcome,
+    type BalanceManifest,
     type Coordinate,
     type OwnBoardSnapshot,
     type ShipKind,
@@ -16,6 +16,7 @@
   } from '$lib/types';
 
   interface Props {
+    balance?: BalanceManifest | null;
     mode: 'placement' | 'own' | 'target';
     label: string;
     placements?: ShipPlacement[];
@@ -35,6 +36,7 @@
   }
 
   let {
+    balance = null,
     mode,
     label,
     placements = [],
@@ -56,14 +58,17 @@
   let hovered = $state<Coordinate | null>(null);
   let activeCell = $state('0:0');
 
-  const grid = Array.from({ length: 10 }, (_, row) =>
-    Array.from({ length: 10 }, (_, col) => ({ row, col }))
+  let boardSize = $derived(balance?.boardSize ?? 10);
+  let grid = $derived(
+    Array.from({ length: boardSize }, (_, row) =>
+      Array.from({ length: boardSize }, (_, col) => ({ row, col }))
+    )
   );
 
   function placementKind(coordinate: Coordinate): ShipKind | null {
     return (
       placements.find((placement) =>
-        cellsForPlacement(placement).some(
+        cellsForPlacement(placement, balance).some(
           (cell) => cell.row === coordinate.row && cell.col === coordinate.col
         )
       )?.kind ?? null
@@ -95,7 +100,7 @@
   let vessels = $derived.by(() => {
     if (mode === 'placement') {
       return placements.map((placement) => {
-        const cells = cellsForPlacement(placement);
+        const cells = cellsForPlacement(placement, balance);
         return {
           kind: placement.kind,
           row: Math.min(...cells.map((cell) => cell.row)),
@@ -159,7 +164,7 @@
       row: coordinate.row + direction.row,
       col: coordinate.col + direction.col
     };
-    while (next.row >= 0 && next.row <= 9 && next.col >= 0 && next.col <= 9) {
+    while (next.row >= 0 && next.row < boardSize && next.col >= 0 && next.col < boardSize) {
       const key = coordinateKey(next);
       const cell = board?.querySelector<HTMLButtonElement>(`[data-cell="${key}"]`);
       if (cell && !cell.disabled) {
@@ -180,6 +185,10 @@
     if (mode === 'target' && !attack) parts.push('미공격 좌표');
     return parts.join(', ');
   }
+
+  function rowLabel(index: number): string {
+    return index >= 0 && index < 26 ? String.fromCharCode('A'.charCodeAt(0) + index) : '?';
+  }
 </script>
 
 <div
@@ -193,6 +202,7 @@
   >
   <div
     class="board-grid"
+    style={`--board-size:${boardSize}`}
     role="grid"
     tabindex={interactive && !disabled ? undefined : 0}
     aria-label={label}
@@ -203,7 +213,7 @@
   >
     <div class="board-row" role="row" aria-hidden="true">
       <span class="axis axis--corner"><Crosshair size={10} /></span>
-      {#each Array.from({ length: 10 }) as _, col (col)}
+      {#each Array.from({ length: boardSize }) as _, col (col)}
         <span class="axis axis--col">{col + 1}</span>
       {/each}
     </div>
@@ -236,7 +246,7 @@
     </div>
     {#each grid as row, rowIndex (rowIndex)}
       <div class="board-row" role="row">
-        <span class="axis axis--row" aria-hidden="true">{ROW_LABELS[rowIndex]}</span>
+        <span class="axis axis--row" aria-hidden="true">{rowLabel(rowIndex)}</span>
         {#each row as coordinate (coordinateKey(coordinate))}
           {@const attack = attackAt(coordinate)}
           {@const kind = mode === 'placement' ? placementKind(coordinate) : ownShipKind(coordinate)}
@@ -350,8 +360,8 @@
   .board-grid {
     position: relative;
     display: grid;
-    grid-template-columns: 28px repeat(10, 1fr);
-    grid-template-rows: 28px repeat(10, 1fr);
+    grid-template-columns: 28px repeat(var(--board-size), 1fr);
+    grid-template-rows: 28px repeat(var(--board-size), 1fr);
     width: 100%;
     aspect-ratio: 1;
     padding: 5px;
@@ -392,8 +402,8 @@
     bottom: 5px;
     left: 33px;
     display: grid;
-    grid-template-columns: repeat(10, minmax(0, 1fr));
-    grid-template-rows: repeat(10, minmax(0, 1fr));
+    grid-template-columns: repeat(var(--board-size), minmax(0, 1fr));
+    grid-template-rows: repeat(var(--board-size), minmax(0, 1fr));
     pointer-events: none;
   }
 

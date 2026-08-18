@@ -189,7 +189,7 @@ Korean-slice cap. Baselines, measurement definitions, and budget review rules ar
 ## Deployment and rollback
 
 1. Build one immutable server/web artifact and record its Git SHA, protocol version, migration
-   list, dependency audit, test report, and bundle-budget output.
+   list, balance ruleset/checksum, dependency audit, test report, and bundle-budget output.
 2. Verify migrations are additive and compatible with both the current and candidate server.
 3. Deploy to staging, run a complete two-browser match, then terminate one server during an active
    turn and verify recovery plus event delivery through the remaining instance.
@@ -199,6 +199,10 @@ Korean-slice cap. Baselines, measurement definitions, and budget review rules ar
    fails.
 6. Roll back application artifacts before rolling back data. Database migrations require a tested
    forward-fix unless an explicitly rehearsed down migration is safe for mixed versions.
+
+For a balance-version change, follow `BALANCE_VERSIONING.md`: migrate the append-only catalog,
+deploy compatible servers first, drain existing rooms, and only then enable the new current ruleset
+and manifest-aware web artifact. A rollback never rewrites completed results or replay manifests.
 
 Active matches are protocol-version 2 snapshots. A release that cannot read and preserve that
 snapshot must not share a pool with the current release.

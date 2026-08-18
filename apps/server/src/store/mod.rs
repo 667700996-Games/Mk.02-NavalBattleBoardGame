@@ -9,11 +9,11 @@ use uuid::Uuid;
 
 use crate::{
     domain::{
-        AccountSession, ActivePenalty, GameResult, GameRoom, IntegritySignal, IntegritySignalKind,
-        IntegritySignalPage, LiveContentRevision, MatchmakingCriteria, MatchmakingQuality,
-        ModerationAction, ModerationCasePage, NewIntegritySignal, NewModerationAction,
-        NewPlayerReport, PlayerAccount, RankedLeaderboardPage, RankedProfile, ReportStatus,
-        RoomSummary, SocialRelationship, UserSession,
+        AccountSession, ActivePenalty, BalancePin, GameResult, GameRoom, IntegritySignal,
+        IntegritySignalKind, IntegritySignalPage, LiveContentRevision, MatchmakingCriteria,
+        MatchmakingQuality, ModerationAction, ModerationCasePage, NewIntegritySignal,
+        NewModerationAction, NewPlayerReport, PlayerAccount, RankedLeaderboardPage, RankedProfile,
+        ReportStatus, RoomSummary, SocialRelationship, UserSession,
     },
     error::GameError,
 };
@@ -30,6 +30,7 @@ pub struct GameHistoryItem {
     pub room_id: Uuid,
     pub room_name: String,
     pub self_player_id: Uuid,
+    pub balance: BalancePin,
     pub result: GameResult,
 }
 

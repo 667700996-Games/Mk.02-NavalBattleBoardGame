@@ -7,7 +7,7 @@ use uuid::Uuid;
 use crate::error::GameError;
 
 use super::{
-    ALLOWED_EMOJIS, AttackOutcome, AttackRecord, Board, ChatMessage, ChatMessageType,
+    ALLOWED_EMOJIS, AttackOutcome, AttackRecord, BalancePin, Board, ChatMessage, ChatMessageType,
     ChatTypingEvent, ConnectionState, Coordinate, FinishReason, Game, GameResult,
     GameTimelineEvent, MAX_CHAT_HISTORY, MAX_CHAT_MESSAGE_CHARS, MatchRules, MatchmakingQuality,
     Player, PlayerKind, PlayerReadyState, PlayerRole, QuickCommandId, RankedMatchContext, ShipKind,
@@ -119,8 +119,6 @@ pub enum AiDifficulty {
     Admiral,
 }
 
-pub const RULESET_VERSION: u16 = 1;
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GameRoom {
@@ -130,6 +128,8 @@ pub struct GameRoom {
     pub visibility: RoomVisibility,
     #[serde(default)]
     pub rules: MatchRules,
+    #[serde(default)]
+    pub balance: BalancePin,
     pub status: RoomStatus,
     #[serde(default)]
     pub host_player_id: Uuid,
@@ -185,7 +185,8 @@ impl GameRoom {
         rules: MatchRules,
     ) -> Result<Self, GameError> {
         validate_room_name(&name)?;
-        let rules = rules.validate()?;
+        let balance = BalancePin::current();
+        let rules = rules.validate_for(&balance.manifest)?;
         let now = Utc::now();
         let host = Player::new(host_session, true);
         let host_player_id = host.id;
@@ -195,6 +196,7 @@ impl GameRoom {
             name,
             visibility,
             rules,
+            balance,
             status: RoomStatus::WaitingForOpponent,
             host_player_id,
             players: vec![host],
@@ -226,6 +228,7 @@ impl GameRoom {
     }
 
     pub fn join(&mut self, session: &UserSession) -> Result<Uuid, GameError> {
+        self.require_executable_balance()?;
         if self.status != RoomStatus::WaitingForOpponent {
             return Err(if self.players.len() >= 2 {
                 GameError::RoomFull
@@ -551,6 +554,7 @@ impl GameRoom {
         submitted_placements: &[ShipPlacement],
         turn_duration_seconds: u32,
     ) -> Result<bool, GameError> {
+        self.require_executable_balance()?;
         if self.status != RoomStatus::Placement || self.game_id.is_none() {
             return Err(GameError::InvalidState);
         }
@@ -559,7 +563,7 @@ impl GameRoom {
             .pending_placements
             .get(&player_id)
             .ok_or(GameError::IncompleteFleet)?;
-        Board::from_placements(submitted_placements)?;
+        Board::from_placements_for(submitted_placements, &self.balance.manifest)?;
         if stored_placements != submitted_placements {
             return Err(GameError::PlacementMismatch);
         }
@@ -589,12 +593,16 @@ impl GameRoom {
                     .pending_placements
                     .get(&player.id)
                     .ok_or(GameError::IncompleteFleet)?;
-                boards.insert(player.id, Board::from_placements(placements)?);
+                boards.insert(
+                    player.id,
+                    Board::from_placements_for(placements, &self.balance.manifest)?,
+                );
             }
-            self.game = Some(Game::new_with_rules(
+            self.game = Some(Game::new_with_rules_and_balance(
                 boards,
                 self.rules,
                 turn_duration_seconds,
+                self.balance.clone(),
             )?);
             self.status = RoomStatus::Playing;
             self.pending_placements.clear();
@@ -613,6 +621,7 @@ impl GameRoom {
         expected_version: u64,
         expected_turn: u32,
     ) -> Result<(AttackRecord, bool), GameError> {
+        self.require_executable_balance()?;
         let player_id = self.player_for_session(session_id)?.id;
         if player_id != claimed_player_id {
             return Err(GameError::Unauthorized);
@@ -758,6 +767,7 @@ impl GameRoom {
         expected_deadline: DateTime<Utc>,
         now: DateTime<Utc>,
     ) -> Result<Option<TurnExpiredRecord>, GameError> {
+        self.require_executable_balance()?;
         if !self.is_active_battle() {
             return Ok(None);
         }
@@ -782,8 +792,8 @@ impl GameRoom {
             .unwrap_or("상대");
         let message = if expiration.winner_id.is_some() {
             format!(
-                "{} 지휘관이 3회 연속 시간 초과로 자동 기권 처리되었습니다.",
-                nickname
+                "{} 지휘관이 {}회 연속 시간 초과로 자동 기권 처리되었습니다.",
+                nickname, self.balance.manifest.consecutive_timeout_forfeit
             )
         } else {
             format!(
@@ -1273,6 +1283,7 @@ impl GameRoom {
     }
 
     pub fn snapshot_for(&self, session_id: Uuid) -> Result<GameSnapshot, GameError> {
+        self.require_valid_balance()?;
         let me = self.player_for_session(session_id)?;
         let players = self
             .players
@@ -1355,6 +1366,7 @@ impl GameRoom {
 
         Ok(GameSnapshot {
             protocol_version: crate::PROTOCOL_VERSION,
+            balance: self.balance.clone(),
             room: self.summary(),
             room_id: self.id,
             room_state: self.status,
@@ -1393,6 +1405,7 @@ impl GameRoom {
     }
 
     pub fn replay_for(&self, session_id: Uuid) -> Result<GameReplay, GameError> {
+        self.require_valid_balance()?;
         self.player_for_session(session_id)?;
         if self.status != RoomStatus::Finished {
             return Err(GameError::InvalidState);
@@ -1441,7 +1454,8 @@ impl GameRoom {
         };
         Ok(GameReplay {
             protocol_version: crate::PROTOCOL_VERSION,
-            ruleset_version: RULESET_VERSION,
+            ruleset_version: self.balance.ruleset_version,
+            balance: self.balance.clone(),
             room_id: self.id,
             room_name: self.name.clone(),
             game_id: self.game_id.ok_or(GameError::InvalidState)?,
@@ -1452,6 +1466,28 @@ impl GameRoom {
             timeline,
             result,
         })
+    }
+
+    pub fn has_valid_balance_pin(&self) -> bool {
+        self.balance.has_valid_integrity()
+            && self
+                .game
+                .as_ref()
+                .is_none_or(|game| game.balance == self.balance)
+            && (matches!(self.status, RoomStatus::Finished | RoomStatus::Cancelled)
+                || self.balance.is_registered_for_execution())
+    }
+
+    fn require_valid_balance(&self) -> Result<(), GameError> {
+        self.has_valid_balance_pin()
+            .then_some(())
+            .ok_or(GameError::InvalidState)
+    }
+
+    fn require_executable_balance(&self) -> Result<(), GameError> {
+        (self.has_valid_balance_pin() && self.balance.is_registered_for_execution())
+            .then_some(())
+            .ok_or(GameError::InvalidState)
     }
 }
 
@@ -1539,6 +1575,7 @@ impl PlayerPublic {
 #[serde(rename_all = "camelCase")]
 pub struct GameSnapshot {
     pub protocol_version: u16,
+    pub balance: BalancePin,
     pub room: RoomSummary,
     pub room_id: Uuid,
     pub room_state: RoomStatus,
@@ -1631,6 +1668,7 @@ pub struct ReplayPlayer {
 pub struct GameReplay {
     pub protocol_version: u16,
     pub ruleset_version: u16,
+    pub balance: BalancePin,
     pub room_id: Uuid,
     pub room_name: String,
     pub game_id: Uuid,
@@ -2075,7 +2113,11 @@ mod tests {
 
         let replay = room.replay_for(first.id).unwrap();
         assert_eq!(replay.protocol_version, crate::PROTOCOL_VERSION);
-        assert_eq!(replay.ruleset_version, RULESET_VERSION);
+        assert_eq!(replay.ruleset_version, room.balance.ruleset_version);
+        assert_eq!(replay.balance, room.balance);
+        assert!(replay.balance.has_valid_integrity());
+        assert_eq!(replay.balance.manifest.board_size, 10);
+        assert_eq!(replay.balance.manifest.consecutive_timeout_forfeit, 3);
         assert_eq!(replay.players.len(), 2);
         assert!(replay.players.iter().all(|player| player.fleet.len() == 5));
         assert!(matches!(
@@ -2572,5 +2614,33 @@ mod tests {
         let restored: GameRoom = serde_json::from_str(&json).unwrap();
         assert_eq!(restored.game.unwrap().attacks.len(), 1);
         assert_eq!(restored.chat_messages, room.chat_messages);
+    }
+
+    #[test]
+    fn pre_catalog_room_snapshots_are_fixed_to_v1_instead_of_current_at_read_time() {
+        let (room, _, _) = playing_room();
+        let mut value = serde_json::to_value(room).unwrap();
+        value.as_object_mut().unwrap().remove("balance");
+        value
+            .get_mut("game")
+            .and_then(serde_json::Value::as_object_mut)
+            .unwrap()
+            .remove("balance");
+
+        let restored: GameRoom = serde_json::from_value(value).unwrap();
+        assert_eq!(restored.balance, BalancePin::v1());
+        assert_eq!(restored.game.as_ref().unwrap().balance, BalancePin::v1());
+        assert!(restored.has_valid_balance_pin());
+    }
+
+    #[test]
+    fn a_tampered_balance_pin_cannot_be_snapshotted_or_executed() {
+        let (mut room, first, _) = playing_room();
+        room.balance.manifest.rapid_turn_duration_seconds = 20;
+        assert!(!room.has_valid_balance_pin());
+        assert_eq!(
+            room.snapshot_for(first.id).unwrap_err(),
+            GameError::InvalidState
+        );
     }
 }

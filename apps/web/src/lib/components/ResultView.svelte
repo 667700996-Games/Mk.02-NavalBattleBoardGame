@@ -54,8 +54,8 @@
     }
     if (snapshot.result?.winType === 'TIMEOUT') {
       return won
-        ? '적 지휘관이 3회 연속 작전 시간을 초과했습니다.'
-        : '3회 연속 작전 시간 초과로 교전이 종료되었습니다.';
+        ? `적 지휘관이 ${snapshot.balance.manifest.consecutiveTimeoutForfeit}회 연속 작전 시간을 초과했습니다.`
+        : `${snapshot.balance.manifest.consecutiveTimeoutForfeit}회 연속 작전 시간 초과로 교전이 종료되었습니다.`;
     }
     return won
       ? '상대 함대 전력을 모두 무력화했습니다.'
@@ -114,7 +114,7 @@
     </article>
     <article>
       <Crosshair size={19} /><span>격침</span><strong>{stats?.shipsSunk ?? 0}</strong><small
-        >총 5척 중</small
+        >총 {snapshot.balance.manifest.fleet.length}척 중</small
       >
     </article>
     <article>
@@ -124,7 +124,7 @@
     </article>
     <article>
       <Flag size={19} /><span>시간 초과</span><strong>{stats?.totalTimeouts ?? 0}</strong><small
-        >연속 3회 시 자동 패배</small
+        >연속 {snapshot.balance.manifest.consecutiveTimeoutForfeit}회 시 자동 패배</small
       >
     </article>
   </div>
@@ -140,6 +140,7 @@
       </header>
       <div class="report-intel__layout">
         <GridBoard
+          balance={snapshot.balance.manifest}
           mode="own"
           label="공개된 적 함대 배치"
           ownBoard={snapshot.revealedBoard}

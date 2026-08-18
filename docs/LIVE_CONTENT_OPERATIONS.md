@@ -31,7 +31,8 @@ event promotion without changing progression. Claimed mission cards keep the amo
 written to the reward ledger even if later tuning changes.
 
 Live content does not mutate active room rules, game snapshots, or replay interpretation. Gameplay
-balance changes still require a new ruleset version and the separate compatibility process.
+balance changes still require a new ruleset version and the separate compatibility process in
+`BALANCE_VERSIONING.md`.
 
 ## Review, validation, and publish
 

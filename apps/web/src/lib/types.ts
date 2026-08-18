@@ -54,6 +54,34 @@ export interface ShipPlacement {
   orientation: Orientation;
 }
 
+export interface BalanceShipSpec {
+  kind: ShipKind;
+  cells: number;
+}
+
+export interface BalanceManifest {
+  schemaVersion: number;
+  rulesetVersion: number;
+  label: string;
+  boardSize: number;
+  fleet: BalanceShipSpec[];
+  classicShotsPerTurn: number;
+  rapidTurnDurationSeconds: number;
+  maximumTurnDurationSeconds: number;
+  consecutiveTimeoutForfeit: number;
+  salvoShotPolicy: 'SURVIVING_SHIPS';
+  turnAdvancePolicy: 'AFTER_SHOT_ALLOWANCE';
+  duplicateTargetPolicy: 'REJECT';
+  victoryCondition: 'SINK_ALL_SHIPS';
+  fleetRevealPolicy: 'MATCH_COMPLETE';
+}
+
+export interface BalancePin {
+  rulesetVersion: number;
+  checksum: string;
+  manifest: BalanceManifest;
+}
+
 export interface Session {
   id: string;
   accountId: string | null;
@@ -504,6 +532,7 @@ export interface TurnExpiredRecord {
 
 export interface GameSnapshot {
   protocolVersion: number;
+  balance: BalancePin;
   room: RoomSummary;
   roomId: string;
   roomState: RoomStatus;
@@ -571,6 +600,7 @@ export interface HistoryItem {
   roomId: string;
   roomName: string;
   selfPlayerId: string;
+  balance: BalancePin;
   result: GameResult;
 }
 
@@ -603,6 +633,7 @@ export type GameTimelineEvent =
 export interface GameReplay {
   protocolVersion: number;
   rulesetVersion: number;
+  balance: BalancePin;
   roomId: string;
   roomName: string;
   gameId: string;
@@ -732,6 +763,17 @@ export const FLEET: ReadonlyArray<{ kind: ShipKind; size: number; name: string }
   { kind: 'DESTROYER', size: 2, name: '구축함' }
 ] as const;
 
+export function fleetForBalance(
+  balance?: BalanceManifest | null
+): ReadonlyArray<{ kind: ShipKind; size: number; name: string }> {
+  if (!balance) return FLEET;
+  return balance.fleet.map((ship) => ({
+    kind: ship.kind,
+    size: ship.cells,
+    name: shipName(ship.kind)
+  }));
+}
+
 export const ROW_LABELS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J'] as const;
 
 export function coordinateKey(coordinate: Coordinate): string {
@@ -739,7 +781,12 @@ export function coordinateKey(coordinate: Coordinate): string {
 }
 
 export function coordinateLabel(coordinate: Coordinate): string {
-  return `${ROW_LABELS[coordinate.row] ?? '?'}${coordinate.col + 1}`;
+  const row =
+    ROW_LABELS[coordinate.row] ??
+    (coordinate.row >= 0 && coordinate.row < 26
+      ? String.fromCharCode('A'.charCodeAt(0) + coordinate.row)
+      : '?');
+  return `${row}${coordinate.col + 1}`;
 }
 
 export function shipName(kind: ShipKind): string {

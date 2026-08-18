@@ -22,6 +22,8 @@ a new forward migration.
 ## Release procedure
 
 - Run migrations before the canary starts and record their versions in the release evidence.
+- Balance rulesets are append-only catalog rows. Never update/delete an old manifest or reuse its
+  version/checksum; follow `BALANCE_VERSIONING.md` and drain active rooms before changing current.
 - Execute PostgreSQL/Redis integration tests and the active-match rolling-replacement test.
 - Hold the canary while stable and candidate instances both read/write the expanded schema.
 - Abort on migration error, lock/replication SLO breach, stale room commit, or snapshot decode error.
@@ -30,7 +32,8 @@ a new forward migration.
 
 `mk01-server --migrate-only` applies embedded SQLx migrations without starting HTTP or Redis.
 `mk01-server --verify-restore` decodes every room snapshot, compares embedded and relational
-persistence revisions, checks migration status and orphan invariants, and emits a JSON count report.
+persistence revisions and balance pins, validates the append-only balance catalog and result
+manifests, checks migration status and orphan invariants, and emits a JSON count report.
 It also decodes every durable matchmaking profile, including rolling-compatible legacy casual and
 pre-season-key ranked rows, and reports queue, rating, seasonal-standing, settlement, and ranked-
 reward counts.

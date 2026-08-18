@@ -16,12 +16,13 @@
   import GridBoard from '$lib/components/GridBoard.svelte';
   import { api, ApiError } from '$lib/api';
   import { analyzeReplay } from '$lib/game/replay-analysis';
-  import type {
-    CellAttackSnapshot,
-    GameReplay,
-    GameTimelineEvent,
-    OwnBoardSnapshot,
-    ReplayPlayer
+  import {
+    shipName,
+    type CellAttackSnapshot,
+    type GameReplay,
+    type GameTimelineEvent,
+    type OwnBoardSnapshot,
+    type ReplayPlayer
   } from '$lib/types';
 
   let replay = $state<GameReplay | null>(null);
@@ -182,6 +183,30 @@
       </div>
     </section>
 
+    <section class="balance-record panel" aria-labelledby="balance-record-title">
+      <header>
+        <h2 id="balance-record-title">검증된 밸런스 기록</h2>
+        <strong>RULESET V{replay.balance.rulesetVersion} · PIN VERIFIED</strong>
+      </header>
+      <p>
+        {replay.balance.manifest.boardSize}×{replay.balance.manifest.boardSize} 전장 ·
+        {replay.balance.manifest.fleet.length}척 · 고속전
+        {replay.balance.manifest.rapidTurnDurationSeconds}초 · 턴 최대
+        {replay.balance.manifest.maximumTurnDurationSeconds}초 · 생존 함선당 1발 · 연속
+        {replay.balance.manifest.consecutiveTimeoutForfeit}회 시간 초과 시 패배
+      </p>
+      <p>
+        함대 ·
+        {#each replay.balance.manifest.fleet as ship, index (ship.kind)}
+          <span>{shipName(ship.kind)} {ship.cells}칸</span>{index <
+          replay.balance.manifest.fleet.length - 1
+            ? ' · '
+            : ''}
+        {/each}
+      </p>
+      <code title={replay.balance.checksum}>SHA-256 {replay.balance.checksum}</code>
+    </section>
+
     <section class="replay-boards" aria-label="양측 공개 함대">
       {#each replay.players as player (player.id)}
         <article class="panel">
@@ -196,6 +221,7 @@
             >
           </header>
           <GridBoard
+            balance={replay.balance.manifest}
             mode="own"
             label={`${player.nickname} 공개 함대`}
             ownBoard={boardFor(player)}
@@ -423,6 +449,27 @@
   .replay-controls input {
     width: 100%;
     accent-color: var(--cyan-300);
+  }
+  .balance-record {
+    margin-top: 14px;
+  }
+  .balance-record > header {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .balance-record h2,
+  .balance-record p {
+    margin: 0;
+  }
+  .balance-record p,
+  .balance-record code {
+    color: var(--ink-400);
+    font-size: 9px;
+  }
+  .balance-record code {
+    overflow-wrap: anywhere;
   }
   .replay-boards {
     display: grid;

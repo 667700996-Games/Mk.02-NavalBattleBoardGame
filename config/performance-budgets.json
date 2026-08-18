@@ -3,12 +3,12 @@
     "javascript": {
       "extensions": [".js"],
       "perFileBytes": 100000,
-      "totalBytes": 341000
+      "totalBytes": 344000
     },
     "css": {
       "extensions": [".css"],
       "perFileBytes": 90000,
-      "totalBytes": 198000
+      "totalBytes": 198500
     },
     "fonts": {
       "extensions": [".woff2"],

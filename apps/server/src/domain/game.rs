@@ -7,7 +7,7 @@ use uuid::Uuid;
 
 use crate::error::GameError;
 
-use super::{AttackOutcome, Board, Coordinate, ShipKind};
+use super::{AttackOutcome, BalanceManifest, BalancePin, Board, Coordinate, ShipKind};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
@@ -29,9 +29,13 @@ pub struct MatchRules {
 
 impl MatchRules {
     pub fn validate(self) -> Result<Self, GameError> {
+        self.validate_for(&BalancePin::current().manifest)
+    }
+
+    pub fn validate_for(self, balance: &BalanceManifest) -> Result<Self, GameError> {
         if self
             .turn_duration_seconds
-            .is_some_and(|seconds| seconds > 300)
+            .is_some_and(|seconds| seconds > balance.maximum_turn_duration_seconds)
         {
             return Err(GameError::InvalidRequest);
         }
@@ -39,11 +43,16 @@ impl MatchRules {
     }
 
     pub fn resolved_turn_duration(self, fallback: u32) -> u32 {
+        self.resolved_turn_duration_for(fallback, &BalancePin::current().manifest)
+    }
+
+    pub fn resolved_turn_duration_for(self, fallback: u32, balance: &BalanceManifest) -> u32 {
         match self.mode {
-            GameMode::Rapid => 30,
-            GameMode::Classic | GameMode::Salvo => {
-                self.turn_duration_seconds.unwrap_or(fallback).min(300)
-            }
+            GameMode::Rapid => balance.rapid_turn_duration_seconds,
+            GameMode::Classic | GameMode::Salvo => self
+                .turn_duration_seconds
+                .unwrap_or(fallback)
+                .min(balance.maximum_turn_duration_seconds),
         }
     }
 }
@@ -145,6 +154,8 @@ pub enum GameTimelineEvent {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Game {
+    #[serde(default)]
+    pub balance: BalancePin,
     pub boards: HashMap<Uuid, Board>,
     pub attacks: Vec<AttackRecord>,
     #[serde(default)]
@@ -195,17 +206,37 @@ impl Game {
         rules: MatchRules,
         fallback_turn_duration_seconds: u32,
     ) -> Result<Self, GameError> {
+        Self::new_with_rules_and_balance(
+            boards,
+            rules,
+            fallback_turn_duration_seconds,
+            BalancePin::current(),
+        )
+    }
+
+    pub fn new_with_rules_and_balance(
+        boards: HashMap<Uuid, Board>,
+        rules: MatchRules,
+        fallback_turn_duration_seconds: u32,
+        balance: BalancePin,
+    ) -> Result<Self, GameError> {
         if boards.len() != 2 {
             return Err(GameError::InvalidState);
         }
-        let rules = rules.validate()?;
+        if !balance.is_registered_for_execution() {
+            return Err(GameError::InvalidState);
+        }
+        let rules = rules.validate_for(&balance.manifest)?;
         let player_ids: Vec<_> = boards.keys().copied().collect();
         let mut rng = rand::rng();
         let current_player_id = *player_ids.choose(&mut rng).ok_or(GameError::InvalidState)?;
-        let shots_remaining_in_turn = shots_for_mode(&boards, current_player_id, rules.mode);
-        let turn_duration_seconds = rules.resolved_turn_duration(fallback_turn_duration_seconds);
+        let shots_remaining_in_turn =
+            shots_for_mode(&boards, current_player_id, rules.mode, &balance.manifest);
+        let turn_duration_seconds =
+            rules.resolved_turn_duration_for(fallback_turn_duration_seconds, &balance.manifest);
         let now = Utc::now();
         Ok(Self {
+            balance,
             boards,
             attacks: Vec::new(),
             timeline: Vec::new(),
@@ -243,6 +274,7 @@ impl Game {
         }
         let now = Utc::now();
         Ok(Self {
+            balance: BalancePin::current(),
             boards,
             attacks: Vec::new(),
             timeline: Vec::new(),
@@ -295,6 +327,9 @@ impl Game {
         resolved_version: u64,
         now: DateTime<Utc>,
     ) -> Result<AttackRecord, GameError> {
+        if !self.balance.is_registered_for_execution() {
+            return Err(GameError::InvalidState);
+        }
         if self.result.is_some() {
             return Err(GameError::InvalidState);
         }
@@ -338,7 +373,7 @@ impl Game {
         } else if continues_salvo {
             self.shots_remaining_in_turn.saturating_sub(1)
         } else {
-            shots_for_mode(&self.boards, target_id, self.mode)
+            shots_for_mode(&self.boards, target_id, self.mode, &self.balance.manifest)
         };
         let record = AttackRecord {
             request_id,
@@ -399,6 +434,9 @@ impl Game {
         expected_deadline: DateTime<Utc>,
         now: DateTime<Utc>,
     ) -> Result<Option<TurnExpiration>, GameError> {
+        if !self.balance.is_registered_for_execution() {
+            return Err(GameError::InvalidState);
+        }
         if self.result.is_some()
             || self.turn_number != expected_turn
             || self.current_player_id != expected_player_id
@@ -425,20 +463,21 @@ impl Game {
             .or_default();
         *total = total.saturating_add(1);
         let total_timeout_count = *total;
-        let winner_id = if consecutive_timeout_count >= 3 {
-            self.finish_at(
-                next_player_id,
-                expected_player_id,
-                FinishReason::TurnTimeout,
-                now,
-            );
-            Some(next_player_id)
-        } else {
-            self.current_player_id = next_player_id;
-            self.turn_number += 1;
-            self.start_turn_at(now);
-            None
-        };
+        let winner_id =
+            if consecutive_timeout_count >= self.balance.manifest.consecutive_timeout_forfeit {
+                self.finish_at(
+                    next_player_id,
+                    expected_player_id,
+                    FinishReason::TurnTimeout,
+                    now,
+                );
+                Some(next_player_id)
+            } else {
+                self.current_player_id = next_player_id;
+                self.turn_number += 1;
+                self.start_turn_at(now);
+                None
+            };
         let expiration = TurnExpiration {
             expired_turn_number: expected_turn,
             expired_player_id: expected_player_id,
@@ -468,8 +507,12 @@ impl Game {
     }
 
     fn start_turn_at(&mut self, now: DateTime<Utc>) {
-        self.shots_remaining_in_turn =
-            shots_for_mode(&self.boards, self.current_player_id, self.mode);
+        self.shots_remaining_in_turn = shots_for_mode(
+            &self.boards,
+            self.current_player_id,
+            self.mode,
+            &self.balance.manifest,
+        );
         self.turn_started_at = Some(now);
         self.turn_deadline_at = deadline_from(now, self.turn_duration_seconds);
     }
@@ -534,9 +577,14 @@ fn default_one_shot() -> u8 {
     1
 }
 
-fn shots_for_mode(boards: &HashMap<Uuid, Board>, player_id: Uuid, mode: GameMode) -> u8 {
+fn shots_for_mode(
+    boards: &HashMap<Uuid, Board>,
+    player_id: Uuid,
+    mode: GameMode,
+    balance: &BalanceManifest,
+) -> u8 {
     if mode != GameMode::Salvo {
-        return 1;
+        return balance.classic_shots_per_turn;
     }
     boards
         .get(&player_id)
