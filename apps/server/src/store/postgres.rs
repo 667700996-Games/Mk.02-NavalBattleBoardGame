@@ -28,6 +28,17 @@ pub struct PostgresRedisStore {
     cache: Option<ConnectionManager>,
 }
 
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DatabaseVerification {
+    pub migrations_applied: i64,
+    pub sessions: i64,
+    pub rooms: i64,
+    pub results: i64,
+    pub privacy_requests: i64,
+    pub checked_at: DateTime<Utc>,
+}
+
 impl std::fmt::Debug for PostgresRedisStore {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
@@ -37,6 +48,73 @@ impl std::fmt::Debug for PostgresRedisStore {
 }
 
 impl PostgresRedisStore {
+    pub async fn migrate_database(database_url: &str) -> Result<(), GameError> {
+        let pool = PgPoolOptions::new()
+            .max_connections(2)
+            .connect(database_url)
+            .await?;
+        sqlx::migrate!("./migrations")
+            .run(&pool)
+            .await
+            .map_err(|error| {
+                tracing::error!(%error, "database migration failed");
+                GameError::StorageUnavailable
+            })?;
+        pool.close().await;
+        Ok(())
+    }
+
+    pub async fn verify_database(database_url: &str) -> Result<DatabaseVerification, GameError> {
+        let pool = PgPoolOptions::new()
+            .max_connections(2)
+            .connect(database_url)
+            .await?;
+        let failed_migrations: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM _sqlx_migrations WHERE success IS NOT TRUE")
+                .fetch_one(&pool)
+                .await?;
+        let migrations_applied: i64 = sqlx::query_scalar("SELECT count(*) FROM _sqlx_migrations")
+            .fetch_one(&pool)
+            .await?;
+        let snapshots: Vec<(serde_json::Value, i64)> =
+            sqlx::query_as("SELECT snapshot,persistence_revision FROM game_rooms")
+                .fetch_all(&pool)
+                .await?;
+        for (snapshot, revision) in &snapshots {
+            let room: GameRoom =
+                serde_json::from_value(snapshot.clone()).map_err(|_| GameError::Internal)?;
+            if room.persistence_revision != (*revision).max(0) as u64 {
+                return Err(GameError::Internal);
+            }
+        }
+        let broken_references: i64 = sqlx::query_scalar(
+            "SELECT (SELECT count(*) FROM user_sessions session WHERE session.current_room_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM game_rooms room WHERE room.id=session.current_room_id)) + (SELECT count(*) FROM matchmaking_queue queue WHERE NOT EXISTS (SELECT 1 FROM user_sessions session WHERE session.id=queue.session_id)) + (SELECT count(*) FROM game_result_participants participant WHERE NOT EXISTS (SELECT 1 FROM game_results result WHERE result.room_id=participant.room_id))",
+        )
+        .fetch_one(&pool)
+        .await?;
+        if failed_migrations != 0 || broken_references != 0 {
+            return Err(GameError::Internal);
+        }
+        let sessions: i64 = sqlx::query_scalar("SELECT count(*) FROM user_sessions")
+            .fetch_one(&pool)
+            .await?;
+        let results: i64 = sqlx::query_scalar("SELECT count(*) FROM game_results")
+            .fetch_one(&pool)
+            .await?;
+        let privacy_requests: i64 = sqlx::query_scalar("SELECT count(*) FROM privacy_requests")
+            .fetch_one(&pool)
+            .await?;
+        pool.close().await;
+        Ok(DatabaseVerification {
+            migrations_applied,
+            sessions,
+            rooms: snapshots.len() as i64,
+            results,
+            privacy_requests,
+            checked_at: Utc::now(),
+        })
+    }
+
     pub async fn connect(database_url: &str, redis_url: &str) -> Result<Self, GameError> {
         let pool = PgPoolOptions::new()
             .max_connections(16)

@@ -40,6 +40,11 @@ Minimum paging alerts:
 Ticket alerts cover a single-instance readiness failure, sustained rate-limit growth, elevated
 version conflicts, bundle-budget regression attempts, and backup age above 12 hours.
 
+The current complete code-split client artifact gates are 320 KB raw JavaScript, 185 KB raw CSS,
+and 1.2 MB WOFF2, with no individual JS/CSS chunk above 100/90 KB. The August 2026 increase from
+300/180 KB allocates the authenticated privacy export/deletion controls; it does not relax the
+largest-route or font limits. `npm run budget` remains a release-blocking check.
+
 ## Deployment and rollback
 
 1. Build one immutable server/web artifact and record its Git SHA, protocol version, migration
@@ -84,7 +89,13 @@ drill record.
 ## Backup and restore drill
 
 Production PostgreSQL backups must be encrypted, automated, and retained under the approved data
-policy. At least quarterly:
+policy. The initial production objectives are **RPO ≤ 12 hours** and **RTO ≤ 15 minutes**. Provider
+continuous recovery/PITR is the primary control; `scripts/backup-postgres.sh` produces a portable
+GPG AES-256 encrypted custom-format backup and checksum as the independent recovery path.
+`scripts/restore-postgres-drill.sh` refuses non-isolated database names, rejects stale or corrupt
+backups, applies forward migrations, verifies relational/snapshot invariants, and writes timestamped
+JSON evidence. CI exercises that path on every accepted change with stricter five-minute RPO and
+two-minute RTO fixture gates. At least quarterly in production-like staging:
 
 1. restore the latest full backup and point-in-time logs into an isolated staging database;
 2. run migrations with the release artifact;

@@ -100,11 +100,18 @@ The program is complete only when all gates below are satisfied in a production-
 
 ### B4. Data lifecycle
 
-- [ ] Sessions, abandoned rooms, chat, replay, telemetry, moderation, and account data have retention
+- [x] Sessions, abandoned rooms, chat, replay, telemetry, moderation, and account data have retention
       and deletion policies.
 - [ ] User export and deletion cover every datastore, cache, backup policy, and derived record.
 - [ ] PostgreSQL backups are encrypted and automated; restore drills meet RPO/RTO.
 - [ ] Migrations are backward compatible with mixed-version rolling deployments.
+- Evidence: `DATA_LIFECYCLE.md` defines enforced boundaries for every data class. The hourly worker
+  prunes inactive sessions, abandoned matchmaking, terminal room/chat/replay records, closed
+  moderation cases, and integrity signals using configurable UTC cutoffs and publishes per-class
+  counters. Unit coverage proves expired terminal data is removed while active sessions and open or
+  recent safety records survive. Account export/deletion APIs and PostgreSQL integration coverage
+  exist, but the full export/deletion gate remains open until backup deletion-ledger replay is
+  automated and restore-tested.
 
 ## Gate C — Game product and player retention
 

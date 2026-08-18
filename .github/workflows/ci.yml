@@ -78,3 +78,59 @@ jobs:
       - run: npm run test:e2e
         env:
           CI: 'true'
+
+  backup-restore-drill:
+    runs-on: ubuntu-latest
+    needs: quality
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: mk01
+          POSTGRES_PASSWORD: mk01
+          POSTGRES_DB: mk01_backup_source
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U mk01 -d mk01_backup_source"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      DATABASE_URL: postgres://mk01:mk01@127.0.0.1:5432/mk01_backup_source
+      STORAGE_MODE: postgres
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: '1.87'
+      - name: Install PostgreSQL and GPG clients
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client gnupg
+      - name: Build maintenance binary and seed a migration-complete source
+        run: |
+          cargo build --release -p mk01-server
+          target/release/mk01-server --migrate-only
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "INSERT INTO user_sessions (id,nickname,token_hash,created_at,last_seen_at) VALUES ('00000000-0000-4000-8000-000000000001','Restore Fixture',repeat('a',64),now(),now())"
+      - name: Create encrypted backup and meet restore RPO/RTO
+        run: |
+          mkdir -p .artifacts/backups
+          printf '%s' 'ci-restore-drill-passphrase-only' > .artifacts/backup-passphrase
+          backup_file="$(BACKUP_DESTINATION="$PWD/.artifacts/backups" BACKUP_PASSPHRASE_FILE="$PWD/.artifacts/backup-passphrase" scripts/backup-postgres.sh)"
+          psql "postgres://mk01:mk01@127.0.0.1:5432/postgres" -v ON_ERROR_STOP=1 -c 'CREATE DATABASE mk01_restore'
+          BACKUP_FILE="$backup_file" \
+            BACKUP_PASSPHRASE_FILE="$PWD/.artifacts/backup-passphrase" \
+            TARGET_DATABASE_URL='postgres://mk01:mk01@127.0.0.1:5432/mk01_restore' \
+            MK01_SERVER_BIN="$PWD/target/release/mk01-server" \
+            RESTORE_RTO_SECONDS=120 \
+            MAX_BACKUP_AGE_SECONDS=300 \
+            RESTORE_EVIDENCE_FILE="$PWD/.artifacts/restore-evidence.json" \
+            scripts/restore-postgres-drill.sh
+          jq -e '.database.sessions == 1 and .restoreSeconds <= .rtoGateSeconds and .backupAgeSeconds <= .rpoGateSeconds' .artifacts/restore-evidence.json
+      - uses: actions/upload-artifact@v6
+        with:
+          name: postgres-restore-drill-${{ github.sha }}
+          path: .artifacts/restore-evidence.json
+          retention-days: 90
+          if-no-files-found: error

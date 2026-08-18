@@ -286,6 +286,10 @@ async fn postgres_account_export_and_deletion_cover_migrations_and_anonymized_ro
             .await
             .unwrap();
     assert_eq!(audit, ("DELETE".to_string(), "COMPLETED".to_string()));
+    let verification = PostgresRedisStore::verify_database(&database_url)
+        .await
+        .unwrap();
+    assert!(verification.migrations_applied >= 11);
 }
 
 #[tokio::test]

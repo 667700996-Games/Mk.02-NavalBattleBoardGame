@@ -1,6 +1,10 @@
 use std::net::SocketAddr;
 
-use mk01_server::{AppState, build_router, config::Settings};
+use mk01_server::{
+    AppState, build_router,
+    config::{Settings, StorageMode},
+    store::PostgresRedisStore,
+};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
@@ -9,11 +13,12 @@ use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitEx
 
 #[tokio::main]
 async fn main() {
+    let arguments: Vec<_> = std::env::args().collect();
     let settings = Settings::from_env().unwrap_or_else(|error| {
         eprintln!("configuration error: {error}");
         std::process::exit(2);
     });
-    if std::env::args().any(|argument| argument == "--healthcheck") {
+    if arguments.iter().any(|argument| argument == "--healthcheck") {
         std::process::exit(if healthcheck(settings.bind_addr.port()).await {
             0
         } else {
@@ -21,6 +26,37 @@ async fn main() {
         });
     }
     init_tracing();
+    if arguments
+        .iter()
+        .any(|argument| argument == "--migrate-only")
+    {
+        require_postgres(&settings);
+        PostgresRedisStore::migrate_database(&settings.database_url)
+            .await
+            .unwrap_or_else(|error| {
+                tracing::error!(%error, "database migration command failed");
+                std::process::exit(1);
+            });
+        tracing::info!("database migrations applied");
+        return;
+    }
+    if arguments
+        .iter()
+        .any(|argument| argument == "--verify-restore")
+    {
+        require_postgres(&settings);
+        let report = PostgresRedisStore::verify_database(&settings.database_url)
+            .await
+            .unwrap_or_else(|error| {
+                tracing::error!(%error, "restored database verification failed");
+                std::process::exit(1);
+            });
+        println!(
+            "{}",
+            serde_json::to_string(&report).expect("verification report must serialize")
+        );
+        return;
+    }
     let state = AppState::new(settings.clone())
         .await
         .unwrap_or_else(|error| {
@@ -42,6 +78,13 @@ async fn main() {
     .with_graceful_shutdown(shutdown_signal())
     .await
     .unwrap();
+}
+
+fn require_postgres(settings: &Settings) {
+    if settings.storage_mode != StorageMode::Postgres {
+        eprintln!("database maintenance commands require STORAGE_MODE=postgres");
+        std::process::exit(2);
+    }
 }
 
 async fn healthcheck(port: u16) -> bool {

@@ -3,8 +3,8 @@ import { extname, join, relative } from 'node:path';
 
 const root = join(process.cwd(), 'apps/web/.svelte-kit/output/client');
 const limits = {
-  '.js': { perFile: 100_000, total: 300_000 },
-  '.css': { perFile: 90_000, total: 180_000 },
+  '.js': { perFile: 100_000, total: 320_000 },
+  '.css': { perFile: 90_000, total: 185_000 },
   '.woff2': { perFile: 550_000, total: 1_200_000 }
 };
 const totals = new Map(Object.keys(limits).map((extension) => [extension, 0]));

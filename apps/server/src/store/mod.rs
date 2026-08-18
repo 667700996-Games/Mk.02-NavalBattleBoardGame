@@ -18,7 +18,7 @@ use crate::{
 };
 
 pub use memory::MemoryStore;
-pub use postgres::PostgresRedisStore;
+pub use postgres::{DatabaseVerification, PostgresRedisStore};
 
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]

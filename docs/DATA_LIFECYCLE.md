@@ -55,6 +55,8 @@ transaction then:
 - records only the non-identifying privacy request audit described above.
 
 Deletion is intentionally not applied in-place to encrypted immutable backups. Backup objects are
-inaccessible to application traffic, expire within 35 days, and any restore procedure must replay
-the externally retained deletion ledger before the database can receive traffic. A restore that
-cannot prove this replay is destroyed and may not be promoted.
+inaccessible to application traffic and expire within 35 days. A production restore may not receive
+traffic until point-in-time logs have advanced through all completed deletion transactions and a
+privacy audit comparison proves that no later deletion is missing. If that proof is unavailable,
+the restored copy is destroyed; the operator must select a newer recovery point or wait for the
+protected backup to expire.
