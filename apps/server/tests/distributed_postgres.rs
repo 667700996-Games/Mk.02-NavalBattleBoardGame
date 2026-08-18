@@ -1799,7 +1799,7 @@ async fn redis_fans_events_out_between_application_instances() {
     let second = AppState::new(settings).await.unwrap();
     let session_id = Uuid::new_v4();
     let (sender, mut receiver) = mpsc::channel(4);
-    second.hub.connect(session_id, sender);
+    second.hub.connect(session_id, PROTOCOL_VERSION, sender);
 
     first
         .send_to_session(

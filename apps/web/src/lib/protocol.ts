@@ -1,9 +1,130 @@
 import type { GameSnapshot, RoomStatus, ServerEvent } from '$lib/types';
 
 export const GAME_PROTOCOL_VERSION = 2;
+export const LEGACY_DEFAULT_PROTOCOL_VERSION = 2;
+export const MIN_SUPPORTED_PROTOCOL_VERSION = 2;
+export const MAX_SUPPORTED_PROTOCOL_VERSION = GAME_PROTOCOL_VERSION;
+export const PROTOCOL_COMPATIBILITY_WINDOW_DAYS = 30;
+export const PROTOCOL_VERSION_HEADER = 'x-mk01-protocol-version';
+export const PROTOCOL_MIN_VERSION_HEADER = 'x-mk01-protocol-min-version';
+export const PROTOCOL_MAX_VERSION_HEADER = 'x-mk01-protocol-max-version';
+export const PROTOCOL_CAPABILITIES_HEADER = 'x-mk01-protocol-capabilities';
+export const PROTOCOL_CAPABILITIES = [
+  'account-sessions-v1',
+  'authoritative-room-v2',
+  'balance-pin-v1',
+  'explicit-lobby-readiness-v1',
+  'ranked-seasons-v1',
+  'safe-replay-analysis-v1'
+] as const;
+export type ProtocolCapability = (typeof PROTOCOL_CAPABILITIES)[number];
+
+export interface ProtocolCompatibility {
+  currentVersion: number;
+  minimumSupportedVersion: number;
+  maximumSupportedVersion: number;
+  legacyDefaultVersion: number;
+  compatibilityWindowDays: number;
+  capabilities: string[];
+}
+
+const baselineCompatibility: ProtocolCompatibility = {
+  currentVersion: GAME_PROTOCOL_VERSION,
+  minimumSupportedVersion: MIN_SUPPORTED_PROTOCOL_VERSION,
+  maximumSupportedVersion: MAX_SUPPORTED_PROTOCOL_VERSION,
+  legacyDefaultVersion: LEGACY_DEFAULT_PROTOCOL_VERSION,
+  compatibilityWindowDays: PROTOCOL_COMPATIBILITY_WINDOW_DAYS,
+  capabilities: [...PROTOCOL_CAPABILITIES]
+};
+let negotiatedCompatibility = baselineCompatibility;
+
+export function websocketProtocol(): string {
+  return `mk01.v${GAME_PROTOCOL_VERSION}`;
+}
+
+export function acceptWebsocketProtocol(selected: string): boolean {
+  return selected === '' || selected === websocketProtocol();
+}
+
+export function acceptProtocolHeaders(headers: Pick<Headers, 'get'>): boolean {
+  const selectedRaw = headers.get(PROTOCOL_VERSION_HEADER);
+  const minimumRaw = headers.get(PROTOCOL_MIN_VERSION_HEADER);
+  const maximumRaw = headers.get(PROTOCOL_MAX_VERSION_HEADER);
+  if (selectedRaw === null && minimumRaw === null && maximumRaw === null) {
+    return true;
+  }
+  const selected = Number(selectedRaw);
+  const minimum = Number(minimumRaw);
+  const maximum = Number(maximumRaw);
+  if (
+    !Number.isInteger(selected) ||
+    !Number.isInteger(minimum) ||
+    !Number.isInteger(maximum) ||
+    selected !== GAME_PROTOCOL_VERSION ||
+    minimum > GAME_PROTOCOL_VERSION ||
+    maximum < GAME_PROTOCOL_VERSION
+  ) {
+    return false;
+  }
+  const capabilities = headers
+    .get(PROTOCOL_CAPABILITIES_HEADER)
+    ?.split(',')
+    .map((value) => value.trim())
+    .filter(Boolean);
+  if (capabilities) {
+    negotiatedCompatibility = { ...negotiatedCompatibility, capabilities };
+  }
+  return true;
+}
+
+export function acceptProtocolCompatibility(value: unknown): value is ProtocolCompatibility {
+  if (!isRecord(value) || !Array.isArray(value.capabilities)) return false;
+  const current = Number(value.currentVersion);
+  const minimum = Number(value.minimumSupportedVersion);
+  const maximum = Number(value.maximumSupportedVersion);
+  const legacyDefault = Number(value.legacyDefaultVersion);
+  const compatibilityWindowDays = Number(value.compatibilityWindowDays);
+  const capabilities = value.capabilities;
+  if (
+    !Number.isInteger(current) ||
+    !Number.isInteger(minimum) ||
+    !Number.isInteger(maximum) ||
+    !Number.isInteger(legacyDefault) ||
+    !Number.isInteger(compatibilityWindowDays) ||
+    minimum > GAME_PROTOCOL_VERSION ||
+    maximum < GAME_PROTOCOL_VERSION ||
+    current < minimum ||
+    current > maximum ||
+    legacyDefault < minimum ||
+    legacyDefault > maximum ||
+    compatibilityWindowDays < PROTOCOL_COMPATIBILITY_WINDOW_DAYS ||
+    !capabilities.every((capability) => typeof capability === 'string') ||
+    new Set(capabilities).size !== capabilities.length
+  ) {
+    return false;
+  }
+  negotiatedCompatibility = {
+    currentVersion: current,
+    minimumSupportedVersion: minimum,
+    maximumSupportedVersion: maximum,
+    legacyDefaultVersion: legacyDefault,
+    compatibilityWindowDays,
+    capabilities: capabilities as string[]
+  };
+  return true;
+}
+
+export function supportsProtocolCapability(capability: ProtocolCapability): boolean {
+  return negotiatedCompatibility.capabilities.includes(capability);
+}
+
+export function legacyProtocolCompatibility(): ProtocolCompatibility {
+  return { ...baselineCompatibility, capabilities: [...baselineCompatibility.capabilities] };
+}
+
 export const SERVER_PROTOCOL_MISMATCH_CODE = 'SERVER_PROTOCOL_MISMATCH';
 export const SERVER_PROTOCOL_MISMATCH_MESSAGE =
-  '실행 중인 게임 서버가 이전 버전입니다. 기존 개발 서버를 완전히 종료한 뒤 `npm run dev`로 다시 시작해 주세요.';
+  '게임 클라이언트와 서버 버전이 호환되지 않습니다. 페이지를 새로고침해 최신 버전으로 다시 연결해 주세요.';
 
 const ROOM_STATES = new Set<RoomStatus>([
   'WAITING_FOR_OPPONENT',

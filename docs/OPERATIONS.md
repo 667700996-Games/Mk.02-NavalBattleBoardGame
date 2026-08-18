@@ -208,6 +208,29 @@ and manifest-aware web artifact. A rollback never rewrites completed results or 
 Active matches are protocol-version 2 snapshots. A release that cannot read and preserve that
 snapshot must not share a pool with the current release.
 
+## Protocol compatibility release gate
+
+`PROTOCOL_COMPATIBILITY.md` is the normative contract, matrix, and retirement policy. Before a
+canary, retain the outputs of `npm run contract`, the frozen checksum verification, the HTTP and
+actual WebSocket negotiation integration cases, the supported client-fixture Rust test, the web protocol
+unit tests, and the distributed/browser suites with the immutable release artifact.
+
+The release dashboard must show
+`sum by (transport,version,outcome) (increase(mk01_protocol_negotiations_total[15m]))`.
+The rejection ratio is
+`sum(increase(mk01_protocol_negotiations_total{outcome="rejected"}[15m])) /
+clamp_min(sum(increase(mk01_protocol_negotiations_total[15m])), 1)`.
+Stop promotion for any rejection reproduced from a supported stable/candidate artifact. The
+`Mk01ProtocolNegotiationRejections` ticket also fires above 1% when at least 100 negotiations occur;
+malformed scanners may explain a ticket but never justify ignoring a supported-client failure.
+
+For a protocol bump, deploy dual-version servers first and keep the previous version as the
+headerless default. Exercise stable client/candidate server, candidate client/stable server,
+candidate/candidate, active-match replacement, and rollback before increasing traffic. Retire the
+oldest version only after the documented minimum 30 days, seven consecutive zero-traffic days, and
+zero active/reconnect records pinned to it. A rollback restores application artifacts and retains
+both the database expansion and frozen protocol artifacts.
+
 ## Live-content publish and rollback
 
 Seasons, events, mission feature flags, and bounded reward tuning are stored as append-only

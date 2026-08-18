@@ -36,7 +36,8 @@
     "New-player funnel",
     "Retention and backup",
     "Ranked rematch quality",
-    "Ranked leaderboard integrity"
+    "Ranked leaderboard integrity",
+    "Protocol release window"
   ],
   "requiredAlerts": [
     "Mk01AvailabilityFastBurn",
@@ -49,6 +50,7 @@
     "Mk01UnexpectedDisconnectRate",
     "Mk01ActiveMatchRecovery",
     "Mk01DistributedEventFailure",
+    "Mk01ProtocolNegotiationRejections",
     "Mk01RoomMutationStalled",
     "Mk01WebVitalRegression",
     "Mk01BackupTooOld"

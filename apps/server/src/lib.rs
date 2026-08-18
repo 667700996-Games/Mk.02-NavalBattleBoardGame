@@ -12,3 +12,8 @@ pub use app::{AppState, build_router};
 
 /// Increment when the public HTTP/WebSocket snapshot contract is not backward compatible.
 pub const PROTOCOL_VERSION: u16 = 2;
+/// Old cached web clients without an explicit version are treated as this frozen baseline.
+pub const LEGACY_DEFAULT_PROTOCOL_VERSION: u16 = 2;
+/// Inclusive protocol window served during canary, rollback, and active-match drain.
+pub const MIN_SUPPORTED_PROTOCOL_VERSION: u16 = 2;
+pub const MAX_SUPPORTED_PROTOCOL_VERSION: u16 = PROTOCOL_VERSION;

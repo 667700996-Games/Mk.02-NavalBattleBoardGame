@@ -2,15 +2,77 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::domain::{
-    AccountSession, AiDifficulty, AttackRecord, ChatMessage, ChatMessageType, ChatTypingEvent,
-    Coordinate, GameSnapshot, GameStartRecord, GameTimerState, IntegritySignalKind,
-    LiveContentPayload, LiveContentRevision, MatchRules, MatchmakingPool, MatchmakingQuality,
-    MatchmakingRegion, MatchmakingSearchWindow, ModerationAction, ModerationActionKind,
-    PlayerAccount, PlayerReadyRecord, PlayerReportReceipt, RankedLeaderboardPage, ReportCategory,
-    ReportStatus, RoomSummary, RoomVisibility, ShipPlacement, SocialRelationship, SurrenderRecord,
-    TurnExpiredRecord,
+use crate::{
+    domain::{
+        AccountSession, AiDifficulty, AttackRecord, ChatMessage, ChatMessageType, ChatTypingEvent,
+        Coordinate, GameSnapshot, GameStartRecord, GameTimerState, IntegritySignalKind,
+        LiveContentPayload, LiveContentRevision, MatchRules, MatchmakingPool, MatchmakingQuality,
+        MatchmakingRegion, MatchmakingSearchWindow, ModerationAction, ModerationActionKind,
+        PlayerAccount, PlayerReadyRecord, PlayerReportReceipt, RankedLeaderboardPage,
+        ReportCategory, ReportStatus, RoomSummary, RoomVisibility, ShipPlacement,
+        SocialRelationship, SurrenderRecord, TurnExpiredRecord,
+    },
+    error::GameError,
 };
+
+pub const PROTOCOL_VERSION_HEADER: &str = "x-mk01-protocol-version";
+pub const PROTOCOL_MIN_VERSION_HEADER: &str = "x-mk01-protocol-min-version";
+pub const PROTOCOL_MAX_VERSION_HEADER: &str = "x-mk01-protocol-max-version";
+pub const PROTOCOL_CAPABILITIES_HEADER: &str = "x-mk01-protocol-capabilities";
+pub const PROTOCOL_COMPATIBILITY_WINDOW_DAYS: u16 = 30;
+pub const PROTOCOL_CAPABILITIES: &[&str] = &[
+    "account-sessions-v1",
+    "authoritative-room-v2",
+    "balance-pin-v1",
+    "explicit-lobby-readiness-v1",
+    "ranked-seasons-v1",
+    "safe-replay-analysis-v1",
+];
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NegotiatedProtocol(pub u16);
+
+pub fn negotiate_protocol_version(requested: Option<u16>) -> Result<NegotiatedProtocol, GameError> {
+    let version = requested.unwrap_or(crate::LEGACY_DEFAULT_PROTOCOL_VERSION);
+    if (crate::MIN_SUPPORTED_PROTOCOL_VERSION..=crate::MAX_SUPPORTED_PROTOCOL_VERSION)
+        .contains(&version)
+    {
+        Ok(NegotiatedProtocol(version))
+    } else {
+        Err(GameError::ProtocolVersionMismatch)
+    }
+}
+
+pub const fn websocket_subprotocol(version: u16) -> Option<&'static str> {
+    match version {
+        2 => Some("mk01.v2"),
+        _ => None,
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProtocolCompatibilityResponse {
+    pub current_version: u16,
+    pub minimum_supported_version: u16,
+    pub maximum_supported_version: u16,
+    pub legacy_default_version: u16,
+    pub compatibility_window_days: u16,
+    pub capabilities: &'static [&'static str],
+}
+
+impl Default for ProtocolCompatibilityResponse {
+    fn default() -> Self {
+        Self {
+            current_version: crate::PROTOCOL_VERSION,
+            minimum_supported_version: crate::MIN_SUPPORTED_PROTOCOL_VERSION,
+            maximum_supported_version: crate::MAX_SUPPORTED_PROTOCOL_VERSION,
+            legacy_default_version: crate::LEGACY_DEFAULT_PROTOCOL_VERSION,
+            compatibility_window_days: PROTOCOL_COMPATIBILITY_WINDOW_DAYS,
+            capabilities: PROTOCOL_CAPABILITIES,
+        }
+    }
+}
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -741,6 +803,43 @@ pub struct MatchmakingTicket {
 mod tests {
     use super::*;
     use crate::domain::ChatMessageType;
+
+    #[test]
+    fn every_supported_frozen_client_remains_accepted_during_the_release_window() {
+        for version in crate::MIN_SUPPORTED_PROTOCOL_VERSION..=crate::MAX_SUPPORTED_PROTOCOL_VERSION
+        {
+            let path = format!(
+                "{}/../../contracts/protocol-v{version}.client-fixtures.json",
+                env!("CARGO_MANIFEST_DIR")
+            );
+            let fixtures: Vec<serde_json::Value> =
+                serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+            assert!(!fixtures.is_empty());
+            for fixture in fixtures {
+                serde_json::from_value::<ClientEvent>(fixture).unwrap();
+            }
+            assert_eq!(
+                negotiate_protocol_version(Some(version)).unwrap().0,
+                version
+            );
+        }
+        assert_eq!(
+            negotiate_protocol_version(None).unwrap().0,
+            crate::LEGACY_DEFAULT_PROTOCOL_VERSION
+        );
+        if let Some(version) = crate::MIN_SUPPORTED_PROTOCOL_VERSION.checked_sub(1) {
+            assert_eq!(
+                negotiate_protocol_version(Some(version)).unwrap_err(),
+                GameError::ProtocolVersionMismatch
+            );
+        }
+        if let Some(version) = crate::MAX_SUPPORTED_PROTOCOL_VERSION.checked_add(1) {
+            assert_eq!(
+                negotiate_protocol_version(Some(version)).unwrap_err(),
+                GameError::ProtocolVersionMismatch
+            );
+        }
+    }
 
     #[test]
     fn chat_and_surrender_contracts_use_the_public_camel_case_envelope() {

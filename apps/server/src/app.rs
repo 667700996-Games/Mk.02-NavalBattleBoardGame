@@ -10,7 +10,8 @@ use std::{
 
 use axum::{
     Router,
-    http::{HeaderValue, Method, StatusCode},
+    http::{HeaderName, HeaderValue, Method, StatusCode},
+    response::IntoResponse,
     routing::get,
 };
 use axum_extra::extract::CookieJar;
@@ -61,8 +62,10 @@ use crate::{
     },
     error::GameError,
     protocol::{
-        CreateRoomInput, FunnelFailureReason, FunnelOutcome, FunnelStage, ProtocolError,
-        RumDeviceTier, RumMetric, RumRoute, ServerEvent,
+        CreateRoomInput, FunnelFailureReason, FunnelOutcome, FunnelStage, NegotiatedProtocol,
+        PROTOCOL_CAPABILITIES, PROTOCOL_CAPABILITIES_HEADER, PROTOCOL_MAX_VERSION_HEADER,
+        PROTOCOL_MIN_VERSION_HEADER, PROTOCOL_VERSION_HEADER, ProtocolError, RumDeviceTier,
+        RumMetric, RumRoute, ServerEvent, negotiate_protocol_version,
     },
     rate_limit::FixedWindowRateLimiter,
     store::{
@@ -108,6 +111,10 @@ pub struct ServerMetrics {
     pub rate_limit_rejections: AtomicU64,
     pub websocket_connections: AtomicU64,
     pub websocket_events: AtomicU64,
+    pub protocol_http_negotiations: [AtomicU64; PROTOCOL_VERSION_SLOT_COUNT],
+    pub protocol_websocket_negotiations: [AtomicU64; PROTOCOL_VERSION_SLOT_COUNT],
+    pub protocol_http_rejections: AtomicU64,
+    pub protocol_websocket_rejections: AtomicU64,
     pub distributed_events_published: AtomicU64,
     pub distributed_event_failures: AtomicU64,
     pub room_mutations: AtomicU64,
@@ -149,10 +156,19 @@ pub struct ServerMetrics {
 
 const RUM_BUCKET_COUNT: usize = 5;
 const SLO_BUCKET_COUNT: usize = 6;
+const PROTOCOL_VERSION_SLOT_COUNT: usize =
+    (crate::MAX_SUPPORTED_PROTOCOL_VERSION - crate::MIN_SUPPORTED_PROTOCOL_VERSION + 1) as usize;
 const COMMAND_LATENCY_BUCKETS_MS: [u64; SLO_BUCKET_COUNT] = [25, 50, 100, 150, 400, 1_000];
 const MATCHMAKING_LATENCY_BUCKETS_SECONDS: [u64; SLO_BUCKET_COUNT] = [1, 5, 10, 30, 60, 120];
 const RECOVERY_LATENCY_BUCKETS_MS: [u64; SLO_BUCKET_COUNT] =
     [1_000, 2_500, 5_000, 10_000, 30_000, 60_000];
+
+fn protocol_metric_index(version: u16) -> Option<usize> {
+    version
+        .checked_sub(crate::MIN_SUPPORTED_PROTOCOL_VERSION)
+        .map(usize::from)
+        .filter(|index| *index < PROTOCOL_VERSION_SLOT_COUNT)
+}
 
 #[derive(Debug, Clone, Copy)]
 pub enum CommandTransport {
@@ -209,6 +225,10 @@ impl Default for ServerMetrics {
             rate_limit_rejections: AtomicU64::new(0),
             websocket_connections: AtomicU64::new(0),
             websocket_events: AtomicU64::new(0),
+            protocol_http_negotiations: std::array::from_fn(|_| AtomicU64::new(0)),
+            protocol_websocket_negotiations: std::array::from_fn(|_| AtomicU64::new(0)),
+            protocol_http_rejections: AtomicU64::new(0),
+            protocol_websocket_rejections: AtomicU64::new(0),
             distributed_events_published: AtomicU64::new(0),
             distributed_event_failures: AtomicU64::new(0),
             room_mutations: AtomicU64::new(0),
@@ -255,6 +275,18 @@ impl Default for ServerMetrics {
 }
 
 impl ServerMetrics {
+    pub fn record_protocol_http_negotiation(&self, version: u16) {
+        if let Some(index) = protocol_metric_index(version) {
+            self.protocol_http_negotiations[index].fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    pub fn record_protocol_websocket_negotiation(&self, version: u16) {
+        if let Some(index) = protocol_metric_index(version) {
+            self.protocol_websocket_negotiations[index].fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
     pub fn record_http_response(&self, status: StatusCode) {
         let class = usize::from(status.as_u16() / 100);
         if (1..=5).contains(&class) {
@@ -536,6 +568,33 @@ impl ServerMetrics {
             ),
         ]
         .concat();
+        output.push_str(
+            "# HELP mk01_protocol_negotiations_total Bounded client protocol negotiations by transport, version, and outcome.\n\
+# TYPE mk01_protocol_negotiations_total counter\n",
+        );
+        for version in crate::MIN_SUPPORTED_PROTOCOL_VERSION..=crate::MAX_SUPPORTED_PROTOCOL_VERSION
+        {
+            let index = protocol_metric_index(version)
+                .expect("the configured protocol range must have a bounded metric slot");
+            for (transport, value) in [
+                ("http", &self.protocol_http_negotiations[index]),
+                ("websocket", &self.protocol_websocket_negotiations[index]),
+            ] {
+                output.push_str(&format!(
+                    "mk01_protocol_negotiations_total{{transport=\"{transport}\",version=\"{version}\",outcome=\"accepted\"}} {}\n",
+                    value.load(Ordering::Relaxed)
+                ));
+            }
+        }
+        for (transport, value) in [
+            ("http", &self.protocol_http_rejections),
+            ("websocket", &self.protocol_websocket_rejections),
+        ] {
+            output.push_str(&format!(
+                "mk01_protocol_negotiations_total{{transport=\"{transport}\",version=\"unsupported\",outcome=\"rejected\"}} {}\n",
+                value.load(Ordering::Relaxed)
+            ));
+        }
         output.push_str(
             "# HELP mk01_http_responses_total Product API responses by status class, excluding operational and telemetry routes.\n\
 # TYPE mk01_http_responses_total counter\n",
@@ -3556,6 +3615,7 @@ fn constant_time_equal(left: &[u8], right: &[u8]) -> bool {
 #[derive(Debug, Clone)]
 struct ConnectionEntry {
     connection_id: Uuid,
+    protocol_version: u16,
     sender: mpsc::Sender<String>,
 }
 
@@ -3565,12 +3625,18 @@ pub struct ConnectionHub {
 }
 
 impl ConnectionHub {
-    pub fn connect(&self, session_id: Uuid, sender: mpsc::Sender<String>) -> Uuid {
+    pub fn connect(
+        &self,
+        session_id: Uuid,
+        protocol_version: u16,
+        sender: mpsc::Sender<String>,
+    ) -> Uuid {
         let connection_id = Uuid::new_v4();
         self.connections.insert(
             session_id,
             ConnectionEntry {
                 connection_id,
+                protocol_version,
                 sender,
             },
         );
@@ -3619,6 +3685,12 @@ impl ConnectionHub {
         self.connections.remove(&session_id).is_some()
     }
 
+    pub fn protocol_version(&self, session_id: Uuid) -> Option<u16> {
+        self.connections
+            .get(&session_id)
+            .map(|entry| entry.protocol_version)
+    }
+
     pub fn len(&self) -> usize {
         self.connections.len()
     }
@@ -3642,10 +3714,18 @@ pub fn build_router(state: AppState) -> Router {
             http::header::CONTENT_TYPE,
             http::header::AUTHORIZATION,
             http::header::ACCEPT,
+            HeaderName::from_static(PROTOCOL_VERSION_HEADER),
+        ])
+        .expose_headers([
+            HeaderName::from_static(PROTOCOL_VERSION_HEADER),
+            HeaderName::from_static(PROTOCOL_MIN_VERSION_HEADER),
+            HeaderName::from_static(PROTOCOL_MAX_VERSION_HEADER),
+            HeaderName::from_static(PROTOCOL_CAPABILITIES_HEADER),
         ])
         .allow_methods([Method::GET, Method::POST, Method::DELETE, Method::OPTIONS]);
 
     let rate_limit_state = state.clone();
+    let protocol_state = state.clone();
     Router::new()
         .nest("/api", api::router())
         .route("/ws", get(ws::websocket_handler))
@@ -3661,9 +3741,88 @@ pub fn build_router(state: AppState) -> Router {
             rate_limit_state,
             request_ip_rate_limit,
         ))
+        .layer(axum::middleware::from_fn_with_state(
+            protocol_state,
+            protocol_compatibility,
+        ))
         .layer(axum::middleware::from_fn(security_headers))
         .layer(cors)
         .with_state(state)
+}
+
+async fn protocol_compatibility(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    mut request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    if !request.uri().path().starts_with("/api/") {
+        return next.run(request).await;
+    }
+    let requested = match request.headers().get(PROTOCOL_VERSION_HEADER) {
+        None => None,
+        Some(value) => match value
+            .to_str()
+            .ok()
+            .and_then(|value| value.parse::<u16>().ok())
+        {
+            Some(version) => Some(version),
+            None => {
+                state
+                    .metrics
+                    .protocol_http_rejections
+                    .fetch_add(1, Ordering::Relaxed);
+                let mut response = GameError::ProtocolVersionMismatch.into_response();
+                append_protocol_headers(&mut response, NegotiatedProtocol(crate::PROTOCOL_VERSION));
+                return response;
+            }
+        },
+    };
+    let negotiated = match negotiate_protocol_version(requested) {
+        Ok(negotiated) => {
+            state.metrics.record_protocol_http_negotiation(negotiated.0);
+            negotiated
+        }
+        Err(error) => {
+            state
+                .metrics
+                .protocol_http_rejections
+                .fetch_add(1, Ordering::Relaxed);
+            let mut response = error.into_response();
+            append_protocol_headers(&mut response, NegotiatedProtocol(crate::PROTOCOL_VERSION));
+            return response;
+        }
+    };
+    request.extensions_mut().insert(negotiated);
+    let mut response = next.run(request).await;
+    append_protocol_headers(&mut response, negotiated);
+    response
+}
+
+fn append_protocol_headers(
+    response: &mut axum::response::Response,
+    negotiated: NegotiatedProtocol,
+) {
+    for (name, value) in [
+        (PROTOCOL_VERSION_HEADER, negotiated.0.to_string()),
+        (
+            PROTOCOL_MIN_VERSION_HEADER,
+            crate::MIN_SUPPORTED_PROTOCOL_VERSION.to_string(),
+        ),
+        (
+            PROTOCOL_MAX_VERSION_HEADER,
+            crate::MAX_SUPPORTED_PROTOCOL_VERSION.to_string(),
+        ),
+        (
+            PROTOCOL_CAPABILITIES_HEADER,
+            PROTOCOL_CAPABILITIES.join(","),
+        ),
+    ] {
+        if let Ok(value) = HeaderValue::from_str(&value) {
+            response
+                .headers_mut()
+                .insert(HeaderName::from_static(name), value);
+        }
+    }
 }
 
 async fn request_ip_rate_limit(
@@ -4233,7 +4392,11 @@ mod tests {
         let hub = ConnectionHub::default();
         let session_id = Uuid::new_v4();
         let (sender, _receiver) = mpsc::channel(1);
-        hub.connect(session_id, sender);
+        hub.connect(session_id, crate::PROTOCOL_VERSION, sender);
+        assert_eq!(
+            hub.protocol_version(session_id),
+            Some(crate::PROTOCOL_VERSION)
+        );
         let heartbeat = || {
             ServerEvent::Heartbeat(crate::protocol::HeartbeatResponse {
                 server_time: Utc::now(),

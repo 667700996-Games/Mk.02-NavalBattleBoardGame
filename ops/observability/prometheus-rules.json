@@ -155,6 +155,21 @@
           }
         },
         {
+          "alert": "Mk01ProtocolNegotiationRejections",
+          "expr": "(sum(increase(mk01_protocol_negotiations_total{outcome=\"rejected\"}[15m])) / clamp_min(sum(increase(mk01_protocol_negotiations_total[15m])), 1) > 0.01) and (sum(increase(mk01_protocol_negotiations_total[15m])) >= 100)",
+          "for": "15m",
+          "labels": {
+            "severity": "ticket",
+            "service": "mk01",
+            "slo": "protocol-compatibility"
+          },
+          "annotations": {
+            "summary": "Protocol negotiation rejections exceed one percent",
+            "description": "At least 100 HTTP/WebSocket negotiations occurred and more than one percent were outside the supported release window.",
+            "runbook_url": "https://github.com/orca-crew/Mk.01-GameProject-NavalBattleBoardGame/blob/main/docs/OPERATIONS.md#protocol-compatibility-release-gate"
+          }
+        },
+        {
           "alert": "Mk01RoomMutationStalled",
           "expr": "(sum(rate(mk01_command_duration_milliseconds_count{transport=\"websocket\",outcome=\"accepted\"}[5m])) > 0) and (sum(rate(mk01_room_mutations_total[5m])) == 0)",
           "for": "5m",

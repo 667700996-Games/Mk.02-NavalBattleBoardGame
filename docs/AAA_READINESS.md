@@ -311,8 +311,22 @@ The program is complete only when all gates below are satisfied in a production-
 - [ ] Large room and UI modules are split by state machine, timer, chat, matchmaking, presentation,
       and orchestration responsibility.
 - [x] HTTP/WebSocket schemas generate or validate Rust and TypeScript contracts at runtime.
-- [ ] Protocol compatibility and migration policy supports mixed client/server release windows.
+- [x] Protocol compatibility and migration policy supports mixed client/server release windows.
 - [ ] Architecture decisions and ownership boundaries are documented and reviewed.
+- Evidence: `PROTOCOL_COMPATIBILITY.md` fixes explicit HTTP/WebSocket negotiation, the frozen
+  headerless V2 fallback, current-plus-one-prior support, server-first rollout, rollback, a minimum
+  30-day window, seven zero-traffic days, and active-match drain before retirement. Every API
+  response advertises the selected/range/capability contract; unsupported explicit clients fail
+  with 426 before gameplay state changes. The web accepts a newer server only when V2 remains in
+  its advertised range and retains the frozen missing-header/empty-subprotocol fallback for a
+  stable pre-negotiation V2 server. Checksummed manifests and per-version client fixtures are
+  immutable; the contract gate requires artifacts for every supported version and the Rust test
+  deserializes every frozen command. API and real loopback WebSocket integration tests prove old
+  headerless V2, explicit V2 selection, unsupported/malformed rejection, and bounded version
+  metrics. A 13th Grafana panel plus a volume-gated rejection alert enforce the canary gate. The
+  complete Rust/web checks, lint, 99 Rust tests, 25 web unit tests, production build, and 33 executed
+  multi-browser/mobile E2E cases passed; all six full-game profiles completed and recovered after
+  refresh with the negotiated V2 socket.
 
 ### E2. Automated quality gates
 

@@ -34,10 +34,25 @@
     {
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "description": "Rolling non-5xx ratio for product APIs. Probes, metrics and anonymous telemetry are excluded at emission.",
-      "fieldConfig": { "defaults": { "decimals": 3, "max": 1, "min": 0, "unit": "percentunit" }, "overrides": [] },
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 3,
+          "max": 1,
+          "min": 0,
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
       "id": 1,
-      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "single", "sort": "none" } },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": { "mode": "single", "sort": "none" }
+      },
       "targets": [
         {
           "editorMode": "code",
@@ -56,7 +71,14 @@
       "fieldConfig": { "defaults": { "unit": "ms" }, "overrides": [] },
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
       "id": 2,
-      "options": { "legend": { "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
       "targets": [
         {
           "editorMode": "code",
@@ -82,7 +104,14 @@
       "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
       "id": 3,
-      "options": { "legend": { "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
       "targets": [
         {
           "editorMode": "code",
@@ -112,10 +141,20 @@
     {
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "description": "Abnormal closes as a share of completed sockets, guarded by session volume.",
-      "fieldConfig": { "defaults": { "decimals": 3, "min": 0, "unit": "percentunit" }, "overrides": [] },
+      "fieldConfig": {
+        "defaults": { "decimals": 3, "min": 0, "unit": "percentunit" },
+        "overrides": []
+      },
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
       "id": 4,
-      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "single", "sort": "none" } },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": { "mode": "single", "sort": "none" }
+      },
       "targets": [
         {
           "editorMode": "code",
@@ -134,7 +173,14 @@
       "fieldConfig": { "defaults": { "unit": "ms" }, "overrides": [] },
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
       "id": 5,
-      "options": { "legend": { "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
       "targets": [
         {
           "editorMode": "code",
@@ -160,12 +206,43 @@
       "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
       "id": 6,
-      "options": { "legend": { "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
       "targets": [
-        { "editorMode": "code", "expr": "sum(rate(mk01_distributed_event_failures_total[5m]))", "legendFormat": "event failures/s", "range": true, "refId": "A" },
-        { "editorMode": "code", "expr": "sum(rate(mk01_room_authority_conflicts_total[5m]))", "legendFormat": "authority conflicts/s", "range": true, "refId": "B" },
-        { "editorMode": "code", "expr": "sum(rate(mk01_room_version_conflicts_total[5m]))", "legendFormat": "version conflicts/s", "range": true, "refId": "C" },
-        { "editorMode": "code", "expr": "sum(rate(mk01_room_mutations_total[5m]))", "legendFormat": "mutations/s", "range": true, "refId": "D" }
+        {
+          "editorMode": "code",
+          "expr": "sum(rate(mk01_distributed_event_failures_total[5m]))",
+          "legendFormat": "event failures/s",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "editorMode": "code",
+          "expr": "sum(rate(mk01_room_authority_conflicts_total[5m]))",
+          "legendFormat": "authority conflicts/s",
+          "range": true,
+          "refId": "B"
+        },
+        {
+          "editorMode": "code",
+          "expr": "sum(rate(mk01_room_version_conflicts_total[5m]))",
+          "legendFormat": "version conflicts/s",
+          "range": true,
+          "refId": "C"
+        },
+        {
+          "editorMode": "code",
+          "expr": "sum(rate(mk01_room_mutations_total[5m]))",
+          "legendFormat": "mutations/s",
+          "range": true,
+          "refId": "D"
+        }
       ],
       "title": "Distributed correctness",
       "type": "timeseries"
@@ -176,11 +253,36 @@
       "fieldConfig": { "defaults": { "unit": "ms" }, "overrides": [] },
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
       "id": 7,
-      "options": { "legend": { "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
       "targets": [
-        { "editorMode": "code", "expr": "histogram_quantile(0.75, sum by (le, route, device_tier) (rate(mk01_rum_lcp_milliseconds_bucket[1h])))", "legendFormat": "LCP {{route}} {{device_tier}}", "range": true, "refId": "A" },
-        { "editorMode": "code", "expr": "histogram_quantile(0.75, sum by (le, route, device_tier) (rate(mk01_rum_inp_milliseconds_bucket[1h])))", "legendFormat": "INP {{route}} {{device_tier}}", "range": true, "refId": "B" },
-        { "editorMode": "code", "expr": "histogram_quantile(0.75, sum by (le, route, device_tier) (rate(mk01_rum_cls_milli_bucket[1h])))", "legendFormat": "CLS milli {{route}} {{device_tier}}", "range": true, "refId": "C" }
+        {
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.75, sum by (le, route, device_tier) (rate(mk01_rum_lcp_milliseconds_bucket[1h])))",
+          "legendFormat": "LCP {{route}} {{device_tier}}",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.75, sum by (le, route, device_tier) (rate(mk01_rum_inp_milliseconds_bucket[1h])))",
+          "legendFormat": "INP {{route}} {{device_tier}}",
+          "range": true,
+          "refId": "B"
+        },
+        {
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.75, sum by (le, route, device_tier) (rate(mk01_rum_cls_milli_bucket[1h])))",
+          "legendFormat": "CLS milli {{route}} {{device_tier}}",
+          "range": true,
+          "refId": "C"
+        }
       ],
       "title": "Core Web Vitals",
       "type": "timeseries"
@@ -191,10 +293,29 @@
       "fieldConfig": { "defaults": { "unit": "ms" }, "overrides": [] },
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
       "id": 8,
-      "options": { "legend": { "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
       "targets": [
-        { "editorMode": "code", "expr": "histogram_quantile(0.95, sum by (le, device_tier) (rate(mk01_rum_battle_interaction_milliseconds_bucket[1h])))", "legendFormat": "{{device_tier}} p95", "range": true, "refId": "A" },
-        { "editorMode": "code", "expr": "sum by (device_tier) (increase(mk01_rum_battle_interaction_milliseconds_count[1h]))", "legendFormat": "{{device_tier}} samples", "range": true, "refId": "B" }
+        {
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.95, sum by (le, device_tier) (rate(mk01_rum_battle_interaction_milliseconds_bucket[1h])))",
+          "legendFormat": "{{device_tier}} p95",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "editorMode": "code",
+          "expr": "sum by (device_tier) (increase(mk01_rum_battle_interaction_milliseconds_count[1h]))",
+          "legendFormat": "{{device_tier}} samples",
+          "range": true,
+          "refId": "B"
+        }
       ],
       "title": "Battle interaction",
       "type": "timeseries"
@@ -205,10 +326,29 @@
       "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 32 },
       "id": 9,
-      "options": { "legend": { "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
       "targets": [
-        { "editorMode": "code", "expr": "sum by (stage, outcome) (increase(mk01_new_player_funnel_events_total[24h]))", "legendFormat": "{{stage}} {{outcome}}", "range": true, "refId": "A" },
-        { "editorMode": "code", "expr": "sum by (reason) (increase(mk01_new_player_funnel_failures_total[24h]))", "legendFormat": "failure {{reason}}", "range": true, "refId": "B" }
+        {
+          "editorMode": "code",
+          "expr": "sum by (stage, outcome) (increase(mk01_new_player_funnel_events_total[24h]))",
+          "legendFormat": "{{stage}} {{outcome}}",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "editorMode": "code",
+          "expr": "sum by (reason) (increase(mk01_new_player_funnel_failures_total[24h]))",
+          "legendFormat": "failure {{reason}}",
+          "range": true,
+          "refId": "B"
+        }
       ],
       "title": "New-player funnel",
       "type": "timeseries"
@@ -219,11 +359,36 @@
       "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 32 },
       "id": 10,
-      "options": { "legend": { "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
       "targets": [
-        { "editorMode": "code", "expr": "sum(rate(mk01_retention_sessions_deleted_total[1h]))", "legendFormat": "sessions deleted/s", "range": true, "refId": "A" },
-        { "editorMode": "code", "expr": "sum(rate(mk01_retention_rooms_deleted_total[1h]))", "legendFormat": "rooms deleted/s", "range": true, "refId": "B" },
-        { "editorMode": "code", "expr": "max(mk01_backup_age_seconds)", "legendFormat": "backup age seconds", "range": true, "refId": "C" }
+        {
+          "editorMode": "code",
+          "expr": "sum(rate(mk01_retention_sessions_deleted_total[1h]))",
+          "legendFormat": "sessions deleted/s",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "editorMode": "code",
+          "expr": "sum(rate(mk01_retention_rooms_deleted_total[1h]))",
+          "legendFormat": "rooms deleted/s",
+          "range": true,
+          "refId": "B"
+        },
+        {
+          "editorMode": "code",
+          "expr": "max(mk01_backup_age_seconds)",
+          "legendFormat": "backup age seconds",
+          "range": true,
+          "refId": "C"
+        }
       ],
       "title": "Retention and backup",
       "type": "timeseries"
@@ -231,10 +396,25 @@
     {
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "description": "Share of completed ranked pairs that required recent-opponent relaxation after mutual global wait.",
-      "fieldConfig": { "defaults": { "decimals": 3, "min": 0, "max": 1, "unit": "percentunit" }, "overrides": [] },
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 3,
+          "min": 0,
+          "max": 1,
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
       "gridPos": { "h": 8, "w": 24, "x": 0, "y": 40 },
       "id": 11,
-      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "single", "sort": "none" } },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": { "mode": "single", "sort": "none" }
+      },
       "targets": [
         {
           "editorMode": "code",
@@ -253,13 +433,71 @@
       "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
       "gridPos": { "h": 8, "w": 24, "x": 0, "y": 48 },
       "id": 12,
-      "options": { "legend": { "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
       "targets": [
-        { "editorMode": "code", "expr": "sum(rate(mk01_ranked_leaderboard_requests_total[30m]))", "legendFormat": "requests/s", "range": true, "refId": "A" },
-        { "editorMode": "code", "expr": "sum(rate(mk01_ranked_leaderboard_entries_served_total[30m]))", "legendFormat": "entries/s", "range": true, "refId": "B" },
-        { "editorMode": "code", "expr": "sum(rate(mk01_ranked_leaderboard_empty_responses_total[30m]))", "legendFormat": "empty responses/s", "range": true, "refId": "C" }
+        {
+          "editorMode": "code",
+          "expr": "sum(rate(mk01_ranked_leaderboard_requests_total[30m]))",
+          "legendFormat": "requests/s",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "editorMode": "code",
+          "expr": "sum(rate(mk01_ranked_leaderboard_entries_served_total[30m]))",
+          "legendFormat": "entries/s",
+          "range": true,
+          "refId": "B"
+        },
+        {
+          "editorMode": "code",
+          "expr": "sum(rate(mk01_ranked_leaderboard_empty_responses_total[30m]))",
+          "legendFormat": "empty responses/s",
+          "range": true,
+          "refId": "C"
+        }
       ],
       "title": "Ranked leaderboard integrity",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "description": "Accepted and rejected HTTP/WebSocket negotiations across the bounded protocol release window.",
+      "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 56 },
+      "id": 13,
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "sum by (transport, version, outcome) (increase(mk01_protocol_negotiations_total[15m]))",
+          "legendFormat": "{{transport}} V{{version}} {{outcome}}",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "editorMode": "code",
+          "expr": "sum(increase(mk01_protocol_negotiations_total{outcome=\"rejected\"}[15m])) / clamp_min(sum(increase(mk01_protocol_negotiations_total[15m])), 1)",
+          "legendFormat": "rejection share",
+          "range": true,
+          "refId": "B"
+        }
+      ],
+      "title": "Protocol release window",
       "type": "timeseries"
     }
   ],

@@ -78,6 +78,8 @@ pub enum GameError {
     RankedSeasonUnavailable,
     #[error("허용되지 않은 출처의 연결입니다.")]
     OriginNotAllowed,
+    #[error("이 클라이언트 프로토콜 버전은 현재 릴리스 창에서 지원되지 않습니다.")]
+    ProtocolVersionMismatch,
     #[error("요청 형식이 올바르지 않습니다.")]
     InvalidRequest,
     #[error("요청이 너무 잦습니다. 잠시 후 다시 시도해 주세요.")]
@@ -147,6 +149,7 @@ impl GameError {
             Self::RankedAccountRequired => "RANKED_ACCOUNT_REQUIRED",
             Self::RankedSeasonUnavailable => "RANKED_SEASON_UNAVAILABLE",
             Self::OriginNotAllowed => "ORIGIN_NOT_ALLOWED",
+            Self::ProtocolVersionMismatch => "SERVER_PROTOCOL_MISMATCH",
             Self::InvalidRequest => "INVALID_REQUEST",
             Self::RateLimited => "RATE_LIMITED",
             Self::CapacityReached => "CAPACITY_REACHED",
@@ -167,6 +170,7 @@ impl GameError {
     pub fn status(&self) -> StatusCode {
         match self {
             Self::Unauthorized => StatusCode::UNAUTHORIZED,
+            Self::ProtocolVersionMismatch => StatusCode::UPGRADE_REQUIRED,
             Self::OriginNotAllowed
             | Self::PlayerBlocked
             | Self::RankedAccountRequired

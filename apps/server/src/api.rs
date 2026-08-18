@@ -32,17 +32,18 @@ use crate::{
         CreateSessionInput, FunnelEventInput, FunnelOutcome, HealthResponse, IntegritySignalQuery,
         JoinRoomInput, LiveContentHistoryQuery, LiveContentHistoryResponse, MatchmakingResponse,
         MatchmakingTicket, ModerationActionInput, ModerationActionResponse, ModerationReportQuery,
-        PlayerReportInput, PlayerReportResponse, PublishLiveContentInput, RankedLeaderboardQuery,
-        RankedLeaderboardResponse, RankedLeaderboardVisibilityInput,
-        RankedLeaderboardVisibilityResponse, RollbackLiveContentInput, RoomCreatedResponse,
-        RoomListResponse, RumMetricInput, SessionResponse, SocialRelationshipInput,
-        SocialRelationshipsResponse,
+        PlayerReportInput, PlayerReportResponse, ProtocolCompatibilityResponse,
+        PublishLiveContentInput, RankedLeaderboardQuery, RankedLeaderboardResponse,
+        RankedLeaderboardVisibilityInput, RankedLeaderboardVisibilityResponse,
+        RollbackLiveContentInput, RoomCreatedResponse, RoomListResponse, RumMetricInput,
+        SessionResponse, SocialRelationshipInput, SocialRelationshipsResponse,
     },
     store::GameHistoryItem,
 };
 
 pub fn router() -> Router<AppState> {
     Router::new()
+        .route("/protocol", get(protocol_compatibility))
         .route("/health", get(health))
         .route("/ready", get(readiness))
         .route("/metrics", get(metrics))
@@ -103,6 +104,10 @@ pub fn router() -> Router<AppState> {
             post(enqueue_matchmaking).delete(cancel_matchmaking),
         )
         .route("/matchmaking/ranked", post(enqueue_ranked_matchmaking))
+}
+
+async fn protocol_compatibility() -> Json<ProtocolCompatibilityResponse> {
+    Json(ProtocolCompatibilityResponse::default())
 }
 
 async fn metrics(State(state): State<AppState>) -> impl IntoResponse {

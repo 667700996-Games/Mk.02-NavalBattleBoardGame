@@ -5,7 +5,7 @@
   import { onMount } from 'svelte';
   import { resolve } from '$app/paths';
   import { Crosshair, History, Radio, Settings } from '@lucide/svelte';
-  import { api } from '$lib/api';
+  import { ApiError, api } from '$lib/api';
   import { installFunnelAbandonmentTracking } from '$lib/funnel';
   import { installRealUserMonitoring } from '$lib/performance';
   import {
@@ -50,6 +50,11 @@
       (clock = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }));
     updateClock();
     const timer = setInterval(updateClock, 30_000);
+    api.protocolCompatibility().catch((caught: unknown) => {
+      if (caught instanceof ApiError && caught.code === 'SERVER_PROTOCOL_MISMATCH') {
+        gameError.set({ code: caught.code, message: caught.message, retryable: false });
+      }
+    });
     api
       .currentSession()
       .then((current) => session.set(current))

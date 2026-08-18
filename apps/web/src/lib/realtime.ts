@@ -15,10 +15,12 @@ import {
 import type { ClientEvent, GameSnapshot, ServerEvent } from '$lib/types';
 import { sounds } from '$lib/sound';
 import {
+  acceptWebsocketProtocol,
   isCompatibleGameSnapshot,
   isCompatibleServerEvent,
   SERVER_PROTOCOL_MISMATCH_CODE,
-  SERVER_PROTOCOL_MISMATCH_MESSAGE
+  SERVER_PROTOCOL_MISMATCH_MESSAGE,
+  websocketProtocol
 } from '$lib/protocol';
 
 class RealtimeClient {
@@ -36,7 +38,10 @@ class RealtimeClient {
     this.manuallyClosed = false;
     this.setStatus(this.retries ? 'reconnecting' : 'connecting');
     const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const socket = new WebSocket([protocol, '//', location.host, '/ws'].join(''));
+    const socket = new WebSocket(
+      [protocol, '//', location.host, '/ws'].join(''),
+      websocketProtocol()
+    );
     this.socket = socket;
     socket.addEventListener('open', () => {
       if (this.socket === socket) this.onOpen();
@@ -92,6 +97,15 @@ class RealtimeClient {
   }
 
   private onOpen(): void {
+    if (this.socket && !acceptWebsocketProtocol(this.socket.protocol)) {
+      gameError.set({
+        code: SERVER_PROTOCOL_MISMATCH_CODE,
+        message: SERVER_PROTOCOL_MISMATCH_MESSAGE,
+        retryable: false
+      });
+      this.disconnect();
+      return;
+    }
     this.retries = 0;
     this.setStatus('online');
     for (const event of this.queue.splice(0)) this.send(event);

@@ -28,8 +28,14 @@ import type {
   SocialRelationship
 } from '$lib/types';
 import {
+  acceptProtocolCompatibility,
+  acceptProtocolHeaders,
+  GAME_PROTOCOL_VERSION,
   isCompatibleGameSnapshot,
   isCompatibleProtocolEnvelope,
+  legacyProtocolCompatibility,
+  type ProtocolCompatibility,
+  PROTOCOL_VERSION_HEADER,
   SERVER_PROTOCOL_MISMATCH_CODE,
   SERVER_PROTOCOL_MISMATCH_MESSAGE
 } from '$lib/protocol';
@@ -52,10 +58,14 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     credentials: 'include',
     headers: {
       Accept: 'application/json',
+      [PROTOCOL_VERSION_HEADER]: String(GAME_PROTOCOL_VERSION),
       ...(init.body ? { 'Content-Type': 'application/json' } : {}),
       ...init.headers
     }
   });
+  if (!acceptProtocolHeaders(response.headers)) {
+    throw new ApiError(SERVER_PROTOCOL_MISMATCH_CODE, SERVER_PROTOCOL_MISMATCH_MESSAGE, 426);
+  }
   if (!response.ok) {
     let body: ApiErrorBody = {
       code: 'NETWORK_ERROR',
@@ -91,7 +101,23 @@ async function roomList(): Promise<{ rooms: RoomSummary[]; serverTime: string }>
   return response;
 }
 
+async function protocolCompatibility(): Promise<ProtocolCompatibility> {
+  try {
+    const response = await request<unknown>('/protocol');
+    if (!acceptProtocolCompatibility(response)) {
+      throw new ApiError(SERVER_PROTOCOL_MISMATCH_CODE, SERVER_PROTOCOL_MISMATCH_MESSAGE, 426);
+    }
+    return response;
+  } catch (caught) {
+    if (caught instanceof ApiError && caught.status === 404) {
+      return legacyProtocolCompatibility();
+    }
+    throw caught;
+  }
+}
+
 export const api = {
+  protocolCompatibility,
   createSession: (nickname: string) =>
     request<Session>('/sessions', { method: 'POST', body: JSON.stringify({ nickname }) }),
   currentSession: () => request<Session>('/sessions/current'),

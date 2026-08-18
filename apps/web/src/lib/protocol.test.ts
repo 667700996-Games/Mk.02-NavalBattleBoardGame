@@ -1,9 +1,19 @@
 import { describe, expect, it } from 'vitest';
 import {
+  acceptProtocolCompatibility,
+  acceptProtocolHeaders,
+  acceptWebsocketProtocol,
   GAME_PROTOCOL_VERSION,
   isCompatibleGameSnapshot,
   isCompatibleProtocolEnvelope,
-  isCompatibleServerEvent
+  isCompatibleServerEvent,
+  PROTOCOL_CAPABILITIES,
+  PROTOCOL_CAPABILITIES_HEADER,
+  PROTOCOL_MAX_VERSION_HEADER,
+  PROTOCOL_MIN_VERSION_HEADER,
+  PROTOCOL_VERSION_HEADER,
+  supportsProtocolCapability,
+  websocketProtocol
 } from './protocol';
 
 const currentSnapshot = {
@@ -33,6 +43,61 @@ describe('game protocol compatibility', () => {
   it('accepts the current explicit-start snapshot contract', () => {
     expect(isCompatibleGameSnapshot(currentSnapshot)).toBe(true);
     expect(isCompatibleProtocolEnvelope({ protocolVersion: GAME_PROTOCOL_VERSION })).toBe(true);
+  });
+
+  it('negotiates HTTP and WebSocket V2 while retaining the headerless stable fallback', () => {
+    expect(websocketProtocol()).toBe('mk01.v2');
+    expect(acceptWebsocketProtocol('')).toBe(true);
+    expect(acceptWebsocketProtocol('mk01.v2')).toBe(true);
+    expect(acceptWebsocketProtocol('mk01.v3')).toBe(false);
+    expect(acceptProtocolHeaders(new Headers())).toBe(true);
+
+    const compatible = new Headers({
+      [PROTOCOL_VERSION_HEADER]: '2',
+      [PROTOCOL_MIN_VERSION_HEADER]: '2',
+      [PROTOCOL_MAX_VERSION_HEADER]: '2',
+      [PROTOCOL_CAPABILITIES_HEADER]: PROTOCOL_CAPABILITIES.join(',')
+    });
+    expect(acceptProtocolHeaders(compatible)).toBe(true);
+    expect(supportsProtocolCapability('balance-pin-v1')).toBe(true);
+
+    compatible.set(PROTOCOL_VERSION_HEADER, '3');
+    expect(acceptProtocolHeaders(compatible)).toBe(false);
+    compatible.set(PROTOCOL_VERSION_HEADER, 'invalid');
+    expect(acceptProtocolHeaders(compatible)).toBe(false);
+  });
+
+  it('accepts a newer server that retains V2 and rejects a V3-only window', () => {
+    expect(
+      acceptProtocolCompatibility({
+        currentVersion: 2,
+        minimumSupportedVersion: 2,
+        maximumSupportedVersion: 2,
+        legacyDefaultVersion: 2,
+        compatibilityWindowDays: 30,
+        capabilities: [...PROTOCOL_CAPABILITIES]
+      })
+    ).toBe(true);
+    expect(
+      acceptProtocolCompatibility({
+        currentVersion: 3,
+        minimumSupportedVersion: 2,
+        maximumSupportedVersion: 3,
+        legacyDefaultVersion: 2,
+        compatibilityWindowDays: 30,
+        capabilities: [...PROTOCOL_CAPABILITIES, 'future-capability-v1']
+      })
+    ).toBe(true);
+    expect(
+      acceptProtocolCompatibility({
+        currentVersion: 3,
+        minimumSupportedVersion: 3,
+        maximumSupportedVersion: 3,
+        legacyDefaultVersion: 3,
+        compatibilityWindowDays: 30,
+        capabilities: []
+      })
+    ).toBe(false);
   });
 
   it('rejects legacy WAITING and auto-PLACEMENT snapshots', () => {

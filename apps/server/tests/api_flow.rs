@@ -1,4 +1,8 @@
-use std::{net::SocketAddr, sync::Arc, time::Duration};
+use std::{
+    net::SocketAddr,
+    sync::{Arc, atomic::Ordering},
+    time::Duration,
+};
 
 use axum::{
     Router,
@@ -7,16 +11,24 @@ use axum::{
 };
 use chrono::Utc;
 use mk01_server::{
-    AppState, PROTOCOL_VERSION,
+    AppState, MAX_SUPPORTED_PROTOCOL_VERSION, MIN_SUPPORTED_PROTOCOL_VERSION, PROTOCOL_VERSION,
     app::hash_token,
     build_router,
     config::{Settings, StorageMode},
     domain::{
         Coordinate, GameRoom, Orientation, RoomVisibility, ShipKind, ShipPlacement, UserSession,
     },
+    protocol::{
+        PROTOCOL_CAPABILITIES, PROTOCOL_CAPABILITIES_HEADER, PROTOCOL_MAX_VERSION_HEADER,
+        PROTOCOL_MIN_VERSION_HEADER, PROTOCOL_VERSION_HEADER,
+    },
     store::{GameStore, MemoryStore},
 };
 use serde_json::{Value, json};
+use tokio_tungstenite::{
+    connect_async,
+    tungstenite::{Error as WebSocketError, client::IntoClientRequest},
+};
 use tower::ServiceExt;
 
 fn test_settings() -> Settings {
@@ -940,6 +952,163 @@ async fn liveness_readiness_and_security_headers_are_exposed() {
     assert!(metrics.contains(
         "mk01_command_duration_milliseconds_count{transport=\"http\",outcome=\"accepted\"} 0"
     ));
+    assert!(metrics.contains("# TYPE mk01_protocol_negotiations_total counter"));
+}
+
+#[tokio::test]
+async fn protocol_window_accepts_headerless_v2_and_rejects_unsupported_clients() {
+    let state = AppState::with_store(test_settings(), Arc::new(MemoryStore::default()));
+    let app = build_router(state.clone());
+    let legacy_response = send(
+        &app,
+        Request::builder()
+            .uri("/api/protocol")
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(legacy_response.status(), StatusCode::OK);
+    assert_eq!(
+        legacy_response.headers()[PROTOCOL_VERSION_HEADER],
+        PROTOCOL_VERSION.to_string()
+    );
+    assert_eq!(
+        legacy_response.headers()[PROTOCOL_MIN_VERSION_HEADER],
+        MIN_SUPPORTED_PROTOCOL_VERSION.to_string()
+    );
+    assert_eq!(
+        legacy_response.headers()[PROTOCOL_MAX_VERSION_HEADER],
+        MAX_SUPPORTED_PROTOCOL_VERSION.to_string()
+    );
+    assert_eq!(
+        legacy_response.headers()[PROTOCOL_CAPABILITIES_HEADER],
+        PROTOCOL_CAPABILITIES.join(",")
+    );
+    let descriptor = json_body(legacy_response).await;
+    assert_eq!(descriptor["currentVersion"], PROTOCOL_VERSION);
+    assert_eq!(descriptor["legacyDefaultVersion"], PROTOCOL_VERSION);
+    assert_eq!(
+        descriptor["capabilities"].as_array().unwrap().len(),
+        PROTOCOL_CAPABILITIES.len()
+    );
+
+    let explicit_response = send(
+        &app,
+        Request::builder()
+            .uri("/api/health")
+            .header(PROTOCOL_VERSION_HEADER, PROTOCOL_VERSION.to_string())
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(explicit_response.status(), StatusCode::OK);
+
+    for unsupported in ["1", "3", "invalid"] {
+        let response = send(
+            &app,
+            Request::builder()
+                .uri("/api/health")
+                .header(PROTOCOL_VERSION_HEADER, unsupported)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::UPGRADE_REQUIRED);
+        assert_eq!(
+            response.headers()[PROTOCOL_MIN_VERSION_HEADER],
+            MIN_SUPPORTED_PROTOCOL_VERSION.to_string()
+        );
+        assert_eq!(
+            json_body(response).await["code"],
+            "SERVER_PROTOCOL_MISMATCH"
+        );
+    }
+    assert_eq!(
+        state.metrics.protocol_http_negotiations[0].load(Ordering::Relaxed),
+        2
+    );
+    assert_eq!(
+        state
+            .metrics
+            .protocol_http_rejections
+            .load(Ordering::Relaxed),
+        3
+    );
+}
+
+#[tokio::test]
+async fn websocket_handshake_supports_old_and_new_v2_clients_and_rejects_v3_only() {
+    let state = AppState::with_store(test_settings(), Arc::new(MemoryStore::default()));
+    let app = build_router(state.clone());
+    let (cookie, _) = create_session(&app, "Protocol Captain").await;
+    let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+        .await
+        .unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<SocketAddr>(),
+        )
+        .await
+        .unwrap();
+    });
+
+    let request = |offered_protocol: Option<&'static str>| {
+        let mut request = format!("ws://{address}/ws").into_client_request().unwrap();
+        request
+            .headers_mut()
+            .insert(header::ORIGIN, "http://localhost:5173".parse().unwrap());
+        request
+            .headers_mut()
+            .insert(header::COOKIE, cookie.parse().unwrap());
+        if let Some(offered_protocol) = offered_protocol {
+            request.headers_mut().insert(
+                header::SEC_WEBSOCKET_PROTOCOL,
+                offered_protocol.parse().unwrap(),
+            );
+        }
+        request
+    };
+
+    let (mut legacy_socket, legacy_response) = connect_async(request(None)).await.unwrap();
+    assert_eq!(legacy_response.status(), StatusCode::SWITCHING_PROTOCOLS);
+    assert!(
+        legacy_response
+            .headers()
+            .get(header::SEC_WEBSOCKET_PROTOCOL)
+            .is_none()
+    );
+    legacy_socket.close(None).await.unwrap();
+
+    let (mut v2_socket, v2_response) = connect_async(request(Some("mk01.v3, mk01.v2")))
+        .await
+        .unwrap();
+    assert_eq!(v2_response.status(), StatusCode::SWITCHING_PROTOCOLS);
+    assert_eq!(
+        v2_response.headers()[header::SEC_WEBSOCKET_PROTOCOL],
+        "mk01.v2"
+    );
+    v2_socket.close(None).await.unwrap();
+
+    let error = connect_async(request(Some("mk01.v3"))).await.unwrap_err();
+    let WebSocketError::Http(response) = error else {
+        panic!("expected an HTTP protocol rejection, got {error}");
+    };
+    assert_eq!(response.status(), StatusCode::UPGRADE_REQUIRED);
+    assert_eq!(
+        state.metrics.protocol_websocket_negotiations[0].load(Ordering::Relaxed),
+        2
+    );
+    assert_eq!(
+        state
+            .metrics
+            .protocol_websocket_rejections
+            .load(Ordering::Relaxed),
+        1
+    );
+
+    server.abort();
 }
 
 #[tokio::test]

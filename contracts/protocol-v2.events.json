@@ -1,5 +1,17 @@
 {
   "protocolVersion": 2,
+  "minimumSupportedVersion": 2,
+  "maximumSupportedVersion": 2,
+  "legacyDefaultVersion": 2,
+  "compatibilityWindowDays": 30,
+  "capabilities": [
+    "account-sessions-v1",
+    "authoritative-room-v2",
+    "balance-pin-v1",
+    "explicit-lobby-readiness-v1",
+    "ranked-seasons-v1",
+    "safe-replay-analysis-v1"
+  ],
   "clientEvents": [
     "attack:fire",
     "chat:send",

@@ -5,7 +5,7 @@ use axum::{
     },
     http::{
         HeaderMap,
-        header::{AUTHORIZATION, ORIGIN},
+        header::{AUTHORIZATION, ORIGIN, SEC_WEBSOCKET_PROTOCOL},
     },
     response::Response,
 };
@@ -21,8 +21,8 @@ use crate::{
     domain::{IntegritySignalKind, QuickCommandId},
     error::GameError,
     protocol::{
-        ChatHistoryResponse, ClientEvent, HeartbeatResponse, ProtocolError, RoomCreatedResponse,
-        ServerEvent,
+        ChatHistoryResponse, ClientEvent, HeartbeatResponse, NegotiatedProtocol, ProtocolError,
+        RoomCreatedResponse, ServerEvent, negotiate_protocol_version, websocket_subprotocol,
     },
 };
 
@@ -35,18 +35,65 @@ pub async fn websocket_handler(
     if !origin_allowed(&state.settings.allowed_origins, &headers) {
         return Err(GameError::OriginNotAllowed);
     }
+    let (negotiated, selected_subprotocol) = match negotiate_websocket_protocol(&headers) {
+        Ok((negotiated, selected_subprotocol)) => {
+            state
+                .metrics
+                .record_protocol_websocket_negotiation(negotiated.0);
+            (negotiated, selected_subprotocol)
+        }
+        Err(error) => {
+            state
+                .metrics
+                .protocol_websocket_rejections
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            return Err(error);
+        }
+    };
     let session = authenticate(&state, &jar, &headers).await?;
     let connection_permit = state.try_acquire_websocket_slot()?;
+    let upgrade = match selected_subprotocol {
+        Some(subprotocol) => upgrade.protocols([subprotocol]),
+        None => upgrade,
+    };
     Ok(upgrade
         .max_message_size(64 * 1024)
         .max_frame_size(64 * 1024)
-        .on_upgrade(move |socket| handle_socket(socket, state, session, connection_permit)))
+        .on_upgrade(move |socket| {
+            handle_socket(socket, state, session, negotiated, connection_permit)
+        }))
+}
+
+fn negotiate_websocket_protocol(
+    headers: &HeaderMap,
+) -> Result<(NegotiatedProtocol, Option<&'static str>), GameError> {
+    let Some(header) = headers.get(SEC_WEBSOCKET_PROTOCOL) else {
+        return negotiate_protocol_version(None).map(|version| (version, None));
+    };
+    let offered = header
+        .to_str()
+        .map_err(|_| GameError::ProtocolVersionMismatch)?;
+    for candidate in offered.split(',').map(str::trim) {
+        let Some(version) = candidate
+            .strip_prefix("mk01.v")
+            .and_then(|value| value.parse::<u16>().ok())
+        else {
+            continue;
+        };
+        if let Ok(negotiated) = negotiate_protocol_version(Some(version)) {
+            let subprotocol =
+                websocket_subprotocol(negotiated.0).ok_or(GameError::ProtocolVersionMismatch)?;
+            return Ok((negotiated, Some(subprotocol)));
+        }
+    }
+    Err(GameError::ProtocolVersionMismatch)
 }
 
 async fn handle_socket(
     socket: WebSocket,
     state: AppState,
     session: crate::domain::UserSession,
+    negotiated: NegotiatedProtocol,
     _connection_permit: tokio::sync::OwnedSemaphorePermit,
 ) {
     let connected_at = std::time::Instant::now();
@@ -57,7 +104,7 @@ async fn handle_socket(
         .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let (mut socket_sender, mut socket_receiver) = socket.split();
     let (event_sender, mut event_receiver) = mpsc::channel(state.websocket_send_queue_capacity());
-    let connection_id = state.hub.connect(session.id, event_sender);
+    let connection_id = state.hub.connect(session.id, negotiated.0, event_sender);
     state.restore_connection(&session).await;
 
     loop {
@@ -698,6 +745,33 @@ mod tests {
         assert!(!origin_allowed(&allowed, &headers));
         headers.insert(AUTHORIZATION, HeaderValue::from_static("Bearer test"));
         assert!(origin_allowed(&allowed, &headers));
+    }
+
+    #[test]
+    fn websocket_protocol_negotiation_supports_headerless_v2_and_rejects_unknown_versions() {
+        let mut headers = HeaderMap::new();
+        assert_eq!(
+            negotiate_websocket_protocol(&headers).unwrap(),
+            (NegotiatedProtocol(2), None)
+        );
+
+        headers.insert(
+            SEC_WEBSOCKET_PROTOCOL,
+            HeaderValue::from_static("mk01.v3, mk01.v2"),
+        );
+        assert_eq!(
+            negotiate_websocket_protocol(&headers).unwrap(),
+            (NegotiatedProtocol(2), Some("mk01.v2"))
+        );
+
+        headers.insert(
+            SEC_WEBSOCKET_PROTOCOL,
+            HeaderValue::from_static("mk01.v1, mk01.v3"),
+        );
+        assert_eq!(
+            negotiate_websocket_protocol(&headers).unwrap_err(),
+            GameError::ProtocolVersionMismatch
+        );
     }
 
     #[test]

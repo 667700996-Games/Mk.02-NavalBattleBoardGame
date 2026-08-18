@@ -3,6 +3,8 @@
 Mk.01 deploys application versions side by side during canary and rolling releases. A database
 migration therefore has to remain readable and writable by both the stable and candidate server
 for the entire mixed-version window.
+The HTTP/WebSocket half of the same release gate is defined in `PROTOCOL_COMPATIBILITY.md`. Passing
+one policy never waives the other.
 
 ## Required expand/migrate/contract sequence
 
@@ -36,6 +38,8 @@ immutable additive policy and the service-backed mixed-version test before deplo
   version/checksum; follow `BALANCE_VERSIONING.md` and drain active rooms before changing current.
 - Execute `npm run test:distributed`; CI requires real PostgreSQL/Redis URLs, serializes the suite,
   and retains its post-test `--verify-restore` report as described in `DISTRIBUTED_INTEGRATION.md`.
+- Execute the stable-client/candidate-server and candidate-client/stable-server matrix in
+  `PROTOCOL_COMPATIBILITY.md`; deploy compatible servers before publishing a new web artifact.
 - Hold the canary while stable and candidate instances both read/write the expanded schema.
 - Prove the stable artifact can restart after the candidate migration, then exercise both stable
   and candidate write projections before increasing canary traffic.
