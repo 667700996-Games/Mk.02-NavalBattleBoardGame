@@ -54,6 +54,7 @@
   }: Props = $props();
 
   let hovered = $state<Coordinate | null>(null);
+  let activeCell = $state('0:0');
 
   const grid = Array.from({ length: 10 }, (_, row) =>
     Array.from({ length: 10 }, (_, col) => ({ row, col }))
@@ -136,22 +137,38 @@
   });
 
   function handleKeyboard(event: KeyboardEvent, coordinate: Coordinate) {
-    let next: Coordinate;
-    if (event.key === 'ArrowUp') next = { ...coordinate, row: Math.max(0, coordinate.row - 1) };
-    else if (event.key === 'ArrowDown')
-      next = { ...coordinate, row: Math.min(9, coordinate.row + 1) };
-    else if (event.key === 'ArrowLeft')
-      next = { ...coordinate, col: Math.max(0, coordinate.col - 1) };
-    else if (event.key === 'ArrowRight')
-      next = { ...coordinate, col: Math.min(9, coordinate.col + 1) };
-    else if (event.key === 'Enter' || event.key === ' ') {
+    if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault();
       if (!disabled) oncell?.(coordinate);
       return;
-    } else return;
+    }
+    const direction =
+      event.key === 'ArrowUp'
+        ? { row: -1, col: 0 }
+        : event.key === 'ArrowDown'
+          ? { row: 1, col: 0 }
+          : event.key === 'ArrowLeft'
+            ? { row: 0, col: -1 }
+            : event.key === 'ArrowRight'
+              ? { row: 0, col: 1 }
+              : null;
+    if (!direction) return;
     event.preventDefault();
     const board = (event.currentTarget as HTMLElement).closest('.board-grid');
-    board?.querySelector<HTMLButtonElement>(`[data-cell="${next.row}:${next.col}"]`)?.focus();
+    let next = {
+      row: coordinate.row + direction.row,
+      col: coordinate.col + direction.col
+    };
+    while (next.row >= 0 && next.row <= 9 && next.col >= 0 && next.col <= 9) {
+      const key = coordinateKey(next);
+      const cell = board?.querySelector<HTMLButtonElement>(`[data-cell="${key}"]`);
+      if (cell && !cell.disabled) {
+        activeCell = key;
+        cell.focus();
+        return;
+      }
+      next = { row: next.row + direction.row, col: next.col + direction.col };
+    }
   }
 
   function ariaDescription(coordinate: Coordinate): string {
@@ -171,23 +188,25 @@
   class="board-wrap"
 >
   <span class="board-wrap__bezel" aria-hidden="true"></span>
+  <span class="board-hover-readout" aria-live="polite"
+    >{hovered ? coordinateLabel(hovered) : '— —'}</span
+  >
   <div
     class="board-grid"
     role="grid"
-    tabindex="0"
+    tabindex={interactive && !disabled ? undefined : 0}
     aria-label={label}
     onmouseleave={() => {
       hovered = null;
       onhover?.(null);
     }}
   >
-    <span class="board-hover-readout" aria-live="polite"
-      >{hovered ? coordinateLabel(hovered) : '— —'}</span
-    >
-    <span class="axis axis--corner" aria-hidden="true"><Crosshair size={10} /></span>
-    {#each Array.from({ length: 10 }) as _, col (col)}
-      <span class="axis axis--col" aria-hidden="true">{col + 1}</span>
-    {/each}
+    <div class="board-row" role="row" aria-hidden="true">
+      <span class="axis axis--corner"><Crosshair size={10} /></span>
+      {#each Array.from({ length: 10 }) as _, col (col)}
+        <span class="axis axis--col">{col + 1}</span>
+      {/each}
+    </div>
     <div class="board-vessels" aria-hidden="true">
       {#each vessels as vessel (vessel.kind)}
         <div
@@ -216,57 +235,63 @@
       {/if}
     </div>
     {#each grid as row, rowIndex (rowIndex)}
-      <span class="axis axis--row" aria-hidden="true">{ROW_LABELS[rowIndex]}</span>
-      {#each row as coordinate (coordinateKey(coordinate))}
-        {@const attack = attackAt(coordinate)}
-        {@const kind = mode === 'placement' ? placementKind(coordinate) : ownShipKind(coordinate)}
-        {@const preview = isPreview(coordinate)}
-        {@const isSelected = selected?.row === coordinate.row && selected?.col === coordinate.col}
-        <button
-          class:cell--ship={Boolean(kind)}
-          class:cell--ship-selected={mode === 'placement' && kind === selectedShipKind}
-          class:cell--preview={preview && previewValid}
-          class:cell--invalid={preview && !previewValid}
-          class:cell--selected={isSelected}
-          class:cell--marked={Boolean(attack)}
-          class:cell--miss={attack === 'MISS'}
-          class:cell--hit={attack === 'HIT'}
-          class:cell--sunk={attack === 'SUNK'}
-          class:cell--interactive={interactive && !attack && !disabled}
-          class="board-cell"
-          type="button"
-          role="gridcell"
-          data-cell={coordinateKey(coordinate)}
-          data-testid={`${mode}-cell-${coordinate.row}-${coordinate.col}`}
-          aria-label={ariaDescription(coordinate)}
-          disabled={disabled || (mode === 'target' && Boolean(attack))}
-          draggable={mode === 'placement' && Boolean(kind) && !disabled}
-          onclick={() => oncell?.(coordinate)}
-          onkeydown={(event) => handleKeyboard(event, coordinate)}
-          onmouseenter={() => {
-            hovered = coordinate;
-            onhover?.(coordinate);
-          }}
-          onfocus={() => {
-            hovered = coordinate;
-            onhover?.(coordinate);
-          }}
-          ondragstart={() => kind && onshipdrag?.(kind)}
-          ondragover={(event) => {
-            if (mode === 'placement') event.preventDefault();
-            onhover?.(coordinate);
-          }}
-          ondrop={(event) => {
-            event.preventDefault();
-            ondropcell?.(coordinate);
-          }}
-        >
-          {#if attack === 'MISS'}<span class="miss-marker"><i></i><Waves size={13} /></span>{/if}
-          {#if attack === 'HIT' || attack === 'SUNK'}<span class="hit-marker"
-              ><i></i><Flame size={14} /></span
-            >{/if}
-        </button>
-      {/each}
+      <div class="board-row" role="row">
+        <span class="axis axis--row" aria-hidden="true">{ROW_LABELS[rowIndex]}</span>
+        {#each row as coordinate (coordinateKey(coordinate))}
+          {@const attack = attackAt(coordinate)}
+          {@const kind = mode === 'placement' ? placementKind(coordinate) : ownShipKind(coordinate)}
+          {@const preview = isPreview(coordinate)}
+          {@const isSelected = selected?.row === coordinate.row && selected?.col === coordinate.col}
+          {@const cellKey = coordinateKey(coordinate)}
+          <button
+            class:cell--ship={Boolean(kind)}
+            class:cell--ship-selected={mode === 'placement' && kind === selectedShipKind}
+            class:cell--preview={preview && previewValid}
+            class:cell--invalid={preview && !previewValid}
+            class:cell--selected={isSelected}
+            class:cell--marked={Boolean(attack)}
+            class:cell--miss={attack === 'MISS'}
+            class:cell--hit={attack === 'HIT'}
+            class:cell--sunk={attack === 'SUNK'}
+            class:cell--interactive={interactive && !attack && !disabled}
+            class="board-cell"
+            type="button"
+            role="gridcell"
+            data-cell={cellKey}
+            data-testid={`${mode}-cell-${coordinate.row}-${coordinate.col}`}
+            aria-label={ariaDescription(coordinate)}
+            aria-selected={isSelected}
+            tabindex={interactive && !disabled && !attack && activeCell === cellKey ? 0 : -1}
+            disabled={disabled || (mode === 'target' && (Boolean(attack) || !interactive))}
+            draggable={mode === 'placement' && Boolean(kind) && !disabled}
+            onclick={() => oncell?.(coordinate)}
+            onkeydown={(event) => handleKeyboard(event, coordinate)}
+            onmouseenter={() => {
+              hovered = coordinate;
+              onhover?.(coordinate);
+            }}
+            onfocus={() => {
+              activeCell = cellKey;
+              hovered = coordinate;
+              onhover?.(coordinate);
+            }}
+            ondragstart={() => kind && onshipdrag?.(kind)}
+            ondragover={(event) => {
+              if (mode === 'placement') event.preventDefault();
+              onhover?.(coordinate);
+            }}
+            ondrop={(event) => {
+              event.preventDefault();
+              ondropcell?.(coordinate);
+            }}
+          >
+            {#if attack === 'MISS'}<span class="miss-marker"><i></i><Waves size={13} /></span>{/if}
+            {#if attack === 'HIT' || attack === 'SUNK'}<span class="hit-marker"
+                ><i></i><Flame size={14} /></span
+              >{/if}
+          </button>
+        {/each}
+      </div>
     {/each}
   </div>
 </div>
@@ -347,12 +372,16 @@
   .board-hover-readout {
     position: absolute;
     z-index: 8;
-    top: 9px;
-    right: 12px;
+    top: 19px;
+    right: 22px;
     color: var(--cyan-300);
     font: 700 10px var(--font-display);
     letter-spacing: 0.14em;
     opacity: 0.86;
+  }
+
+  .board-row {
+    display: contents;
   }
 
   .board-vessels {
@@ -416,7 +445,7 @@
       box-shadow 0.12s ease,
       transform 0.12s ease;
   }
-  .board-cell:nth-child(11n + 1) {
+  .board-row > .board-cell:first-of-type {
     border-left: 0;
   }
   .board-cell:disabled {

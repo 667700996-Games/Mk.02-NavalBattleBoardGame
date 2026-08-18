@@ -297,6 +297,7 @@ npm run test        # Rust unit/integration + Vitest
 npm run contract    # Rust/TypeScript 버전·이벤트·생성 매니페스트 일치
 npm run security:drill # 취약점 대응 역할·타임라인·패치 SLO·증거 검증
 npx playwright install chromium firefox webkit
+npm run test:a11y   # WCAG 2.2 AA 전체 흐름 + 키보드·라이브 알림 검증
 npm run test:e2e    # Chromium/Firefox/WebKit 전체 경기 + 모바일 2종 + 태블릿 1종
 npm run build       # Rust release + SvelteKit adapter-node
 npm run budget      # JS/CSS/WOFF2 파일·총량 제한과 기존 WOFF 차단

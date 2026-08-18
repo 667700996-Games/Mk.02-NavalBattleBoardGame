@@ -11,6 +11,7 @@
     "lint": "prettier --check . && eslint .",
     "format": "prettier --write .",
     "test:unit": "vitest run",
+    "test:a11y": "playwright test e2e/accessibility.spec.ts --project=chromium",
     "test:e2e": "playwright test"
   },
   "dependencies": {
@@ -20,6 +21,7 @@
     "svelte": "5.56.8"
   },
   "devDependencies": {
+    "@axe-core/playwright": "4.13.0",
     "@eslint/js": "^10.0.1",
     "@playwright/test": "1.62.1",
     "@sveltejs/adapter-node": "5.5.7",

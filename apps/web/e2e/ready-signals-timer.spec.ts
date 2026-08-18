@@ -143,6 +143,11 @@ test('ready cancellation, tactical signals, deadline recovery and timeout defeat
   await expect(second.getByText('상대 공격 보드')).toBeVisible();
   await expect(first.locator('.turn-clock strong')).toHaveText(/00:(0\d|10)/);
   await expect(second.getByText('ELAPSED')).toBeVisible();
+  const initialTurnPage = (await first.locator('.turn-banner--mine').isVisible()) ? first : second;
+  await expect(initialTurnPage.locator('.sr-only[aria-live="assertive"]')).toHaveText(
+    /턴 제한 시간 (10|5|3|2|1)초 남았습니다/,
+    { timeout: 6_000 }
+  );
 
   await first.getByRole('button', { name: '전술 채팅 열기' }).click();
   await second.getByRole('button', { name: '전술 채팅 열기' }).click();

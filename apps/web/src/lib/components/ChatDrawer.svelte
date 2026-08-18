@@ -49,6 +49,8 @@
   let notice = $state('');
   let atBottom = $state(true);
   let messageList = $state<HTMLDivElement>();
+  let messageInput = $state<HTMLTextAreaElement>();
+  let drawerToggle = $state<HTMLButtonElement>();
   let previousLastMessageId: string | null = null;
   let historyReady = false;
   let typingSent = false;
@@ -116,7 +118,20 @@
 
   function toggleDrawer() {
     open = !open;
-    if (open) queueMicrotask(scrollToBottom);
+    if (open) {
+      queueMicrotask(() => {
+        scrollToBottom();
+        messageInput?.focus();
+      });
+    } else {
+      queueMicrotask(() => drawerToggle?.focus());
+    }
+  }
+
+  function closeDrawer() {
+    if (!open) return;
+    open = false;
+    queueMicrotask(() => drawerToggle?.focus());
   }
 
   async function openSafety() {
@@ -289,7 +304,7 @@
   });
 </script>
 
-<svelte:window onkeydown={(event) => event.key === 'Escape' && open && (open = false)} />
+<svelte:window onkeydown={(event) => event.key === 'Escape' && closeDrawer()} />
 
 <div class:chat-shell--open={open} class="chat-shell">
   {#if open}
@@ -319,10 +334,13 @@
         </button>
       </header>
 
+      <!-- svelte-ignore a11y_no_noninteractive_tabindex (Safari requires keyboard focus for scrollable logs) -->
       <div
         bind:this={messageList}
         class="chat-messages"
         role="log"
+        tabindex="0"
+        aria-label="채팅 기록"
         aria-live="polite"
         aria-relevant="additions"
         onscroll={handleScroll}
@@ -388,6 +406,7 @@
             onclick={() => openActions('commands')}><Zap size={15} /></button
           >
           <textarea
+            bind:this={messageInput}
             bind:value={draft}
             aria-label="채팅 메시지"
             maxlength="300"
@@ -412,7 +431,13 @@
       </div>
     </section>
   {:else}
-    <button class="chat-toggle" type="button" onclick={toggleDrawer} aria-label="전술 채팅 열기">
+    <button
+      bind:this={drawerToggle}
+      class="chat-toggle"
+      type="button"
+      onclick={toggleDrawer}
+      aria-label="전술 채팅 열기"
+    >
       <MessageSquare size={18} />
       <span>CHAT</span>
       {#if unread > 0}<strong aria-label={`읽지 않은 메시지 ${unread}개`}
