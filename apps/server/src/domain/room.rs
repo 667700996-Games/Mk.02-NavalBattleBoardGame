@@ -10,8 +10,8 @@ use super::{
     ALLOWED_EMOJIS, AttackOutcome, AttackRecord, Board, ChatMessage, ChatMessageType,
     ChatTypingEvent, ConnectionState, Coordinate, FinishReason, Game, GameResult,
     GameTimelineEvent, MAX_CHAT_HISTORY, MAX_CHAT_MESSAGE_CHARS, MatchRules, MatchmakingQuality,
-    Player, PlayerKind, PlayerReadyState, PlayerRole, QuickCommandId, ShipKind, ShipPlacement,
-    SurrenderRecord, TurnExpiration, UserSession,
+    Player, PlayerKind, PlayerReadyState, PlayerRole, QuickCommandId, RankedMatchContext, ShipKind,
+    ShipPlacement, SurrenderRecord, TurnExpiration, UserSession,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -144,6 +144,8 @@ pub struct GameRoom {
     #[serde(default)]
     pub matchmaking_quality: Option<MatchmakingQuality>,
     #[serde(default)]
+    pub ranked_match: Option<RankedMatchContext>,
+    #[serde(default)]
     pub persistence_revision: u64,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -202,6 +204,7 @@ impl GameRoom {
             version: 1,
             practice_difficulty: None,
             matchmaking_quality: None,
+            ranked_match: None,
             persistence_revision: 0,
             created_at: now,
             updated_at: now,
@@ -1364,6 +1367,7 @@ impl GameRoom {
             players,
             practice_difficulty: self.practice_difficulty,
             matchmaking_quality: self.matchmaking_quality,
+            ranked_match: self.ranked_match.clone(),
             rules: self.rules,
             own_board,
             target_board,
@@ -1547,6 +1551,8 @@ pub struct GameSnapshot {
     pub players: Vec<PlayerPublic>,
     pub practice_difficulty: Option<AiDifficulty>,
     pub matchmaking_quality: Option<MatchmakingQuality>,
+    #[serde(default)]
+    pub ranked_match: Option<RankedMatchContext>,
     pub rules: MatchRules,
     pub own_board: Option<OwnBoardSnapshot>,
     pub target_board: Option<TargetBoardSnapshot>,

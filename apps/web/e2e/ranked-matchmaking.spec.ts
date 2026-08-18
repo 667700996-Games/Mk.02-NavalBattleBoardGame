@@ -16,14 +16,14 @@ async function register(page: Page, nickname: string) {
 test('ranked queue measures RTT and sends only player-controlled preferences', async ({
   page,
   browserName
-}) => {
-  const handle = `Rank${browserName}`;
+}, testInfo) => {
+  const handle = `Rank${browserName}${testInfo.repeatEachIndex}`;
   await register(page, handle);
   const upgraded = await page.request.post('/api/accounts/upgrade', {
     data: { handle }
   });
   expect(upgraded.ok()).toBe(true);
-  await page.reload();
+  await page.goto('/lobby');
   await expect(page.getByText(`${handle} 지휘관`)).toBeVisible();
 
   await page.getByRole('button', { name: '랭크', exact: true }).click();
@@ -49,4 +49,7 @@ test('ranked queue measures RTT and sends only player-controlled preferences', a
   await expect(page.getByText('RATING 1500')).toBeVisible();
   await page.getByRole('button', { name: '매칭 취소' }).click();
   await expect(page.getByRole('heading', { name: '랭크 교전' })).toBeVisible();
+
+  await page.goto('/stats');
+  await expect(page.getByText('PROVISIONAL 1500 RP')).toBeVisible();
 });

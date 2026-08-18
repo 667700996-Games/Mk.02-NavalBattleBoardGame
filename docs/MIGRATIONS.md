@@ -31,8 +31,9 @@ a new forward migration.
 `mk01-server --migrate-only` applies embedded SQLx migrations without starting HTTP or Redis.
 `mk01-server --verify-restore` decodes every room snapshot, compares embedded and relational
 persistence revisions, checks migration status and orphan invariants, and emits a JSON count report.
-It also decodes every durable matchmaking profile, including rolling-compatible legacy casual
-rows, and reports queue and ranked-rating counts.
+It also decodes every durable matchmaking profile, including rolling-compatible legacy casual and
+pre-season-key ranked rows, and reports queue, rating, seasonal-standing, settlement, and ranked-
+reward counts.
 It also decodes every live-content payload and compares its revision, schema, activation, operator,
 change note, rollback source, and creation timestamp with the immutable relational audit columns.
 It also fails if a deletion tombstone has any surviving account, session, reward, participant, or

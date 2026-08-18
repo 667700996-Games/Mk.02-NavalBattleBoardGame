@@ -1,9 +1,9 @@
 # Ranked Matchmaking Policy
 
 Mk.01 ranked matchmaking is a server-authoritative, durable 1v1 queue. This document defines the
-shipping constraints for the A2 matchmaking gate. Ranked progression, placements, seasonal tier
-movement, decay, rewards, and leaderboards remain separate C2 work and are not implied by this
-policy.
+shipping constraints for the A2 matchmaking gate. Seasonal rating, placements, tiers, inactivity,
+and reward settlement are defined in `RANKED_COMPETITION.md`; leaderboard and rematch-aware
+fairness remain separate C2 work.
 
 ## Authority boundary
 
@@ -12,7 +12,7 @@ policy.
 | Queue pool | Player selects casual or ranked | Strict enum and queue-row check constraint |
 | Region | Player selects one supported ranked region | `AUTO` is rejected for ranked play |
 | Reported RTT | Browser probes the active service edge before queueing | Server accepts only 1–300 ms and applies the current search ceiling |
-| Rating | `ranked_ratings` in the authoritative store | Client rating fields are rejected; queue inserts are compared with the stored value |
+| Rating | Active `ranked_season_standings` projection | Client rating fields are rejected; queue inserts are compared with the server projection |
 | Party identity | Authenticated account ID | Client party fields are rejected; two sessions for one account cannot match each other |
 | Party size | Server-fixed value of one | Mk.01 is 1v1; database and domain constraints reject any other size |
 | Wait time | Durable queue timestamp | A repeated enqueue is idempotent and cannot reset or replace its search profile |
@@ -56,6 +56,8 @@ window advances even if no new player joins the queue.
 
 - PostgreSQL owns the queue, ratings, timestamps, claims, and constraints. Redis is not required
   for a correct match decision.
+- Ranked tickets carry a server-derived season key and only match the same active season. The room
+  pins the human season ID and content revision for result settlement.
 - Candidate selection locks only an eligible queue row with `FOR UPDATE ... SKIP LOCKED`; the pair
   claim updates both rows atomically and room creation consumes exactly those two rows.
 - Bidirectional player blocks are checked during candidate selection.
@@ -63,10 +65,12 @@ window advances even if no new player joins the queue.
 - Migration `202608180004_ranked_matchmaking.sql` is additive. Stable-version casual inserts that
   specify only `session_id` and `queued_at` remain valid and decode as solo casual tickets during a
   rolling deployment.
+- Migration `202608180005_ranked_competition.sql` adds an optional season key. Legacy ranked rows
+  without it remain readable for drain/restore but cannot pair with a new seasonal ticket.
 - Ranked HTTP traffic uses a new route during the mixed-version window; the shared casual route
   rejects request bodies on candidate instances.
-- Account exports include the optional ranked rating record, while account deletion removes it by
-  foreign-key cascade and removes every account session from the queue.
+- Account exports include rating, seasonal standings, result deltas, and rewards. Account deletion
+  removes all account-bound ranked records and every account session from the queue.
 
 ## Operations and acceptance evidence
 

@@ -1276,6 +1276,21 @@ async fn ranked_matchmaking_requires_accounts_rejects_client_authority_and_retur
     assert_eq!(first_queued["ticket"]["partySize"], 1);
     assert_eq!(first_queued["ticket"]["searchWindow"]["phase"], "EXACT");
     assert!(first_queued["ticket"].get("partyId").is_none());
+    let profile = json_body(
+        send(
+            &app,
+            Request::builder()
+                .uri("/api/profile")
+                .header(header::COOKIE, &first_cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(profile["ranked"]["seasonId"], "FOUNDERS_SEASON");
+    assert_eq!(profile["ranked"]["tier"], "PROVISIONAL");
+    assert_eq!(profile["ranked"]["placementMatchesRemaining"], 5);
 
     let second_response = send(&app, enqueue(&second_cookie)).await;
     assert_eq!(second_response.status(), StatusCode::OK);
@@ -1289,6 +1304,10 @@ async fn ranked_matchmaking_requires_accounts_rejects_client_authority_and_retur
         matched["matchQuality"]
     );
     assert_eq!(matched["snapshot"]["room"]["name"], "랭크 교전");
+    assert_eq!(
+        matched["snapshot"]["rankedMatch"]["seasonId"],
+        "FOUNDERS_SEASON"
+    );
 }
 
 #[tokio::test]

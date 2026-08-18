@@ -20,6 +20,7 @@ async function register(page: Page, nickname: string) {
 }
 
 async function deploy(page: Page) {
+  await page.waitForLoadState('load');
   await expect(page.getByRole('heading', { name: '함대 배치' })).toBeVisible();
   await expect(page.locator('.launch-sequence')).toBeHidden();
   const autoDeploy = page.getByRole('button', { name: '자동 배치' });

@@ -10,7 +10,7 @@ documented, and no longer than the values below without a legal basis.
 | Abandoned matchmaking entries | 10 minutes | Durable queue rows are deleted hourly and opportunistically during queue operations. |
 | Cancelled and completed rooms | 90 days | The room snapshot, chat, replay timeline, result, and participant index are deleted together. Redis room cache entries are evicted in the same sweep. |
 | Active rooms | Until resolved | Durable reconnect/turn deadlines resolve abandoned games; active state is never deleted solely because a process stopped. |
-| Account identity and ranked rating | Until user deletion | Accounts and their rating record survive session expiry so recovery can issue a fresh session without losing matchmaking state. The rating row cascades with account deletion. |
+| Account identity and ranked competition | Until user deletion | Current rating, seasonal standings, result deltas, and reward rows survive session expiry. Account-bound rows cascade with verified deletion; the room settlement marker contains no identity. |
 | Operational metrics | Aggregated only | The application endpoint exposes counters, gauges, and histograms without player identifiers. Funnel and real-user performance input accepts only fixed enums and bounded numeric values; it never accepts an account, session, room, request ID, IP, nickname, URL parameter, device model, or free-text label. Infrastructure retention must not exceed 30 days. |
 | Closed moderation cases | 365 days after closure | Reports and their action audit rows are removed together. Open/reviewing cases are retained until resolved; legal holds require a separately audited export before closure. |
 | Integrity telemetry | 180 days after last observation | Deduplicated anti-cheat signals and evidence are removed by the same hourly worker. Aggregated counters contain no player identity. |
@@ -49,8 +49,8 @@ not enrich these histograms from access logs, fingerprints, or account/session d
 ## Player export and deletion
 
 An authenticated account can request `GET /api/accounts/export`. The server takes a consistent
-snapshot and returns account profile, device sessions, game history, progression rewards, optional
-ranked rating, owned
+snapshot and returns account profile, device sessions, game history, progression rewards, current
+ranked rating, seasonal standings, per-match deltas, ranked rewards, owned
 social relationships, submitted/received moderation cases and actions, and integrity signals. The
 archive explicitly excludes session-token hashes and the recovery credential. Redis is only a
 cache/fan-out layer and has no independent account archive.
@@ -60,7 +60,8 @@ cache/fan-out layer and has no independent account archive.
 active games resolve through the normal authoritative forfeit/cancellation transition. The delete
 transaction then:
 
-- removes all account sessions and token hashes, progression rewards, ranked rating, social relationships,
+- removes all account sessions and token hashes, progression and ranked rewards, current rating,
+  seasonal standings and ranked participant deltas, social relationships,
   reports/actions, integrity signals, matchmaking rows, and the account credential;
 - replaces participant session IDs, account mappings, player names, authored chat, and operation
   names in completed records with unlinkable placeholders while preserving aggregate match

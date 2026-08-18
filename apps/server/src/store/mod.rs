@@ -12,7 +12,8 @@ use crate::{
         AccountSession, ActivePenalty, GameResult, GameRoom, IntegritySignal, IntegritySignalKind,
         IntegritySignalPage, LiveContentRevision, MatchmakingCriteria, MatchmakingQuality,
         ModerationAction, ModerationCasePage, NewIntegritySignal, NewModerationAction,
-        NewPlayerReport, PlayerAccount, ReportStatus, RoomSummary, SocialRelationship, UserSession,
+        NewPlayerReport, PlayerAccount, RankedProfile, ReportStatus, RoomSummary,
+        SocialRelationship, UserSession,
     },
     error::GameError,
 };
@@ -283,6 +284,13 @@ pub trait GameStore: Send + Sync {
         session_id: Uuid,
     ) -> Result<Option<MatchmakingQueueEntry>, GameError>;
     async fn ranked_rating(&self, account_id: Uuid) -> Result<RankedRating, GameError>;
+    async fn ranked_profile(
+        &self,
+        account_id: Uuid,
+        season_id: &str,
+        season_starts_at: DateTime<Utc>,
+        now: DateTime<Utc>,
+    ) -> Result<RankedProfile, GameError>;
     async fn matchmaking_queue_stats(&self) -> Result<MatchmakingQueueStats, GameError>;
     async fn prune_expired_data(
         &self,

@@ -102,11 +102,14 @@
     <span><Activity size={14} /> ARCHIVE SYNCHRONIZED</span>
   </header>
   {#if progression}
+    {@const ranked = progression.ranked}
     <section class="season-brief panel" aria-label="현재 시즌 및 이벤트">
       <div class="season-emblem"><Flag size={24} /></div>
       <div class="season-copy">
         <small>LIVE CONTENT · REVISION {progression.liveContent.revision}</small>
-        <h2>{progression.liveContent.season.title}</h2>
+        <h2>
+          {ranked ? `${ranked.tier} ${ranked.rating} RP` : progression.liveContent.season.title}
+        </h2>
         <p>{progression.liveContent.season.description}</p>
         <span
           ><CalendarRange size={13} />

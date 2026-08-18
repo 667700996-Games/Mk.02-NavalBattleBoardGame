@@ -3,7 +3,7 @@ use std::{collections::HashSet, time::Duration};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use redis::{AsyncCommands, aio::ConnectionManager};
-use sqlx::{PgPool, postgres::PgPoolOptions};
+use sqlx::{PgPool, Postgres, Transaction, postgres::PgPoolOptions};
 use uuid::Uuid;
 
 use crate::{
@@ -12,8 +12,10 @@ use crate::{
         IntegritySignalKind, IntegritySignalPage, LiveContentRevision, MatchmakingCriteria,
         MatchmakingPool, MatchmakingRegion, ModerationAction, ModerationActionKind, ModerationCase,
         ModerationCasePage, NewIntegritySignal, NewModerationAction, NewPlayerReport,
-        PlayerAccount, PlayerReport, ReportCategory, ReportStatus, RoomStatus, RoomSummary,
-        SocialRelationship, UserSession, matchmaking_quality,
+        PlayerAccount, PlayerReport, RankedProfile, RankedStandingRecord, ReportCategory,
+        ReportStatus, RoomStatus, RoomSummary, SocialRelationship, UserSession,
+        matchmaking_quality, next_season_seed, ranked_match_reward_xp, ranked_placement_reward_xp,
+        ranked_season_key,
     },
     error::GameError,
 };
@@ -24,7 +26,7 @@ use super::{
     RankedRating, RetentionStats, RoomAuthorityLease,
 };
 
-const DELETION_RESURRECTION_COUNT_QUERY: &str = "SELECT (SELECT count(*) FROM player_accounts account JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=account.id) + (SELECT count(*) FROM user_sessions session JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=session.account_id) + (SELECT count(*) FROM progression_reward_ledger reward JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=reward.account_id) + (SELECT count(*) FROM game_result_participants participant JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=participant.account_id) + (SELECT count(*) FROM game_results result JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=ANY(result.participant_account_ids)) + (SELECT count(*) FROM player_relationships relationship JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=relationship.actor_identity_id OR tombstone.account_id=relationship.target_identity_id) + (SELECT count(*) FROM player_reports report JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=report.reporter_identity_id OR tombstone.account_id=report.target_identity_id) + (SELECT count(*) FROM integrity_signals signal JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=signal.subject_identity_id)";
+const DELETION_RESURRECTION_COUNT_QUERY: &str = "SELECT (SELECT count(*) FROM player_accounts account JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=account.id) + (SELECT count(*) FROM user_sessions session JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=session.account_id) + (SELECT count(*) FROM progression_reward_ledger reward JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=reward.account_id) + (SELECT count(*) FROM ranked_reward_ledger reward JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=reward.account_id) + (SELECT count(*) FROM ranked_season_standings standing JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=standing.account_id) + (SELECT count(*) FROM ranked_match_participants participant JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=participant.account_id) + (SELECT count(*) FROM game_result_participants participant JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=participant.account_id) + (SELECT count(*) FROM game_results result JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=ANY(result.participant_account_ids)) + (SELECT count(*) FROM player_relationships relationship JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=relationship.actor_identity_id OR tombstone.account_id=relationship.target_identity_id) + (SELECT count(*) FROM player_reports report JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=report.reporter_identity_id OR tombstone.account_id=report.target_identity_id) + (SELECT count(*) FROM integrity_signals signal JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=signal.subject_identity_id)";
 const LIVE_CONTENT_ADVISORY_LOCK: i64 = 7_190_120_260;
 const REDIS_INITIAL_CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
 
@@ -50,6 +52,9 @@ pub struct DatabaseVerification {
     pub results: i64,
     pub matchmaking_entries: i64,
     pub ranked_ratings: i64,
+    pub ranked_standings: i64,
+    pub ranked_settlements: i64,
+    pub ranked_rewards: i64,
     pub privacy_requests: i64,
     pub deletion_tombstones: i64,
     pub live_content_revisions: i64,
@@ -108,6 +113,7 @@ struct MatchmakingCandidateRow {
     region: String,
     latency_ms: i32,
     rating: Option<i32>,
+    season_key: Option<Uuid>,
     party_id: Option<Uuid>,
     party_size: i16,
 }
@@ -119,29 +125,240 @@ struct MatchmakingProfileRow {
     region: String,
     latency_ms: i32,
     rating: Option<i32>,
+    season_key: Option<Uuid>,
+    party_id: Option<Uuid>,
+    party_size: i16,
+}
+
+#[derive(sqlx::FromRow)]
+struct RankedStandingRow {
+    account_id: Uuid,
+    rating: i32,
+    matches_played: i32,
+    wins: i32,
+    losses: i32,
+    peak_rating: i32,
+    last_match_at: Option<DateTime<Utc>>,
+    decay_steps_applied: i32,
+    season_reward_issued_at: Option<DateTime<Utc>>,
+}
+
+struct StoredMatchmakingCriteria<'a> {
+    pool: &'a str,
+    region: &'a str,
+    latency_ms: i32,
+    rating: Option<i32>,
+    season_key: Option<Uuid>,
     party_id: Option<Uuid>,
     party_size: i16,
 }
 
 fn decode_matchmaking_criteria(
     session_id: Uuid,
-    pool: &str,
-    region: &str,
-    latency_ms: i32,
-    rating: Option<i32>,
-    party_id: Option<Uuid>,
-    party_size: i16,
+    stored: StoredMatchmakingCriteria<'_>,
 ) -> Result<MatchmakingCriteria, GameError> {
+    let pool = MatchmakingPool::from_db_str(stored.pool)?;
     MatchmakingCriteria {
-        pool: MatchmakingPool::from_db_str(pool)?,
-        region: MatchmakingRegion::from_db_str(region)?,
-        latency_ms: u16::try_from(latency_ms).map_err(|_| GameError::Internal)?,
-        rating,
-        party_id: party_id.unwrap_or(session_id),
-        party_size: u8::try_from(party_size).map_err(|_| GameError::Internal)?,
+        pool,
+        region: MatchmakingRegion::from_db_str(stored.region)?,
+        latency_ms: u16::try_from(stored.latency_ms).map_err(|_| GameError::Internal)?,
+        rating: stored.rating,
+        // A stable server may have inserted an already queued ranked row before the additive
+        // migration. It remains readable for restore/drain, but candidate SQL excludes NULL keys
+        // so it can never cross a season boundary with a new ticket.
+        season_key: stored
+            .season_key
+            .or((pool == MatchmakingPool::Ranked).then_some(Uuid::nil())),
+        party_id: stored.party_id.unwrap_or(session_id),
+        party_size: u8::try_from(stored.party_size).map_err(|_| GameError::Internal)?,
     }
     .validate()
     .map_err(|_| GameError::Internal)
+}
+
+async fn ensure_ranked_standing(
+    transaction: &mut Transaction<'_, Postgres>,
+    account_id: Uuid,
+    season_id: &str,
+    now: DateTime<Utc>,
+) -> Result<(), GameError> {
+    let previous_rating: Option<i32> = sqlx::query_scalar(
+        "SELECT rating FROM ranked_season_standings WHERE account_id=$1 ORDER BY COALESCE(last_match_at,created_at) DESC,updated_at DESC LIMIT 1",
+    )
+    .bind(account_id)
+    .fetch_optional(&mut **transaction)
+    .await?;
+    let seed = next_season_seed(previous_rating);
+    sqlx::query(
+        "INSERT INTO ranked_season_standings (account_id,season_id,rating,peak_rating,created_at,updated_at) VALUES ($1,$2,$3,$3,$4,$4) ON CONFLICT (account_id,season_id) DO NOTHING",
+    )
+    .bind(account_id)
+    .bind(season_id)
+    .bind(seed)
+    .bind(now)
+    .execute(&mut **transaction)
+    .await?;
+    Ok(())
+}
+
+async fn settle_ranked_match(
+    transaction: &mut Transaction<'_, Postgres>,
+    room: &GameRoom,
+    participant_identities: &[(Uuid, Option<Uuid>)],
+) -> Result<(), GameError> {
+    let Some(context) = room.ranked_match.as_ref() else {
+        return Ok(());
+    };
+    let Some(result) = room.game.as_ref().and_then(|game| game.result.as_ref()) else {
+        return Ok(());
+    };
+    let inserted = sqlx::query(
+        "INSERT INTO ranked_match_settlements (room_id,season_id,settled_at) VALUES ($1,$2,$3) ON CONFLICT (room_id) DO NOTHING",
+    )
+    .bind(room.id)
+    .bind(&context.season_id)
+    .bind(result.finished_at)
+    .execute(&mut **transaction)
+    .await?;
+    if inserted.rows_affected() == 0 {
+        return Ok(());
+    }
+
+    let mut participants = Vec::with_capacity(2);
+    for player in &room.players {
+        let account_id = participant_identities
+            .iter()
+            .find(|(session_id, _)| *session_id == player.session_id)
+            .and_then(|(_, account_id)| *account_id)
+            .ok_or(GameError::Internal)?;
+        participants.push((account_id, player.id));
+    }
+    if participants.len() != 2 || participants[0].0 == participants[1].0 {
+        return Err(GameError::Internal);
+    }
+    participants.sort_by_key(|(account_id, _)| *account_id);
+    for (account_id, _) in &participants {
+        ensure_ranked_standing(
+            transaction,
+            *account_id,
+            &context.season_id,
+            result.finished_at,
+        )
+        .await?;
+    }
+    let account_ids: Vec<_> = participants
+        .iter()
+        .map(|(account_id, _)| *account_id)
+        .collect();
+    let rows: Vec<RankedStandingRow> = sqlx::query_as(
+        "SELECT account_id,rating,matches_played,wins,losses,peak_rating,last_match_at,decay_steps_applied,season_reward_issued_at FROM ranked_season_standings WHERE season_id=$1 AND account_id=ANY($2) ORDER BY account_id FOR UPDATE",
+    )
+    .bind(&context.season_id)
+    .bind(&account_ids)
+    .fetch_all(&mut **transaction)
+    .await?;
+    if rows.len() != 2 {
+        return Err(GameError::Internal);
+    }
+    let record = |row: &RankedStandingRow| -> Result<RankedStandingRecord, GameError> {
+        Ok(RankedStandingRecord {
+            season_id: context.season_id.clone(),
+            rating: row.rating,
+            matches_played: u32::try_from(row.matches_played).map_err(|_| GameError::Internal)?,
+            wins: u32::try_from(row.wins).map_err(|_| GameError::Internal)?,
+            losses: u32::try_from(row.losses).map_err(|_| GameError::Internal)?,
+            peak_rating: row.peak_rating,
+            last_match_at: row.last_match_at,
+            decay_steps_applied: u32::try_from(row.decay_steps_applied)
+                .map_err(|_| GameError::Internal)?,
+            season_reward_issued_at: row.season_reward_issued_at,
+        })
+    };
+    let mut first = record(&rows[0])?;
+    let mut second = record(&rows[1])?;
+    let first_player_id = participants
+        .iter()
+        .find(|(account_id, _)| *account_id == rows[0].account_id)
+        .map(|(_, player_id)| *player_id)
+        .ok_or(GameError::Internal)?;
+    let second_player_id = participants
+        .iter()
+        .find(|(account_id, _)| *account_id == rows[1].account_id)
+        .map(|(_, player_id)| *player_id)
+        .ok_or(GameError::Internal)?;
+    let first_won = result.winner_id == first_player_id;
+    let second_won = result.winner_id == second_player_id;
+    if first_won == second_won {
+        return Err(GameError::Internal);
+    }
+    let first_change = first.record_result(second.rating, first_won, result.finished_at);
+    let second_change =
+        second.record_result(first_change.rating_before, second_won, result.finished_at);
+
+    for (row, standing, change, won) in [
+        (&rows[0], first, first_change, first_won),
+        (&rows[1], second, second_change, second_won),
+    ] {
+        sqlx::query(
+            "UPDATE ranked_season_standings SET rating=$3,matches_played=$4,wins=$5,losses=$6,peak_rating=$7,last_match_at=$8,decay_steps_applied=0,updated_at=$8 WHERE account_id=$1 AND season_id=$2",
+        )
+        .bind(row.account_id)
+        .bind(&context.season_id)
+        .bind(standing.rating)
+        .bind(i32::try_from(standing.matches_played).map_err(|_| GameError::Internal)?)
+        .bind(i32::try_from(standing.wins).map_err(|_| GameError::Internal)?)
+        .bind(i32::try_from(standing.losses).map_err(|_| GameError::Internal)?)
+        .bind(standing.peak_rating)
+        .bind(result.finished_at)
+        .execute(&mut **transaction)
+        .await?;
+        sqlx::query(
+            "INSERT INTO ranked_ratings (account_id,season_id,rating,matches_played,updated_at) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (account_id) DO UPDATE SET season_id=$2,rating=$3,matches_played=$4,updated_at=$5",
+        )
+        .bind(row.account_id)
+        .bind(&context.season_id)
+        .bind(standing.rating)
+        .bind(i32::try_from(standing.matches_played).map_err(|_| GameError::Internal)?)
+        .bind(result.finished_at)
+        .execute(&mut **transaction)
+        .await?;
+        sqlx::query(
+            "INSERT INTO ranked_match_participants (room_id,account_id,outcome,rating_before,rating_after,rating_delta,placement_completed) VALUES ($1,$2,$3,$4,$5,$6,$7)",
+        )
+        .bind(room.id)
+        .bind(row.account_id)
+        .bind(if won { "WIN" } else { "LOSS" })
+        .bind(change.rating_before)
+        .bind(change.rating_after)
+        .bind(change.delta)
+        .bind(change.placement_completed)
+        .execute(&mut **transaction)
+        .await?;
+        sqlx::query(
+            "INSERT INTO ranked_reward_ledger (id,account_id,source_kind,source_id,season_id,xp,created_at) VALUES ($1,$2,'RANKED_MATCH',$3,$4,$5,$6) ON CONFLICT (account_id,source_kind,source_id,season_id) DO NOTHING",
+        )
+        .bind(Uuid::new_v4())
+        .bind(row.account_id)
+        .bind(room.id.to_string())
+        .bind(&context.season_id)
+        .bind(i32::try_from(ranked_match_reward_xp(won)).map_err(|_| GameError::Internal)?)
+        .bind(result.finished_at)
+        .execute(&mut **transaction)
+        .await?;
+        if change.placement_completed {
+            sqlx::query(
+                "INSERT INTO ranked_reward_ledger (id,account_id,source_kind,source_id,season_id,xp,created_at) VALUES ($1,$2,'RANKED_PLACEMENT',$3,$3,$4,$5) ON CONFLICT (account_id,source_kind,source_id,season_id) DO NOTHING",
+            )
+            .bind(Uuid::new_v4())
+            .bind(row.account_id)
+            .bind(&context.season_id)
+            .bind(i32::try_from(ranked_placement_reward_xp()).map_err(|_| GameError::Internal)?)
+            .bind(result.finished_at)
+            .execute(&mut **transaction)
+            .await?;
+        }
+    }
+    Ok(())
 }
 
 impl std::fmt::Debug for PostgresRedisStore {
@@ -193,19 +410,22 @@ impl PostgresRedisStore {
             }
         }
         let matchmaking_rows: Vec<MatchmakingProfileRow> = sqlx::query_as(
-            "SELECT session_id,pool,region,latency_ms,rating,party_id,party_size FROM matchmaking_queue",
+            "SELECT session_id,pool,region,latency_ms,rating,season_key,party_id,party_size FROM matchmaking_queue",
         )
         .fetch_all(&pool)
         .await?;
         for row in &matchmaking_rows {
             decode_matchmaking_criteria(
                 row.session_id,
-                &row.pool,
-                &row.region,
-                row.latency_ms,
-                row.rating,
-                row.party_id,
-                row.party_size,
+                StoredMatchmakingCriteria {
+                    pool: &row.pool,
+                    region: &row.region,
+                    latency_ms: row.latency_ms,
+                    rating: row.rating,
+                    season_key: row.season_key,
+                    party_id: row.party_id,
+                    party_size: row.party_size,
+                },
             )?;
         }
         let live_content_rows: Vec<LiveContentAuditRow> = sqlx::query_as(
@@ -237,7 +457,7 @@ impl PostgresRedisStore {
             }
         }
         let broken_references: i64 = sqlx::query_scalar(
-            "SELECT (SELECT count(*) FROM user_sessions session WHERE session.current_room_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM game_rooms room WHERE room.id=session.current_room_id)) + (SELECT count(*) FROM matchmaking_queue queue WHERE NOT EXISTS (SELECT 1 FROM user_sessions session WHERE session.id=queue.session_id)) + (SELECT count(*) FROM game_result_participants participant WHERE NOT EXISTS (SELECT 1 FROM game_results result WHERE result.room_id=participant.room_id))",
+            "SELECT (SELECT count(*) FROM user_sessions session WHERE session.current_room_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM game_rooms room WHERE room.id=session.current_room_id)) + (SELECT count(*) FROM matchmaking_queue queue WHERE NOT EXISTS (SELECT 1 FROM user_sessions session WHERE session.id=queue.session_id)) + (SELECT count(*) FROM game_result_participants participant WHERE NOT EXISTS (SELECT 1 FROM game_results result WHERE result.room_id=participant.room_id)) + (SELECT count(*) FROM ranked_match_participants participant WHERE NOT EXISTS (SELECT 1 FROM ranked_match_settlements settlement WHERE settlement.room_id=participant.room_id))",
         )
         .fetch_one(&pool)
         .await?;
@@ -251,6 +471,17 @@ impl PostgresRedisStore {
             .fetch_one(&pool)
             .await?;
         let ranked_ratings: i64 = sqlx::query_scalar("SELECT count(*) FROM ranked_ratings")
+            .fetch_one(&pool)
+            .await?;
+        let ranked_standings: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM ranked_season_standings")
+                .fetch_one(&pool)
+                .await?;
+        let ranked_settlements: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM ranked_match_settlements")
+                .fetch_one(&pool)
+                .await?;
+        let ranked_rewards: i64 = sqlx::query_scalar("SELECT count(*) FROM ranked_reward_ledger")
             .fetch_one(&pool)
             .await?;
         let privacy_requests: i64 = sqlx::query_scalar("SELECT count(*) FROM privacy_requests")
@@ -276,6 +507,9 @@ impl PostgresRedisStore {
             results,
             matchmaking_entries: matchmaking_rows.len() as i64,
             ranked_ratings,
+            ranked_standings,
+            ranked_settlements,
+            ranked_rewards,
             privacy_requests,
             deletion_tombstones,
             live_content_revisions,
@@ -585,6 +819,7 @@ impl PostgresRedisStore {
                 .execute(&mut *transaction)
                 .await?;
             }
+            settle_ranked_match(&mut transaction, room, &participant_identities).await?;
         }
         transaction.commit().await?;
         room.persistence_revision = persisted.persistence_revision;
@@ -824,10 +1059,28 @@ impl GameStore for PostgresRedisStore {
         .fetch_all(&mut *transaction)
         .await?;
         let ranked_rating: Option<serde_json::Value> = sqlx::query_scalar(
-            "SELECT jsonb_build_object('rating',rating,'matchesPlayed',matches_played,'updatedAt',updated_at) FROM ranked_ratings WHERE account_id=$1",
+            "SELECT jsonb_build_object('seasonId',season_id,'rating',rating,'matchesPlayed',matches_played,'updatedAt',updated_at) FROM ranked_ratings WHERE account_id=$1",
         )
         .bind(account_id)
         .fetch_optional(&mut *transaction)
+        .await?;
+        let ranked_standings: Vec<serde_json::Value> = sqlx::query_scalar(
+            "SELECT jsonb_build_object('seasonId',season_id,'rating',rating,'matchesPlayed',matches_played,'wins',wins,'losses',losses,'peakRating',peak_rating,'lastMatchAt',last_match_at,'decayStepsApplied',decay_steps_applied,'seasonRewardIssuedAt',season_reward_issued_at,'createdAt',created_at,'updatedAt',updated_at) FROM ranked_season_standings WHERE account_id=$1 ORDER BY created_at,season_id",
+        )
+        .bind(account_id)
+        .fetch_all(&mut *transaction)
+        .await?;
+        let ranked_match_results: Vec<serde_json::Value> = sqlx::query_scalar(
+            "SELECT jsonb_build_object('roomId',participant.room_id,'seasonId',settlement.season_id,'outcome',participant.outcome,'ratingBefore',participant.rating_before,'ratingAfter',participant.rating_after,'ratingDelta',participant.rating_delta,'placementCompleted',participant.placement_completed,'settledAt',settlement.settled_at) FROM ranked_match_participants participant JOIN ranked_match_settlements settlement ON settlement.room_id=participant.room_id WHERE participant.account_id=$1 ORDER BY settlement.settled_at",
+        )
+        .bind(account_id)
+        .fetch_all(&mut *transaction)
+        .await?;
+        let ranked_rewards: Vec<serde_json::Value> = sqlx::query_scalar(
+            "SELECT jsonb_build_object('sourceKind',source_kind,'sourceId',source_id,'seasonId',season_id,'xp',xp,'createdAt',created_at) FROM ranked_reward_ledger WHERE account_id=$1 ORDER BY created_at",
+        )
+        .bind(account_id)
+        .fetch_all(&mut *transaction)
         .await?;
         let relationships: Vec<serde_json::Value> = sqlx::query_scalar(
             "SELECT jsonb_build_object('targetIdentityId',target_identity_id,'targetNickname',target_nickname,'muted',muted,'blocked',blocked,'updatedAt',updated_at) FROM player_relationships WHERE actor_identity_id=ANY($1) ORDER BY updated_at DESC",
@@ -871,6 +1124,9 @@ impl GameStore for PostgresRedisStore {
             "gameHistory": game_history,
             "progressionRewards": rewards,
             "rankedRating": ranked_rating,
+            "rankedStandings": ranked_standings,
+            "rankedMatchResults": ranked_match_results,
+            "rankedRewards": ranked_rewards,
             "socialRelationships": relationships,
             "moderationReports": reports,
             "moderationActions": moderation_actions,
@@ -995,6 +1251,12 @@ impl GameStore for PostgresRedisStore {
                 .execute(&mut *transaction)
                 .await?
                 .rows_affected();
+        let ranked_rewards_deleted =
+            sqlx::query("DELETE FROM ranked_reward_ledger WHERE account_id=$1")
+                .bind(account_id)
+                .execute(&mut *transaction)
+                .await?
+                .rows_affected();
         let relationships_deleted = sqlx::query(
             "DELETE FROM player_relationships WHERE actor_identity_id=ANY($1) OR target_identity_id=ANY($1)",
         )
@@ -1055,7 +1317,7 @@ impl GameStore for PostgresRedisStore {
         }
         Ok(AccountDeletionStats {
             sessions_deleted,
-            rewards_deleted,
+            rewards_deleted: rewards_deleted.saturating_add(ranked_rewards_deleted),
             relationships_deleted,
             reports_deleted,
             integrity_signals_deleted,
@@ -1241,12 +1503,18 @@ impl GameStore for PostgresRedisStore {
                 .bind(account_id)
                 .execute(&mut *transaction)
                 .await?;
-                let authoritative_rating: Option<i32> =
-                    sqlx::query_scalar("SELECT rating FROM ranked_ratings WHERE account_id=$1")
-                        .bind(account_id)
-                        .fetch_optional(&mut *transaction)
-                        .await?;
-                if criteria.party_id != account_id || criteria.rating != authoritative_rating {
+                let authoritative_rating: Option<(i32, String)> = sqlx::query_as(
+                    "SELECT rating, season_id FROM ranked_ratings WHERE account_id=$1",
+                )
+                .bind(account_id)
+                .fetch_optional(&mut *transaction)
+                .await?;
+                if criteria.party_id != account_id
+                    || authoritative_rating.is_none_or(|(rating, season_id)| {
+                        criteria.rating != Some(rating)
+                            || criteria.season_key != Some(ranked_season_key(&season_id))
+                    })
+                {
                     return Err(GameError::InvalidRequest);
                 }
             }
@@ -1263,13 +1531,14 @@ impl GameStore for PostgresRedisStore {
         .execute(&mut *transaction)
         .await?;
         sqlx::query(
-            "INSERT INTO matchmaking_queue (session_id, queued_at, pool, region, latency_ms, rating, party_id, party_size) VALUES ($1, now(), $2, $3, $4, $5, $6, $7) ON CONFLICT (session_id) DO NOTHING",
+            "INSERT INTO matchmaking_queue (session_id, queued_at, pool, region, latency_ms, rating, season_key, party_id, party_size) VALUES ($1, now(), $2, $3, $4, $5, $6, $7, $8) ON CONFLICT (session_id) DO NOTHING",
         )
         .bind(session.id)
         .bind(criteria.pool.as_db_str())
         .bind(criteria.region.as_db_str())
         .bind(i32::from(criteria.latency_ms))
         .bind(criteria.rating)
+        .bind(criteria.season_key)
         .bind(criteria.party_id)
         .bind(i16::from(criteria.party_size))
         .execute(&mut *transaction)
@@ -1283,10 +1552,11 @@ impl GameStore for PostgresRedisStore {
             i32,
             Option<i32>,
             Option<Uuid>,
+            Option<Uuid>,
             i16,
         ) =
             sqlx::query_as(
-                "SELECT queued_at, claim_id, pool, region, latency_ms, rating, party_id, party_size FROM matchmaking_queue WHERE session_id=$1 FOR UPDATE",
+                "SELECT queued_at, claim_id, pool, region, latency_ms, rating, season_key, party_id, party_size FROM matchmaking_queue WHERE session_id=$1 FOR UPDATE",
             )
         .bind(session.id)
         .fetch_one(&mut *transaction)
@@ -1294,7 +1564,16 @@ impl GameStore for PostgresRedisStore {
         let queued_at = own_row.0;
         let existing_claim = own_row.1;
         let stored_criteria = decode_matchmaking_criteria(
-            session.id, &own_row.2, &own_row.3, own_row.4, own_row.5, own_row.6, own_row.7,
+            session.id,
+            StoredMatchmakingCriteria {
+                pool: &own_row.2,
+                region: &own_row.3,
+                latency_ms: own_row.4,
+                rating: own_row.5,
+                season_key: own_row.6,
+                party_id: own_row.7,
+                party_size: own_row.8,
+            },
         )?;
         if stored_criteria != criteria {
             return Err(GameError::InvalidState);
@@ -1313,7 +1592,7 @@ impl GameStore for PostgresRedisStore {
             r#"SELECT sessions.id, sessions.nickname, sessions.token_hash, sessions.created_at,
                 sessions.last_seen_at, sessions.current_room_id, sessions.account_id,
                 queue.queued_at, queue.pool, queue.region, queue.latency_ms, queue.rating,
-                queue.party_id, queue.party_size
+                queue.season_key, queue.party_id, queue.party_size
               FROM matchmaking_queue queue
               JOIN user_sessions sessions ON sessions.id=queue.session_id
               WHERE queue.session_id<>$1
@@ -1322,6 +1601,7 @@ impl GameStore for PostgresRedisStore {
                 AND sessions.current_room_id IS NULL
                 AND COALESCE(queue.party_id,queue.session_id)<>$4
                 AND queue.party_size=$5
+                AND ($3='CASUAL' OR queue.season_key=$10)
                 AND NOT EXISTS (
                   SELECT 1 FROM player_relationships relationships
                   WHERE relationships.blocked AND (
@@ -1386,6 +1666,7 @@ impl GameStore for PostgresRedisStore {
         .bind(criteria.rating)
         .bind(criteria.region.as_db_str())
         .bind(queued_at)
+        .bind(criteria.season_key)
         .fetch_optional(&mut *transaction)
         .await?;
 
@@ -1399,12 +1680,15 @@ impl GameStore for PostgresRedisStore {
         };
         let opponent_criteria = decode_matchmaking_criteria(
             opponent.id,
-            &opponent.pool,
-            &opponent.region,
-            opponent.latency_ms,
-            opponent.rating,
-            opponent.party_id,
-            opponent.party_size,
+            StoredMatchmakingCriteria {
+                pool: &opponent.pool,
+                region: &opponent.region,
+                latency_ms: opponent.latency_ms,
+                rating: opponent.rating,
+                season_key: opponent.season_key,
+                party_id: opponent.party_id,
+                party_size: opponent.party_size,
+            },
         )?;
         let quality = matchmaking_quality(
             criteria,
@@ -2125,20 +2409,30 @@ impl GameStore for PostgresRedisStore {
             i32,
             Option<i32>,
             Option<Uuid>,
+            Option<Uuid>,
             i16,
         )> =
             sqlx::query_as(
-                "SELECT queued_at, pool, region, latency_ms, rating, party_id, party_size FROM matchmaking_queue WHERE session_id=$1",
+                "SELECT queued_at, pool, region, latency_ms, rating, season_key, party_id, party_size FROM matchmaking_queue WHERE session_id=$1",
             )
             .bind(session_id)
             .fetch_optional(&self.pool)
             .await?;
         row.map(
-            |(queued_at, pool, region, latency_ms, rating, party_id, party_size)| {
+            |(queued_at, pool, region, latency_ms, rating, season_key, party_id, party_size)| {
                 Ok(MatchmakingQueueEntry {
                     queued_at,
                     criteria: decode_matchmaking_criteria(
-                        session_id, &pool, &region, latency_ms, rating, party_id, party_size,
+                        session_id,
+                        StoredMatchmakingCriteria {
+                            pool: &pool,
+                            region: &region,
+                            latency_ms,
+                            rating,
+                            season_key,
+                            party_id,
+                            party_size,
+                        },
                     )?,
                 })
             },
@@ -2163,6 +2457,136 @@ impl GameStore for PostgresRedisStore {
             rating,
             matches_played: u32::try_from(matches_played).map_err(|_| GameError::Internal)?,
         })
+    }
+
+    async fn ranked_profile(
+        &self,
+        account_id: Uuid,
+        season_id: &str,
+        season_starts_at: DateTime<Utc>,
+        now: DateTime<Utc>,
+    ) -> Result<RankedProfile, GameError> {
+        let mut transaction = self.pool.begin().await?;
+        let account_exists: bool =
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM player_accounts WHERE id=$1)")
+                .bind(account_id)
+                .fetch_one(&mut *transaction)
+                .await?;
+        if !account_exists {
+            return Err(GameError::Unauthorized);
+        }
+
+        let prior_seasons: Vec<(String, i32, i32)> = sqlx::query_as(
+            "SELECT season_id,rating,matches_played FROM ranked_season_standings WHERE account_id=$1 AND season_id<>$2 AND matches_played>=5 AND season_reward_issued_at IS NULL AND last_match_at<$3 FOR UPDATE",
+        )
+        .bind(account_id)
+        .bind(season_id)
+        .bind(season_starts_at)
+        .fetch_all(&mut *transaction)
+        .await?;
+        for (prior_season_id, rating, matches_played) in prior_seasons {
+            let tier = crate::domain::RankedTier::for_standing(
+                rating,
+                u32::try_from(matches_played).map_err(|_| GameError::Internal)?,
+            );
+            let reward_xp = tier.season_reward_xp();
+            if reward_xp > 0 {
+                sqlx::query(
+                    "INSERT INTO ranked_reward_ledger (id,account_id,source_kind,source_id,season_id,xp,created_at) VALUES ($1,$2,'RANKED_SEASON',$3,$3,$4,$5) ON CONFLICT (account_id,source_kind,source_id,season_id) DO NOTHING",
+                )
+                .bind(Uuid::new_v4())
+                .bind(account_id)
+                .bind(&prior_season_id)
+                .bind(i32::try_from(reward_xp).map_err(|_| GameError::Internal)?)
+                .bind(now)
+                .execute(&mut *transaction)
+                .await?;
+            }
+            sqlx::query(
+                "UPDATE ranked_season_standings SET season_reward_issued_at=$3,updated_at=$3 WHERE account_id=$1 AND season_id=$2",
+            )
+            .bind(account_id)
+            .bind(&prior_season_id)
+            .bind(now)
+            .execute(&mut *transaction)
+            .await?;
+        }
+
+        let previous_rating: Option<i32> = sqlx::query_scalar(
+            "SELECT rating FROM ranked_season_standings WHERE account_id=$1 ORDER BY COALESCE(last_match_at,created_at) DESC,updated_at DESC LIMIT 1",
+        )
+        .bind(account_id)
+        .fetch_optional(&mut *transaction)
+        .await?;
+        let seed_rating = next_season_seed(previous_rating);
+        sqlx::query(
+            "INSERT INTO ranked_season_standings (account_id,season_id,rating,peak_rating,created_at,updated_at) VALUES ($1,$2,$3,$3,$4,$4) ON CONFLICT (account_id,season_id) DO NOTHING",
+        )
+        .bind(account_id)
+        .bind(season_id)
+        .bind(seed_rating)
+        .bind(now)
+        .execute(&mut *transaction)
+        .await?;
+        let row: (
+            i32,
+            i32,
+            i32,
+            i32,
+            i32,
+            Option<DateTime<Utc>>,
+            i32,
+            Option<DateTime<Utc>>,
+        ) = sqlx::query_as(
+            "SELECT rating,matches_played,wins,losses,peak_rating,last_match_at,decay_steps_applied,season_reward_issued_at FROM ranked_season_standings WHERE account_id=$1 AND season_id=$2 FOR UPDATE",
+        )
+        .bind(account_id)
+        .bind(season_id)
+        .fetch_one(&mut *transaction)
+        .await?;
+        let mut standing = RankedStandingRecord {
+            season_id: season_id.to_string(),
+            rating: row.0,
+            matches_played: u32::try_from(row.1).map_err(|_| GameError::Internal)?,
+            wins: u32::try_from(row.2).map_err(|_| GameError::Internal)?,
+            losses: u32::try_from(row.3).map_err(|_| GameError::Internal)?,
+            peak_rating: row.4,
+            last_match_at: row.5,
+            decay_steps_applied: u32::try_from(row.6).map_err(|_| GameError::Internal)?,
+            season_reward_issued_at: row.7,
+        };
+        standing.apply_inactivity_decay(now);
+        sqlx::query(
+            "UPDATE ranked_season_standings SET rating=$3,decay_steps_applied=$4,updated_at=$5 WHERE account_id=$1 AND season_id=$2",
+        )
+        .bind(account_id)
+        .bind(season_id)
+        .bind(standing.rating)
+        .bind(i32::try_from(standing.decay_steps_applied).map_err(|_| GameError::Internal)?)
+        .bind(now)
+        .execute(&mut *transaction)
+        .await?;
+        sqlx::query(
+            "INSERT INTO ranked_ratings (account_id,season_id,rating,matches_played,updated_at) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (account_id) DO UPDATE SET season_id=$2,rating=$3,matches_played=$4,updated_at=$5",
+        )
+        .bind(account_id)
+        .bind(season_id)
+        .bind(standing.rating)
+        .bind(i32::try_from(standing.matches_played).map_err(|_| GameError::Internal)?)
+        .bind(now)
+        .execute(&mut *transaction)
+        .await?;
+        let reward_xp: i64 = sqlx::query_scalar(
+            "SELECT COALESCE(sum(xp),0)::bigint FROM ranked_reward_ledger WHERE account_id=$1",
+        )
+        .bind(account_id)
+        .fetch_one(&mut *transaction)
+        .await?;
+        transaction.commit().await?;
+        Ok(RankedProfile::from_record(
+            &standing,
+            u64::try_from(reward_xp).map_err(|_| GameError::Internal)?,
+        ))
     }
 
     async fn matchmaking_queue_stats(&self) -> Result<MatchmakingQueueStats, GameError> {

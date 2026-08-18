@@ -24,6 +24,8 @@ export type MatchmakingRegion =
   | 'NORTH_AMERICA_EAST'
   | 'EUROPE';
 export type MatchmakingSearchPhase = 'EXACT' | 'REGIONAL' | 'GLOBAL';
+export type RankedTier =
+  'PROVISIONAL' | 'BRONZE' | 'SILVER' | 'GOLD' | 'PLATINUM' | 'DIAMOND' | 'ADMIRAL';
 export type ShipKind = 'CARRIER' | 'BATTLESHIP' | 'CRUISER' | 'SUBMARINE' | 'DESTROYER';
 export type Orientation = 'HORIZONTAL' | 'VERTICAL';
 export type AttackOutcome = 'MISS' | 'HIT' | 'SUNK';
@@ -135,7 +137,15 @@ export interface AccountDataExport {
   sessions: AccountSession[];
   gameHistory: unknown[];
   progressionRewards: unknown[];
-  rankedRating: { rating: number; matchesPlayed: number; updatedAt?: string } | null;
+  rankedRating: {
+    seasonId?: string;
+    rating: number;
+    matchesPlayed: number;
+    updatedAt?: string;
+  } | null;
+  rankedStandings?: unknown[];
+  rankedMatchResults?: unknown[];
+  rankedRewards?: unknown[];
   socialRelationships: unknown[];
   moderationReports: unknown[];
   moderationActions: unknown[];
@@ -211,10 +221,26 @@ export interface PlayerProgression {
   totalShots: number;
   totalHits: number;
   totalShipsSunk: number;
+  ranked: RankedProfile | null;
   achievements: AchievementProgress[];
   missions: MissionProgress[];
   liveContent: LiveContentView;
   calculatedAt: string;
+}
+
+export interface RankedProfile {
+  seasonId: string;
+  rating: number;
+  matchesPlayed: number;
+  wins: number;
+  losses: number;
+  peakRating: number;
+  tier: RankedTier;
+  placementMatchesRemaining: number;
+  lastMatchAt: string | null;
+  nextDecayAt: string | null;
+  decayPointsApplied: number;
+  rewardXpEarned: number;
 }
 
 export interface SocialRelationship {
@@ -459,6 +485,7 @@ export interface GameSnapshot {
   players: PlayerPublic[];
   practiceDifficulty: AiDifficulty | null;
   matchmakingQuality?: MatchmakingQuality | null;
+  rankedMatch?: { seasonId: string; contentRevision: number } | null;
   rules: MatchRules;
   ownBoard: OwnBoardSnapshot | null;
   targetBoard: TargetBoardSnapshot | null;

@@ -54,9 +54,9 @@ use crate::{
         MatchmakingPreferences, MatchmakingQuality, MatchmakingSearchWindow, MissionCadence,
         MissionProgress, ModerationAction, ModerationActionKind, ModerationCasePage,
         NewIntegritySignal, NewModerationAction, NewPlayerReport, Orientation, PlayerAccount,
-        PlayerKind, PlayerProgression, PlayerReportReceipt, ReportCategory, ReportStatus,
-        RoomVisibility, ShipKind, ShipPlacement, SocialRelationship, UserSession,
-        baseline_live_content,
+        PlayerKind, PlayerProgression, PlayerReportReceipt, RankedMatchContext, RankedProfile,
+        ReportCategory, ReportStatus, RoomVisibility, ShipKind, ShipPlacement, SocialRelationship,
+        UserSession, baseline_live_content, ranked_season_key,
     },
     error::GameError,
     protocol::{
@@ -1365,10 +1365,24 @@ impl AppState {
         };
         let now = Utc::now();
         let live_content = self.active_live_content(now).await?;
+        let ranked = match session.account_id {
+            Some(account_id) => Some(
+                self.store
+                    .ranked_profile(
+                        account_id,
+                        &live_content.season.id,
+                        live_content.season.starts_at,
+                        now,
+                    )
+                    .await?,
+            ),
+            None => None,
+        };
         Ok(build_progression(
             session,
             &history,
             &rewards,
+            ranked,
             &live_content,
             now,
         ))
@@ -1384,7 +1398,24 @@ impl AppState {
         let rewards = self.store.mission_rewards(account_id).await?;
         let now = Utc::now();
         let live_content = self.active_live_content(now).await?;
-        let progression = build_progression(session, &history, &rewards, &live_content, now);
+        let ranked = Some(
+            self.store
+                .ranked_profile(
+                    account_id,
+                    &live_content.season.id,
+                    live_content.season.starts_at,
+                    now,
+                )
+                .await?,
+        );
+        let progression = build_progression(
+            session,
+            &history,
+            &rewards,
+            ranked.clone(),
+            &live_content,
+            now,
+        );
         let mission = progression
             .missions
             .iter()
@@ -1402,6 +1433,7 @@ impl AppState {
             session,
             &history,
             &rewards,
+            ranked,
             &live_content,
             now,
         ))
@@ -2859,17 +2891,37 @@ impl AppState {
             return Err(GameError::AlreadyJoined);
         }
         let preferences = preferences.validate()?;
-        let criteria = match preferences.pool {
-            MatchmakingPool::Casual => MatchmakingCriteria::casual(session.id),
+        let (criteria, ranked_context) = match preferences.pool {
+            MatchmakingPool::Casual => (MatchmakingCriteria::casual(session.id), None),
             MatchmakingPool::Ranked => {
                 let account_id = session.account_id.ok_or(GameError::RankedAccountRequired)?;
-                let rating = self.store.ranked_rating(account_id).await?.rating;
-                MatchmakingCriteria::ranked(
-                    account_id,
-                    preferences.region,
-                    preferences.latency_ms.ok_or(GameError::InvalidRequest)?,
-                    rating,
-                )?
+                let now = Utc::now();
+                let content = self.active_live_content(now).await?;
+                if now < content.season.starts_at || now >= content.season.ends_at {
+                    return Err(GameError::RankedSeasonUnavailable);
+                }
+                let profile = self
+                    .store
+                    .ranked_profile(
+                        account_id,
+                        &content.season.id,
+                        content.season.starts_at,
+                        now,
+                    )
+                    .await?;
+                (
+                    MatchmakingCriteria::ranked(
+                        account_id,
+                        preferences.region,
+                        preferences.latency_ms.ok_or(GameError::InvalidRequest)?,
+                        profile.rating,
+                        ranked_season_key(&content.season.id),
+                    )?,
+                    Some(RankedMatchContext {
+                        season_id: content.season.id,
+                        content_revision: content.revision,
+                    }),
+                )
             }
         };
         if self.store.matchmaking_entry(session.id).await?.is_none()
@@ -2914,6 +2966,7 @@ impl AppState {
             )?;
             room.join(&session)?;
             room.matchmaking_quality = Some(quality);
+            room.ranked_match = ranked_context;
             self.store.complete_matchmaking(claim_id, &mut room).await?;
             self.metrics.record_matchmaking_latency(own_queued_at);
             self.metrics.record_matchmaking_latency(opponent_queued_at);
@@ -2989,6 +3042,7 @@ fn build_progression(
     session: &UserSession,
     history: &[GameHistoryItem],
     rewards: &[MissionReward],
+    ranked: Option<RankedProfile>,
     live_content: &LiveContentRevision,
     now: chrono::DateTime<Utc>,
 ) -> PlayerProgression {
@@ -3029,12 +3083,18 @@ fn build_progression(
         + u64::from(wins) * 100
         + u64::from(hits) * 3
         + u64::from(ships_sunk) * 15;
-    let total_xp = result_xp.saturating_add(
-        rewards
-            .iter()
-            .map(|reward| u64::from(reward.xp))
-            .sum::<u64>(),
-    );
+    let total_xp = result_xp
+        .saturating_add(
+            rewards
+                .iter()
+                .map(|reward| u64::from(reward.xp))
+                .sum::<u64>(),
+        )
+        .saturating_add(
+            ranked
+                .as_ref()
+                .map_or(0, |profile| profile.reward_xp_earned),
+        );
     const XP_PER_LEVEL: u64 = 500;
     let level = (total_xp / XP_PER_LEVEL + 1).min(100) as u32;
     let level_xp = if level == 100 {
@@ -3109,6 +3169,7 @@ fn build_progression(
         total_shots: shots,
         total_hits: hits,
         total_ships_sunk: ships_sunk,
+        ranked,
         achievements: vec![
             achievement(
                 "FIRST_CONTACT",
@@ -3832,8 +3893,8 @@ mod tests {
             },
         }];
         let live_content = baseline_live_content();
-        let first = build_progression(&commander, &history, &[], &live_content, now);
-        let repeated = build_progression(&commander, &history, &[], &live_content, now);
+        let first = build_progression(&commander, &history, &[], None, &live_content, now);
+        let repeated = build_progression(&commander, &history, &[], None, &live_content, now);
         assert_eq!(first.total_xp, 311);
         assert_eq!(first.total_xp, repeated.total_xp);
         assert_eq!(first.games_played, 1);

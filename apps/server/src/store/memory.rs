@@ -11,8 +11,10 @@ use crate::{
         GameRoom, IntegritySignal, IntegritySignalKind, IntegritySignalPage, LiveContentRevision,
         MatchmakingCriteria, MatchmakingPool, ModerationAction, ModerationActionKind,
         ModerationCase, ModerationCasePage, NewIntegritySignal, NewModerationAction,
-        NewPlayerReport, PlayerAccount, PlayerReport, ReportStatus, RoomStatus, RoomSummary,
-        RoomVisibility, SocialRelationship, UserSession, matchmaking_quality,
+        NewPlayerReport, PlayerAccount, PlayerReport, RankedProfile, RankedStandingRecord,
+        ReportStatus, RoomStatus, RoomSummary, RoomVisibility, SocialRelationship, UserSession,
+        matchmaking_quality, next_season_seed, ranked_match_reward_xp, ranked_placement_reward_xp,
+        ranked_season_key,
     },
     error::GameError,
 };
@@ -51,6 +53,151 @@ pub struct MemoryStore {
     rooms: DashMap<Uuid, GameRoom>,
     matchmaking: Mutex<HashMap<Uuid, MatchmakingEntry>>,
     ranked_ratings: DashMap<Uuid, RankedRating>,
+    ranked_rating_seasons: DashMap<Uuid, String>,
+    ranked_standings: DashMap<(Uuid, String), RankedStandingRecord>,
+    ranked_rewards: DashMap<(Uuid, String, String, String), u32>,
+    ranked_settlements: DashMap<Uuid, ()>,
+    ranked_mutations: Mutex<()>,
+}
+
+impl MemoryStore {
+    fn standing_or_seed(&self, account_id: Uuid, season_id: &str) -> RankedStandingRecord {
+        if let Some(standing) = self
+            .ranked_standings
+            .get(&(account_id, season_id.to_string()))
+        {
+            return standing.clone();
+        }
+        let previous_rating = self
+            .ranked_standings
+            .iter()
+            .filter(|standing| standing.key().0 == account_id)
+            .max_by_key(|standing| standing.last_match_at)
+            .map(|standing| standing.rating)
+            .or_else(|| {
+                self.ranked_ratings
+                    .get(&account_id)
+                    .map(|rating| rating.rating)
+            });
+        RankedStandingRecord::new(season_id.to_string(), next_season_seed(previous_rating))
+    }
+
+    fn issue_prior_season_rewards(
+        &self,
+        account_id: Uuid,
+        current_season_id: &str,
+        current_season_starts_at: DateTime<Utc>,
+        now: DateTime<Utc>,
+    ) {
+        let prior_keys: Vec<_> = self
+            .ranked_standings
+            .iter()
+            .filter(|standing| {
+                standing.key().0 == account_id
+                    && standing.key().1 != current_season_id
+                    && standing.matches_played >= crate::domain::RANKED_PLACEMENT_MATCHES
+                    && standing.season_reward_issued_at.is_none()
+                    && standing
+                        .last_match_at
+                        .is_some_and(|last_match| last_match < current_season_starts_at)
+            })
+            .map(|standing| standing.key().clone())
+            .collect();
+        for key in prior_keys {
+            if let Some(mut standing) = self.ranked_standings.get_mut(&key) {
+                let xp = standing.tier().season_reward_xp();
+                if xp > 0 {
+                    self.ranked_rewards.insert(
+                        (
+                            account_id,
+                            "RANKED_SEASON".to_string(),
+                            standing.season_id.clone(),
+                            standing.season_id.clone(),
+                        ),
+                        xp,
+                    );
+                }
+                standing.season_reward_issued_at = Some(now);
+            }
+        }
+    }
+
+    async fn settle_ranked_room(&self, room: &GameRoom) -> Result<(), GameError> {
+        let Some(context) = room.ranked_match.as_ref() else {
+            return Ok(());
+        };
+        let Some(result) = room.game.as_ref().and_then(|game| game.result.as_ref()) else {
+            return Ok(());
+        };
+        let _guard = self.ranked_mutations.lock().await;
+        if self.ranked_settlements.contains_key(&room.id) {
+            return Ok(());
+        }
+        let mut participants = Vec::with_capacity(2);
+        for player in &room.players {
+            let account_id = self
+                .session_hash_by_id
+                .get(&player.session_id)
+                .and_then(|hash| {
+                    self.sessions_by_hash
+                        .get(hash.value())
+                        .and_then(|session| session.account_id)
+                })
+                .ok_or(GameError::Internal)?;
+            participants.push((account_id, player.id));
+        }
+        if participants.len() != 2 || participants[0].0 == participants[1].0 {
+            return Err(GameError::Internal);
+        }
+        let mut first = self.standing_or_seed(participants[0].0, &context.season_id);
+        let mut second = self.standing_or_seed(participants[1].0, &context.season_id);
+        let first_won = result.winner_id == participants[0].1;
+        let second_won = result.winner_id == participants[1].1;
+        if first_won == second_won {
+            return Err(GameError::Internal);
+        }
+        let first_change = first.record_result(second.rating, first_won, result.finished_at);
+        let second_change =
+            second.record_result(first_change.rating_before, second_won, result.finished_at);
+        for (account_id, standing, change, won) in [
+            (participants[0].0, first, first_change, first_won),
+            (participants[1].0, second, second_change, second_won),
+        ] {
+            self.ranked_ratings.insert(
+                account_id,
+                RankedRating {
+                    rating: standing.rating,
+                    matches_played: standing.matches_played,
+                },
+            );
+            self.ranked_rating_seasons
+                .insert(account_id, context.season_id.clone());
+            self.ranked_standings
+                .insert((account_id, context.season_id.clone()), standing);
+            self.ranked_rewards.insert(
+                (
+                    account_id,
+                    "RANKED_MATCH".to_string(),
+                    room.id.to_string(),
+                    context.season_id.clone(),
+                ),
+                ranked_match_reward_xp(won),
+            );
+            if change.placement_completed {
+                self.ranked_rewards.insert(
+                    (
+                        account_id,
+                        "RANKED_PLACEMENT".to_string(),
+                        context.season_id.clone(),
+                        context.season_id.clone(),
+                    ),
+                    ranked_placement_reward_xp(),
+                );
+            }
+        }
+        self.ranked_settlements.insert(room.id, ());
+        Ok(())
+    }
 }
 
 #[async_trait]
@@ -274,6 +421,25 @@ impl GameStore for MemoryStore {
             .ranked_ratings
             .get(&account_id)
             .map(|rating| *rating.value());
+        let ranked_standings: Vec<_> = self
+            .ranked_standings
+            .iter()
+            .filter(|standing| standing.key().0 == account_id)
+            .map(|standing| standing.value().clone())
+            .collect();
+        let ranked_rewards: Vec<_> = self
+            .ranked_rewards
+            .iter()
+            .filter(|reward| reward.key().0 == account_id)
+            .map(|reward| {
+                serde_json::json!({
+                    "sourceKind": reward.key().1,
+                    "sourceId": reward.key().2,
+                    "seasonId": reward.key().3,
+                    "xp": reward.value(),
+                })
+            })
+            .collect();
         let archive = serde_json::json!({
             "formatVersion": 1,
             "requestId": request_id,
@@ -283,6 +449,8 @@ impl GameStore for MemoryStore {
             "gameHistory": history,
             "progressionRewards": rewards,
             "rankedRating": ranked_rating,
+            "rankedStandings": ranked_standings,
+            "rankedRewards": ranked_rewards,
             "socialRelationships": relationships,
             "moderationReports": reports,
             "moderationActions": moderation_actions,
@@ -389,6 +557,15 @@ impl GameStore for MemoryStore {
         for key in &reward_keys {
             self.mission_rewards.remove(key);
         }
+        let ranked_reward_keys: Vec<_> = self
+            .ranked_rewards
+            .iter()
+            .filter(|reward| reward.key().0 == account_id)
+            .map(|reward| reward.key().clone())
+            .collect();
+        for key in &ranked_reward_keys {
+            self.ranked_rewards.remove(key);
+        }
         let relationship_keys: Vec<_> = self
             .social_relationships
             .iter()
@@ -445,6 +622,16 @@ impl GameStore for MemoryStore {
             .remove(&account.handle.to_lowercase());
         self.accounts.remove(&account_id);
         self.ranked_ratings.remove(&account_id);
+        self.ranked_rating_seasons.remove(&account_id);
+        let standing_keys: Vec<_> = self
+            .ranked_standings
+            .iter()
+            .filter(|standing| standing.key().0 == account_id)
+            .map(|standing| standing.key().clone())
+            .collect();
+        for key in standing_keys {
+            self.ranked_standings.remove(&key);
+        }
         self.privacy_requests.insert(
             request_id,
             serde_json::json!({
@@ -457,7 +644,7 @@ impl GameStore for MemoryStore {
         );
         Ok(AccountDeletionStats {
             sessions_deleted: sessions.len() as u64,
-            rewards_deleted: reward_keys.len() as u64,
+            rewards_deleted: reward_keys.len().saturating_add(ranked_reward_keys.len()) as u64,
             relationships_deleted: relationship_keys.len() as u64,
             reports_deleted: report_ids.len() as u64,
             integrity_signals_deleted: signal_ids.len() as u64,
@@ -885,6 +1072,7 @@ impl GameStore for MemoryStore {
         {
             return Err(GameError::VersionConflict);
         }
+        self.settle_ranked_room(room).await?;
         let next_revision = room.persistence_revision.saturating_add(1);
         let mut persisted = room.clone();
         persisted.persistence_revision = next_revision;
@@ -1000,6 +1188,12 @@ impl GameStore for MemoryStore {
                 let account_id = stored_session.account_id.ok_or(GameError::Unauthorized)?;
                 if criteria.party_id != account_id
                     || criteria.rating != Some(self.ranked_rating(account_id).await?.rating)
+                    || self
+                        .ranked_rating_seasons
+                        .get(&account_id)
+                        .is_none_or(|season| {
+                            criteria.season_key != Some(ranked_season_key(&season))
+                        })
                 {
                     return Err(GameError::InvalidRequest);
                 }
@@ -1214,6 +1408,40 @@ impl GameStore for MemoryStore {
             }))
     }
 
+    async fn ranked_profile(
+        &self,
+        account_id: Uuid,
+        season_id: &str,
+        season_starts_at: DateTime<Utc>,
+        now: DateTime<Utc>,
+    ) -> Result<RankedProfile, GameError> {
+        if !self.accounts.contains_key(&account_id) {
+            return Err(GameError::Unauthorized);
+        }
+        let _guard = self.ranked_mutations.lock().await;
+        self.issue_prior_season_rewards(account_id, season_id, season_starts_at, now);
+        let key = (account_id, season_id.to_string());
+        let mut standing = self.standing_or_seed(account_id, season_id);
+        standing.apply_inactivity_decay(now);
+        self.ranked_standings.insert(key, standing.clone());
+        self.ranked_ratings.insert(
+            account_id,
+            RankedRating {
+                rating: standing.rating,
+                matches_played: standing.matches_played,
+            },
+        );
+        self.ranked_rating_seasons
+            .insert(account_id, season_id.to_string());
+        let reward_xp_earned = self
+            .ranked_rewards
+            .iter()
+            .filter(|reward| reward.key().0 == account_id)
+            .map(|reward| u64::from(*reward.value()))
+            .sum();
+        Ok(RankedProfile::from_record(&standing, reward_xp_earned))
+    }
+
     async fn matchmaking_queue_stats(&self) -> Result<MatchmakingQueueStats, GameError> {
         let queue = self.matchmaking.lock().await;
         let oldest_age_seconds = queue
@@ -1362,6 +1590,15 @@ mod tests {
             ),
         );
         store.save_session(&session).await.unwrap();
+        store
+            .ranked_profile(
+                account_id,
+                "TEST_SEASON",
+                Utc::now() - Duration::days(1),
+                Utc::now(),
+            )
+            .await
+            .unwrap();
         session
     }
 
@@ -1487,6 +1724,7 @@ mod tests {
             crate::domain::MatchmakingRegion::Korea,
             80,
             DEFAULT_RANKED_RATING,
+            ranked_season_key("TEST_SEASON"),
         )
         .unwrap();
         let second_criteria = MatchmakingCriteria::ranked(
@@ -1494,6 +1732,7 @@ mod tests {
             crate::domain::MatchmakingRegion::Japan,
             90,
             1_680,
+            ranked_season_key("TEST_SEASON"),
         )
         .unwrap();
 
@@ -1510,6 +1749,7 @@ mod tests {
             crate::domain::MatchmakingRegion::Japan,
             80,
             DEFAULT_RANKED_RATING,
+            ranked_season_key("TEST_SEASON"),
         )
         .unwrap();
         assert_eq!(
@@ -1564,6 +1804,7 @@ mod tests {
             crate::domain::MatchmakingRegion::Korea,
             40,
             DEFAULT_RANKED_RATING,
+            ranked_season_key("TEST_SEASON"),
         )
         .unwrap();
         assert_eq!(
@@ -1581,6 +1822,7 @@ mod tests {
             crate::domain::MatchmakingRegion::Korea,
             40,
             DEFAULT_RANKED_RATING + 500,
+            ranked_season_key("TEST_SEASON"),
         )
         .unwrap();
         assert_eq!(
@@ -1596,6 +1838,7 @@ mod tests {
             crate::domain::MatchmakingRegion::Korea,
             40,
             DEFAULT_RANKED_RATING,
+            ranked_season_key("TEST_SEASON"),
         )
         .unwrap();
         assert!(
@@ -1617,6 +1860,95 @@ mod tests {
                 .claim
                 .is_none(),
             "two sessions owned by one account are the same solo party"
+        );
+    }
+
+    #[tokio::test]
+    async fn ranked_results_update_rating_and_rewards_exactly_once() {
+        let store = MemoryStore::default();
+        let first = ranked_session(&store, "Settle Alpha").await;
+        let second = ranked_session(&store, "Settle Bravo").await;
+        let first_account = first.account_id.unwrap();
+        let second_account = second.account_id.unwrap();
+        let mut room = GameRoom::new(
+            "RANK01".to_string(),
+            "Ranked result".to_string(),
+            RoomVisibility::Private,
+            &first,
+        )
+        .unwrap();
+        room.join(&second).unwrap();
+        let winner_id = room.players[0].id;
+        let loser_id = room.players[1].id;
+        let finished_at = Utc::now();
+        room.status = RoomStatus::Finished;
+        room.ranked_match = Some(crate::domain::RankedMatchContext {
+            season_id: "TEST_SEASON".to_string(),
+            content_revision: 1,
+        });
+        room.game = Some(crate::domain::Game {
+            boards: HashMap::new(),
+            attacks: Vec::new(),
+            timeline: Vec::new(),
+            first_player_id: winner_id,
+            mode: crate::domain::GameMode::Classic,
+            shots_remaining_in_turn: 0,
+            current_player_id: winner_id,
+            turn_number: 1,
+            started_at: finished_at - Duration::minutes(1),
+            turn_duration_seconds: 60,
+            turn_started_at: None,
+            turn_deadline_at: None,
+            consecutive_timeout_counts: HashMap::new(),
+            total_timeout_counts: HashMap::new(),
+            result: Some(crate::domain::GameResult {
+                winner_id,
+                loser_id,
+                total_turns: 1,
+                duration_seconds: 60,
+                finished_at,
+                players: Vec::new(),
+                finish_reason: FinishReason::FleetDestroyed,
+                win_type: crate::domain::WinType::NormalVictory,
+            }),
+        });
+
+        store.save_room(&mut room).await.unwrap();
+        let winner = store
+            .ranked_profile(
+                first_account,
+                "TEST_SEASON",
+                Utc::now() - Duration::days(1),
+                Utc::now(),
+            )
+            .await
+            .unwrap();
+        let loser = store
+            .ranked_profile(
+                second_account,
+                "TEST_SEASON",
+                Utc::now() - Duration::days(1),
+                Utc::now(),
+            )
+            .await
+            .unwrap();
+        assert_eq!((winner.rating, winner.reward_xp_earned), (1_532, 100));
+        assert_eq!((loser.rating, loser.reward_xp_earned), (1_468, 40));
+
+        store.save_room(&mut room).await.unwrap();
+        assert_eq!(
+            store
+                .ranked_profile(
+                    first_account,
+                    "TEST_SEASON",
+                    Utc::now() - Duration::days(1),
+                    Utc::now(),
+                )
+                .await
+                .unwrap()
+                .matches_played,
+            1,
+            "saving a finished room again must not apply a second rating change"
         );
     }
 

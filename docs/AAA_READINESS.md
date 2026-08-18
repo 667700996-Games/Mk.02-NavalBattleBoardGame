@@ -145,10 +145,19 @@ The program is complete only when all gates below are satisfied in a production-
 ### C2. Modes and competition
 
 - [x] Casual classic mode is joined by rapid, salvo, and configurable private rules.
-- [ ] Ranked play has rating, placement matches, seasons, tiers, decay/inactivity policy, and rewards.
+- [x] Ranked play has rating, placement matches, seasons, tiers, decay/inactivity policy, and rewards.
 - [ ] Match fairness considers rating, latency, region, rematches, and queue time.
 - [ ] Leaderboards are abuse-resistant, paginated, privacy-aware, and seasonally archived.
 - [ ] Balance changes are versioned so replays and historical results remain interpretable.
+- Evidence: `RANKED_COMPETITION.md` fixes the five-match placement, expected-score rating, tier,
+  soft-reset, 14-day/weekly decay, and XP reward policies. Match rooms pin their immutable live
+  season; only active seasons accept queues, and season keys prevent cross-season pairing. The
+  PostgreSQL result transaction locks both standings, inserts one room settlement marker, updates
+  rating projections, and writes unique match/placement/season rewards atomically. Memory/domain/
+  API tests plus a fresh 15-migration PostgreSQL 16 database and the eight-test PostgreSQL/Redis
+  suite prove spoof resistance, idempotent settlement, five placements, rollover rewards, export,
+  deletion, restore verification, and mixed-version queue behavior. The stats view exposes the
+  active provisional/tier rating and multi-browser E2E covers the player flow.
 
 ### C3. Progression and live content
 

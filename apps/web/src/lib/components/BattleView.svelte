@@ -92,7 +92,7 @@
   let canFire = $derived(
     Boolean(
       selected &&
-      (!fireSequence || fireSequence.stage === 'IMPACT') &&
+      !fireSequence &&
       myTurn &&
       !pending &&
       !disabled &&
@@ -125,7 +125,7 @@
       !myTurn ||
       pending ||
       disabled ||
-      (fireSequence && fireSequence.stage !== 'IMPACT') ||
+      fireSequence ||
       remainingSeconds === 0 ||
       attackedKeys.has(coordinateKey(coordinate))
     )
@@ -141,10 +141,12 @@
     fireSequence = { coordinate, stage: 'LOCK' };
     sounds.targetLock();
     if (fireTimer) clearTimeout(fireTimer);
+    onfire(coordinate);
     fireTimer = setTimeout(() => {
-      fireSequence = { coordinate, stage: 'FIRE' };
-      sounds.fire();
-      onfire(coordinate);
+      if (fireSequence?.stage === 'LOCK') {
+        fireSequence = { coordinate, stage: 'FIRE' };
+        sounds.fire();
+      }
       fireTimer = null;
     }, 150);
   }
@@ -401,7 +403,7 @@
         label="상대 해역 공격 보드"
         targetBoard={snapshot.targetBoard}
         {selected}
-        interactive={myTurn}
+        interactive={myTurn && !pending && !fireSequence}
         {disabled}
         oncell={choose}
       />
@@ -418,7 +420,7 @@
       </div>
       <div class:coordinate-lock--active={selected} class="coordinate-lock">
         <small>TARGET LOCK</small><strong>{selected ? coordinateLabel(selected) : '— —'}</strong
-        ><span>{selected ? 'RETICLE CLOSED · READY TO FIRE' : '공격 보드에서 좌표 선택'}</span>
+        ><span>{selected ? 'RETICLE READY' : '공격 보드에서 좌표 선택'}</span>
       </div>
       <button
         class="button button--primary button--wide fire-button"

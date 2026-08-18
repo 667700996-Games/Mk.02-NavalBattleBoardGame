@@ -130,6 +130,7 @@ pub struct MatchmakingCriteria {
     pub region: MatchmakingRegion,
     pub latency_ms: u16,
     pub rating: Option<i32>,
+    pub season_key: Option<Uuid>,
     pub party_id: Uuid,
     pub party_size: u8,
 }
@@ -141,6 +142,7 @@ impl MatchmakingCriteria {
             region: MatchmakingRegion::Auto,
             latency_ms: 0,
             rating: None,
+            season_key: None,
             party_id: session_id,
             party_size: 1,
         }
@@ -151,12 +153,14 @@ impl MatchmakingCriteria {
         region: MatchmakingRegion,
         latency_ms: u16,
         rating: i32,
+        season_key: Uuid,
     ) -> Result<Self, GameError> {
         let criteria = Self {
             pool: MatchmakingPool::Ranked,
             region,
             latency_ms,
             rating: Some(rating),
+            season_key: Some(season_key),
             party_id: account_id,
             party_size: 1,
         };
@@ -170,6 +174,7 @@ impl MatchmakingCriteria {
                 if self.region != MatchmakingRegion::Auto
                     || self.latency_ms != 0
                     || self.rating.is_some()
+                    || self.season_key.is_some()
                     || self.party_size != 1
                 {
                     return Err(GameError::InvalidRequest);
@@ -181,6 +186,7 @@ impl MatchmakingCriteria {
                     || !self.rating.is_some_and(|rating| {
                         (MIN_RANKED_RATING..=MAX_RANKED_RATING).contains(&rating)
                     })
+                    || self.season_key.is_none()
                     || self.party_size != 1
                 {
                     return Err(GameError::InvalidRequest);
@@ -258,6 +264,10 @@ pub fn matchmaking_quality(
         });
     }
 
+    if first.season_key != second.season_key {
+        return None;
+    }
+
     let first_window = MatchmakingSearchWindow::at(first_queued_at, now);
     let second_window = MatchmakingSearchWindow::at(second_queued_at, now);
     if first.latency_ms > first_window.max_latency_ms
@@ -306,7 +316,7 @@ mod tests {
         latency_ms: u16,
         rating: i32,
     ) -> MatchmakingCriteria {
-        MatchmakingCriteria::ranked(party_id, region, latency_ms, rating).unwrap()
+        MatchmakingCriteria::ranked(party_id, region, latency_ms, rating, Uuid::nil()).unwrap()
     }
 
     #[test]

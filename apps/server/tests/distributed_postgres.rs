@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -9,9 +10,11 @@ use mk01_server::{
     app::hash_token,
     config::{Settings, StorageMode},
     domain::{
-        ConnectionState, Coordinate, DEFAULT_RANKED_RATING, GameRoom, LiveContentRevision,
-        MatchmakingCriteria, MatchmakingRegion, MatchmakingSearchPhase, Orientation, PlayerAccount,
-        RoomStatus, RoomVisibility, ShipKind, ShipPlacement, UserSession, baseline_live_content,
+        ConnectionState, Coordinate, DEFAULT_RANKED_RATING, FinishReason, Game, GameMode,
+        GameResult, GameRoom, LiveContentRevision, MatchmakingCriteria, MatchmakingRegion,
+        MatchmakingSearchPhase, Orientation, PlayerAccount, PlayerStatistics, RankedMatchContext,
+        RankedTier, RoomStatus, RoomVisibility, ShipKind, ShipPlacement, UserSession, WinType,
+        baseline_live_content, ranked_season_key,
     },
     protocol::{HeartbeatResponse, ServerEvent},
     store::{
@@ -97,6 +100,70 @@ async fn account_session(
         .unwrap()
         .unwrap();
     (session, account)
+}
+
+fn finished_ranked_room(first: &UserSession, second: &UserSession, season_id: &str) -> GameRoom {
+    let mut room = GameRoom::new(
+        Uuid::new_v4().simple().to_string()[..6].to_ascii_uppercase(),
+        "Ranked settlement".to_string(),
+        RoomVisibility::Private,
+        first,
+    )
+    .unwrap();
+    room.join(second).unwrap();
+    let winner_id = room.players[0].id;
+    let loser_id = room.players[1].id;
+    let finished_at = Utc::now();
+    room.status = RoomStatus::Finished;
+    room.game_id = Some(Uuid::new_v4());
+    room.ranked_match = Some(RankedMatchContext {
+        season_id: season_id.to_string(),
+        content_revision: 0,
+    });
+    room.game = Some(Game {
+        boards: HashMap::new(),
+        attacks: Vec::new(),
+        timeline: Vec::new(),
+        first_player_id: winner_id,
+        mode: GameMode::Classic,
+        shots_remaining_in_turn: 0,
+        current_player_id: winner_id,
+        turn_number: 1,
+        started_at: finished_at - chrono::Duration::minutes(2),
+        turn_duration_seconds: 60,
+        turn_started_at: None,
+        turn_deadline_at: None,
+        consecutive_timeout_counts: HashMap::new(),
+        total_timeout_counts: HashMap::new(),
+        result: Some(GameResult {
+            winner_id,
+            loser_id,
+            total_turns: 1,
+            duration_seconds: 120,
+            finished_at,
+            players: vec![
+                PlayerStatistics {
+                    player_id: winner_id,
+                    shots: 1,
+                    hits: 1,
+                    ships_sunk: 1,
+                    accuracy: 1.0,
+                    total_timeouts: 0,
+                },
+                PlayerStatistics {
+                    player_id: loser_id,
+                    shots: 1,
+                    hits: 0,
+                    ships_sunk: 0,
+                    accuracy: 0.0,
+                    total_timeouts: 0,
+                },
+            ],
+            finish_reason: FinishReason::FleetDestroyed,
+            win_type: WinType::NormalVictory,
+        }),
+    });
+    room
 }
 
 #[tokio::test]
@@ -256,7 +323,24 @@ async fn postgres_ranked_matchmaking_enforces_authority_and_mutual_widening_acro
             .await
             .unwrap()
     );
-    second_store.ranked_rating(second_account.id).await.unwrap();
+    first_store
+        .ranked_profile(
+            first_account.id,
+            "FOUNDERS_SEASON",
+            Utc::now() - chrono::Duration::days(1),
+            Utc::now(),
+        )
+        .await
+        .unwrap();
+    second_store
+        .ranked_profile(
+            second_account.id,
+            "FOUNDERS_SEASON",
+            Utc::now() - chrono::Duration::days(1),
+            Utc::now(),
+        )
+        .await
+        .unwrap();
     sqlx::query("UPDATE ranked_ratings SET rating=1680, matches_played=12 WHERE account_id=$1")
         .bind(second_account.id)
         .execute(&database)
@@ -268,11 +352,17 @@ async fn postgres_ranked_matchmaking_enforces_authority_and_mutual_widening_acro
         MatchmakingRegion::Korea,
         80,
         DEFAULT_RANKED_RATING,
+        ranked_season_key("FOUNDERS_SEASON"),
     )
     .unwrap();
-    let second_criteria =
-        MatchmakingCriteria::ranked(second_account.id, MatchmakingRegion::Japan, 90, 1_680)
-            .unwrap();
+    let second_criteria = MatchmakingCriteria::ranked(
+        second_account.id,
+        MatchmakingRegion::Japan,
+        90,
+        1_680,
+        ranked_season_key("FOUNDERS_SEASON"),
+    )
+    .unwrap();
     assert!(
         first_store
             .enqueue_matchmaking(&first, first_criteria)
@@ -320,6 +410,7 @@ async fn postgres_ranked_matchmaking_enforces_authority_and_mutual_widening_acro
         MatchmakingRegion::Korea,
         80,
         DEFAULT_RANKED_RATING + 500,
+        ranked_season_key("FOUNDERS_SEASON"),
     )
     .unwrap();
     assert_eq!(
@@ -369,6 +460,130 @@ async fn postgres_ranked_matchmaking_enforces_authority_and_mutual_widening_acro
         .await
         .unwrap();
     assert!(verification.ranked_ratings >= 2);
+}
+
+#[tokio::test]
+async fn postgres_ranked_results_settle_once_complete_placements_and_issue_season_rewards() {
+    let Some((database_url, redis_url)) = integration_urls() else {
+        eprintln!("skipping distributed integration test without TEST_DATABASE_URL/TEST_REDIS_URL");
+        return;
+    };
+    let store = store(&database_url, &redis_url).await;
+    let database = sqlx::PgPool::connect(&database_url).await.unwrap();
+    let (first, first_account) = account_session(&store, "RankSettleAlpha").await;
+    let (second, second_account) = account_session(&store, "RankSettleBravo").await;
+    store
+        .ranked_profile(
+            first_account.id,
+            "SETTLEMENT_SEASON",
+            Utc::now() - chrono::Duration::days(1),
+            Utc::now(),
+        )
+        .await
+        .unwrap();
+    store
+        .ranked_profile(
+            second_account.id,
+            "SETTLEMENT_SEASON",
+            Utc::now() - chrono::Duration::days(1),
+            Utc::now(),
+        )
+        .await
+        .unwrap();
+
+    let mut first_room = finished_ranked_room(&first, &second, "SETTLEMENT_SEASON");
+    store.save_room(&mut first_room).await.unwrap();
+    let first_profile = store
+        .ranked_profile(
+            first_account.id,
+            "SETTLEMENT_SEASON",
+            Utc::now() - chrono::Duration::days(1),
+            Utc::now(),
+        )
+        .await
+        .unwrap();
+    let second_profile = store
+        .ranked_profile(
+            second_account.id,
+            "SETTLEMENT_SEASON",
+            Utc::now() - chrono::Duration::days(1),
+            Utc::now(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(first_profile.rating, 1_532);
+    assert_eq!(second_profile.rating, 1_468);
+    assert_eq!(first_profile.reward_xp_earned, 100);
+    assert_eq!(second_profile.reward_xp_earned, 40);
+
+    store.save_room(&mut first_room).await.unwrap();
+    let settled_once: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM ranked_match_settlements WHERE room_id=$1")
+            .bind(first_room.id)
+            .fetch_one(&database)
+            .await
+            .unwrap();
+    assert_eq!(settled_once, 1, "a persisted result must never rate twice");
+
+    for _ in 1..5 {
+        let mut room = finished_ranked_room(&first, &second, "SETTLEMENT_SEASON");
+        store.save_room(&mut room).await.unwrap();
+    }
+    let placed_first = store
+        .ranked_profile(
+            first_account.id,
+            "SETTLEMENT_SEASON",
+            Utc::now() - chrono::Duration::days(1),
+            Utc::now(),
+        )
+        .await
+        .unwrap();
+    let placed_second = store
+        .ranked_profile(
+            second_account.id,
+            "SETTLEMENT_SEASON",
+            Utc::now() - chrono::Duration::days(1),
+            Utc::now(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(placed_first.placement_matches_remaining, 0);
+    assert_eq!(placed_second.placement_matches_remaining, 0);
+    assert_ne!(placed_first.tier, RankedTier::Provisional);
+    assert_ne!(placed_second.tier, RankedTier::Provisional);
+    assert_eq!(placed_first.reward_xp_earned, 1_000);
+    assert_eq!(placed_second.reward_xp_earned, 700);
+
+    let next_first = store
+        .ranked_profile(
+            first_account.id,
+            "NEXT_SETTLEMENT_SEASON",
+            Utc::now(),
+            Utc::now(),
+        )
+        .await
+        .unwrap();
+    let next_second = store
+        .ranked_profile(
+            second_account.id,
+            "NEXT_SETTLEMENT_SEASON",
+            Utc::now(),
+            Utc::now(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(next_first.matches_played, 0);
+    assert_eq!(next_second.matches_played, 0);
+    assert!(next_first.reward_xp_earned > placed_first.reward_xp_earned);
+    assert!(next_second.reward_xp_earned > placed_second.reward_xp_earned);
+    let season_rewards: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM ranked_reward_ledger WHERE source_kind='RANKED_SEASON' AND account_id=ANY($1)",
+    )
+    .bind(vec![first_account.id, second_account.id])
+    .fetch_one(&database)
+    .await
+    .unwrap();
+    assert_eq!(season_rewards, 2);
 }
 
 #[tokio::test]

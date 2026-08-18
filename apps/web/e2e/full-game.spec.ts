@@ -80,15 +80,34 @@ async function fire(page: Page, target: string) {
   const [row, col] = target.split('-');
   const cell = page.getByTestId(`target-cell-${row}-${col}`);
   await cell.click();
-  await page.getByRole('button', { name: '공격 실행' }).click();
+  const fireButton = page.getByRole('button', { name: '공격 실행' });
+  await expect(fireButton).toBeEnabled();
+  await fireButton.click();
+  await expect
+    .poll(
+      async () => {
+        if ((await page.getByRole('heading', { name: /작전 (승리|패배)/ }).count()) > 0) {
+          return 'finished';
+        }
+        return (await cell.getAttribute('class')) ?? '';
+      },
+      { timeout: 20_000 }
+    )
+    .toMatch(/cell--(hit|sunk)|finished/);
+}
+
+async function expectSharedTurn(first: Page, second: Page) {
   await expect
     .poll(async () => {
-      if ((await page.getByRole('heading', { name: /작전 (승리|패배)/ }).count()) > 0) {
-        return 'finished';
-      }
-      return (await cell.getAttribute('class')) ?? '';
+      const [firstVersion, secondVersion, firstMine, secondMine] = await Promise.all([
+        first.locator('.combat-strip span').last().textContent(),
+        second.locator('.combat-strip span').last().textContent(),
+        first.locator('.turn-banner--mine').isVisible(),
+        second.locator('.turn-banner--mine').isVisible()
+      ]);
+      return firstVersion === secondVersion && firstMine !== secondMine;
     })
-    .toMatch(/cell--(hit|sunk)|finished/);
+    .toBe(true);
 }
 
 function auditFrames(page: Page, violations: string[]) {
@@ -155,6 +174,7 @@ test('two isolated browser sessions complete a secure game and recover after ref
   let secondShots = 0;
   let refreshed = false;
   for (let turn = 0; turn < 34; turn += 1) {
+    await expectSharedTurn(first, second);
     if (await first.locator('.turn-banner--mine').isVisible()) {
       await fire(first, secondFleet[firstShots++]);
     } else {

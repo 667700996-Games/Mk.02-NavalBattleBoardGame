@@ -2,7 +2,7 @@ use chrono::{DateTime, Utc};
 use serde::Serialize;
 use uuid::Uuid;
 
-use crate::domain::LiveContentView;
+use crate::domain::{LiveContentView, RankedProfile};
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -20,6 +20,7 @@ pub struct PlayerProgression {
     pub total_shots: u32,
     pub total_hits: u32,
     pub total_ships_sunk: u32,
+    pub ranked: Option<RankedProfile>,
     pub achievements: Vec<AchievementProgress>,
     pub missions: Vec<MissionProgress>,
     pub live_content: LiveContentView,

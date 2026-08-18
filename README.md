@@ -184,7 +184,7 @@ POSTGRES_PASSWORD='replace-this-local-password' docker compose up --build
 | `DELETE`      | `/accounts/sessions/{sessionId}` | 다른 기기의 세션 원격 해제       |
 | `GET`         | `/accounts/export`      | 자격 증명을 제외한 계정 자료 JSON 내보내기 |
 | `DELETE`      | `/accounts`             | 복구 키와 명시적 확인 후 계정 자료 삭제·익명화 |
-| `GET`         | `/profile`              | XP·레벨·업적·현재 임무 진행도           |
+| `GET`         | `/profile`              | XP·업적·임무·현재 시즌 랭크 프로필     |
 | `POST`        | `/profile/missions/{missionId}/claim` | 완료 임무 XP 멱등 지급     |
 | `POST`        | `/practice`             | 난이도별 서버 권위 AI 연습전 생성         |
 | `GET/POST`    | `/rooms`                | 공개 방 목록 / 방 생성                   |
@@ -195,7 +195,7 @@ POSTGRES_PASSWORD='replace-this-local-password' docker compose up --build
 | `GET`         | `/games/history`        | 최근 50개 경기 결과                      |
 | `GET`         | `/games/{roomId}/replay` | 종료 경기의 참가자 전용 버전형 복기      |
 | `POST/DELETE` | `/matchmaking`          | 일반 매칭 대기/상태 갱신/취소            |
-| `POST`        | `/matchmaking/ranked`   | 계정 기반 랭크 매칭 대기/상태 갱신       |
+| `POST`        | `/matchmaking/ranked`   | 활성 시즌·계정 기반 랭크 매칭/상태 갱신 |
 
 오류는 `{ code, message, requestId }` 형태의 안전한 JSON으로 반환됩니다. 잘못된 JSON·UUID도 내부 파서 정보 대신 `INVALID_REQUEST`로 일관되게 처리합니다.
 

@@ -53,6 +53,9 @@ client-side telemetry cannot silently dilute product availability or command lat
   ranked completion starvation when ranked queue depth is non-zero but
   `increase(mk01_ranked_matchmaking_completed_total[15m])` remains zero. Search phase and widening
   limits are defined in `RANKED_MATCHMAKING.md`; do not expand them ad hoc during an incident.
+  For settlement audits, compare finished rooms carrying `rankedMatch` with
+  `ranked_match_settlements`; each room must have exactly two `ranked_match_participants` and match
+  rewards. `--verify-restore` reports standing, settlement, and reward totals after every drill.
 - `mk01_websocket_disconnects_total`, `mk01_unexpected_disconnects_total`, and
   `mk01_websocket_connected_milliseconds_total` distinguish a normal client Close frame from an
   abnormal EOF or send/receive failure. The primary rate is
