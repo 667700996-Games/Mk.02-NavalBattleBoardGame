@@ -1534,3 +1534,303 @@ async fn admin_integrity_queue_is_private_filterable_and_preserves_detection_evi
     );
     assert_eq!(body["signals"][0]["evidence"]["eventsPerSecondLimit"], 60);
 }
+
+#[tokio::test]
+async fn live_content_is_validated_versioned_applied_and_rollback_safe() {
+    let app = test_app();
+    let (cookie, _) = create_session(&app, "LiveOps Tester").await;
+    let now = Utc::now();
+    let payload = json!({
+        "activateAt": now,
+        "season": {
+            "id": "NORTH_SEA_01",
+            "title": "북해 통제 시즌",
+            "description": "북해 전역의 작전 우위를 확보하고 시즌 전공을 기록하십시오.",
+            "startsAt": now - chrono::Duration::days(1),
+            "endsAt": now + chrono::Duration::days(30)
+        },
+        "events": [{
+            "id": "CONVOY_GUARD",
+            "title": "수송선단 호위",
+            "description": "기간 임무를 완수해 북해 수송 항로를 안전하게 유지하십시오.",
+            "startsAt": now - chrono::Duration::hours(1),
+            "endsAt": now + chrono::Duration::days(7)
+        }],
+        "featureFlags": {
+            "missionsEnabled": true,
+            "eventBannerEnabled": true
+        },
+        "tuning": {
+            "dailyDeploymentRewardXp": 175,
+            "dailyAccuracyRewardXp": 225,
+            "weeklySupremacyRewardXp": 650
+        },
+        "changeNote": "Launch the validated North Sea content"
+    });
+
+    let public_baseline = send(
+        &app,
+        Request::builder()
+            .uri("/api/content/live")
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(public_baseline.status(), StatusCode::OK);
+    assert_eq!(json_body(public_baseline).await["revision"], 0);
+
+    let unauthorized = send(
+        &app,
+        Request::builder()
+            .uri("/api/admin/content/revisions")
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(unauthorized.status(), StatusCode::UNAUTHORIZED);
+
+    let validate = send(
+        &app,
+        Request::builder()
+            .method("POST")
+            .uri("/api/admin/content/validate")
+            .header(header::CONTENT_TYPE, "application/json")
+            .header(
+                header::AUTHORIZATION,
+                "Bearer integration-admin-token-32-characters-long",
+            )
+            .header("x-operator-id", "liveops-test")
+            .body(Body::from(
+                json!({ "expectedRevision": 0, "payload": payload }).to_string(),
+            ))
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(validate.status(), StatusCode::OK);
+    let validation = json_body(validate).await;
+    assert_eq!(validation["valid"], true);
+    assert_eq!(validation["candidateRevision"], 1);
+    assert_eq!(validation["issues"].as_array().unwrap().len(), 0);
+
+    let publish = send(
+        &app,
+        Request::builder()
+            .method("POST")
+            .uri("/api/admin/content/revisions")
+            .header(header::CONTENT_TYPE, "application/json")
+            .header(
+                header::AUTHORIZATION,
+                "Bearer integration-admin-token-32-characters-long",
+            )
+            .header("x-operator-id", "liveops-test")
+            .body(Body::from(
+                json!({ "expectedRevision": 0, "payload": payload }).to_string(),
+            ))
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(publish.status(), StatusCode::CREATED);
+    let published = json_body(publish).await;
+    assert_eq!(published["revision"], 1);
+    assert_eq!(published["operatorId"], "liveops-test");
+
+    let profile = json_body(
+        send(
+            &app,
+            Request::builder()
+                .uri("/api/profile")
+                .header(header::COOKIE, &cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(profile["liveContent"]["revision"], 1);
+    assert_eq!(profile["liveContent"]["season"]["id"], "NORTH_SEA_01");
+    assert_eq!(profile["missions"][0]["rewardXp"], 175);
+
+    let stale_publish = send(
+        &app,
+        Request::builder()
+            .method("POST")
+            .uri("/api/admin/content/revisions")
+            .header(header::CONTENT_TYPE, "application/json")
+            .header(
+                header::AUTHORIZATION,
+                "Bearer integration-admin-token-32-characters-long",
+            )
+            .header("x-operator-id", "stale-liveops-test")
+            .body(Body::from(
+                json!({ "expectedRevision": 0, "payload": payload }).to_string(),
+            ))
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(stale_publish.status(), StatusCode::CONFLICT);
+    assert_eq!(
+        json_body(stale_publish).await["code"],
+        "LIVE_CONTENT_REVISION_CONFLICT"
+    );
+
+    let mut unsafe_payload = payload.clone();
+    unsafe_payload["tuning"]["weeklySupremacyRewardXp"] = json!(10_000);
+    unsafe_payload["changeNote"] = json!("Attempt unsafe reward increase");
+    let unsafe_validation = json_body(
+        send(
+            &app,
+            Request::builder()
+                .method("POST")
+                .uri("/api/admin/content/validate")
+                .header(header::CONTENT_TYPE, "application/json")
+                .header(
+                    header::AUTHORIZATION,
+                    "Bearer integration-admin-token-32-characters-long",
+                )
+                .header("x-operator-id", "liveops-test")
+                .body(Body::from(
+                    json!({ "expectedRevision": 1, "payload": unsafe_payload }).to_string(),
+                ))
+                .unwrap(),
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(unsafe_validation["valid"], false);
+    assert!(
+        unsafe_validation["issues"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|issue| issue["code"] == "TUNING_OUT_OF_RANGE")
+    );
+
+    let mut disabled_payload = payload.clone();
+    disabled_payload["activateAt"] = json!(Utc::now());
+    disabled_payload["featureFlags"]["missionsEnabled"] = json!(false);
+    disabled_payload["featureFlags"]["eventBannerEnabled"] = json!(false);
+    disabled_payload["changeNote"] = json!("Exercise emergency mission kill switch");
+    let disabled = send(
+        &app,
+        Request::builder()
+            .method("POST")
+            .uri("/api/admin/content/revisions")
+            .header(header::CONTENT_TYPE, "application/json")
+            .header(
+                header::AUTHORIZATION,
+                "Bearer integration-admin-token-32-characters-long",
+            )
+            .header("x-operator-id", "incident-commander")
+            .body(Body::from(
+                json!({ "expectedRevision": 1, "payload": disabled_payload }).to_string(),
+            ))
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(disabled.status(), StatusCode::CREATED);
+    assert_eq!(json_body(disabled).await["revision"], 2);
+    let disabled_profile = json_body(
+        send(
+            &app,
+            Request::builder()
+                .uri("/api/profile")
+                .header(header::COOKIE, &cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await,
+    )
+    .await;
+    assert!(disabled_profile["missions"].as_array().unwrap().is_empty());
+    assert!(
+        disabled_profile["liveContent"]["events"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+
+    let rollback = send(
+        &app,
+        Request::builder()
+            .method("POST")
+            .uri("/api/admin/content/rollback")
+            .header(header::CONTENT_TYPE, "application/json")
+            .header(
+                header::AUTHORIZATION,
+                "Bearer integration-admin-token-32-characters-long",
+            )
+            .header("x-operator-id", "incident-commander")
+            .body(Body::from(
+                json!({
+                    "expectedRevision": 2,
+                    "targetRevision": 0,
+                    "changeNote": "Rollback to the built-in safe baseline"
+                })
+                .to_string(),
+            ))
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(rollback.status(), StatusCode::OK);
+    let rolled_back = json_body(rollback).await;
+    assert_eq!(rolled_back["revision"], 3);
+    assert_eq!(rolled_back["rolledBackFromRevision"], 0);
+    let restored_baseline = json_body(
+        send(
+            &app,
+            Request::builder()
+                .uri("/api/content/live")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(restored_baseline["revision"], 3);
+    assert_eq!(restored_baseline["season"]["id"], "FOUNDERS_SEASON");
+    assert_eq!(restored_baseline["featureFlags"]["missionsEnabled"], true);
+
+    let history = json_body(
+        send(
+            &app,
+            Request::builder()
+                .uri("/api/admin/content/revisions?limit=10")
+                .header(
+                    header::AUTHORIZATION,
+                    "Bearer integration-admin-token-32-characters-long",
+                )
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(history["currentRevision"], 3);
+    assert_eq!(
+        history["revisions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|revision| revision["revision"].as_u64().unwrap())
+            .collect::<Vec<_>>(),
+        vec![3, 2, 1, 0]
+    );
+
+    let metrics = to_bytes(
+        send(
+            &app,
+            Request::builder()
+                .uri("/api/metrics")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .into_body(),
+        128 * 1024,
+    )
+    .await
+    .unwrap();
+    let metrics = String::from_utf8(metrics.to_vec()).unwrap();
+    assert!(metrics.contains("mk01_live_content_published_total 2"));
+    assert!(metrics.contains("mk01_live_content_rollbacks_total 1"));
+}

@@ -217,6 +217,12 @@ test('two isolated browser sessions complete a secure game and recover after ref
   await expect(first.locator('.event-log li.active')).toBeVisible();
   await expectNoHorizontalOverflow(first);
 
+  await first.locator('.replay-heading-actions').getByRole('link', { name: '전투 기록' }).click();
+  await expect(first.getByRole('heading', { name: '전투 기록' })).toBeVisible();
+  await expect(first.getByRole('region', { name: '현재 시즌 및 이벤트' })).toBeVisible();
+  await expect(first.getByRole('heading', { name: '창립 함대 시즌' })).toBeVisible();
+  await expectNoHorizontalOverflow(first);
+
   await firstContext.close();
   await secondContext.close();
 });

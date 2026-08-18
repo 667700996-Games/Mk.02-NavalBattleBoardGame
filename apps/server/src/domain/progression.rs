@@ -2,6 +2,8 @@ use chrono::{DateTime, Utc};
 use serde::Serialize;
 use uuid::Uuid;
 
+use crate::domain::LiveContentView;
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PlayerProgression {
@@ -20,6 +22,7 @@ pub struct PlayerProgression {
     pub total_ships_sunk: u32,
     pub achievements: Vec<AchievementProgress>,
     pub missions: Vec<MissionProgress>,
+    pub live_content: LiveContentView,
     pub calculated_at: DateTime<Utc>,
 }
 

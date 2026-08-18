@@ -10,9 +10,9 @@ use uuid::Uuid;
 use crate::{
     domain::{
         AccountSession, ActivePenalty, GameResult, GameRoom, IntegritySignal, IntegritySignalKind,
-        IntegritySignalPage, ModerationAction, ModerationCasePage, NewIntegritySignal,
-        NewModerationAction, NewPlayerReport, PlayerAccount, ReportStatus, RoomSummary,
-        SocialRelationship, UserSession,
+        IntegritySignalPage, LiveContentRevision, ModerationAction, ModerationCasePage,
+        NewIntegritySignal, NewModerationAction, NewPlayerReport, PlayerAccount, ReportStatus,
+        RoomSummary, SocialRelationship, UserSession,
     },
     error::GameError,
 };
@@ -150,6 +150,24 @@ pub trait GameStore: Send + Sync {
         mission_id: &str,
         period_key: &str,
         xp: u32,
+    ) -> Result<bool, GameError>;
+    async fn latest_live_content(&self) -> Result<Option<LiveContentRevision>, GameError>;
+    async fn active_live_content(
+        &self,
+        now: DateTime<Utc>,
+    ) -> Result<Option<LiveContentRevision>, GameError>;
+    async fn live_content_revision(
+        &self,
+        revision: u64,
+    ) -> Result<Option<LiveContentRevision>, GameError>;
+    async fn live_content_history(
+        &self,
+        limit: usize,
+    ) -> Result<Vec<LiveContentRevision>, GameError>;
+    async fn commit_live_content(
+        &self,
+        expected_revision: u64,
+        candidate: &LiveContentRevision,
     ) -> Result<bool, GameError>;
     async fn identity_for_session(&self, session_id: Uuid) -> Result<Option<Uuid>, GameError>;
     async fn set_social_relationship(

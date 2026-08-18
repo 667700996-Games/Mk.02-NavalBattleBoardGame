@@ -1,4 +1,7 @@
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use chrono::Utc;
 use mk01_server::{
@@ -6,8 +9,8 @@ use mk01_server::{
     app::hash_token,
     config::{Settings, StorageMode},
     domain::{
-        ConnectionState, Coordinate, GameRoom, Orientation, PlayerAccount, RoomStatus,
-        RoomVisibility, ShipKind, ShipPlacement, UserSession,
+        ConnectionState, Coordinate, GameRoom, LiveContentRevision, Orientation, PlayerAccount,
+        RoomStatus, RoomVisibility, ShipKind, ShipPlacement, UserSession, baseline_live_content,
     },
     protocol::{HeartbeatResponse, ServerEvent},
     store::{
@@ -362,7 +365,7 @@ async fn postgres_account_export_and_deletion_cover_migrations_and_anonymized_ro
     let verification = PostgresRedisStore::verify_database(&database_url)
         .await
         .unwrap();
-    assert!(verification.migrations_applied >= 12);
+    assert!(verification.migrations_applied >= 13);
     assert!(verification.deletion_tombstones >= 1);
 }
 
@@ -372,9 +375,15 @@ async fn postgres_remains_authoritative_when_the_optional_redis_cache_is_unavail
         eprintln!("skipping distributed integration test without TEST_DATABASE_URL/TEST_REDIS_URL");
         return;
     };
-    let store = PostgresRedisStore::connect(&database_url, "redis://127.0.0.1:1/")
-        .await
-        .expect("an unavailable optional Redis cache must not disable PostgreSQL authority");
+    let started_at = Instant::now();
+    let store = tokio::time::timeout(
+        Duration::from_secs(5),
+        PostgresRedisStore::connect(&database_url, "redis://127.0.0.1:1/"),
+    )
+    .await
+    .expect("an unavailable optional Redis cache must be abandoned within five seconds")
+    .expect("an unavailable optional Redis cache must not disable PostgreSQL authority");
+    assert!(started_at.elapsed() < Duration::from_secs(5));
     let captain = session("CacheFailure");
     store.save_session(&captain).await.unwrap();
     let mut room = GameRoom::new(
@@ -398,6 +407,143 @@ async fn postgres_remains_authoritative_when_the_optional_redis_cache_is_unavail
         authoritative.persistence_revision,
         room.persistence_revision
     );
+
+    let optional_settings = Settings {
+        storage_mode: StorageMode::Postgres,
+        database_url: database_url.clone(),
+        redis_url: "redis://127.0.0.1:1/".to_string(),
+        distributed_coordination_required: false,
+        ..Settings::default()
+    };
+    let optional_state = tokio::time::timeout(
+        Duration::from_secs(6),
+        AppState::new(optional_settings.clone()),
+    )
+    .await
+    .expect("optional Redis startup must be abandoned within six seconds")
+    .expect("optional Redis loss must permit single-instance PostgreSQL operation");
+    optional_state.health_check().await.unwrap();
+
+    let required_result = tokio::time::timeout(
+        Duration::from_secs(6),
+        AppState::new(Settings {
+            distributed_coordination_required: true,
+            ..optional_settings
+        }),
+    )
+    .await
+    .expect("required Redis startup must fail within six seconds");
+    assert!(matches!(
+        required_result,
+        Err(mk01_server::error::GameError::StorageUnavailable)
+    ));
+}
+
+#[tokio::test]
+async fn postgres_live_content_publish_is_atomic_across_instances_and_respects_activation() {
+    let Some((database_url, redis_url)) = integration_urls() else {
+        eprintln!("skipping distributed integration test without TEST_DATABASE_URL/TEST_REDIS_URL");
+        return;
+    };
+    let first = store(&database_url, &redis_url).await;
+    let second = store(&database_url, &redis_url).await;
+    let audit_pool = sqlx::PgPool::connect(&database_url).await.unwrap();
+    sqlx::query("DELETE FROM live_content_revisions")
+        .execute(&audit_pool)
+        .await
+        .unwrap();
+
+    let now = Utc::now();
+    let baseline = baseline_live_content();
+    let first_candidate = LiveContentRevision::from_payload(
+        1,
+        baseline.payload_for_rollback(now, "First concurrent live publish".into()),
+        "liveops-first".into(),
+        now,
+        None,
+    );
+    let second_candidate = LiveContentRevision::from_payload(
+        1,
+        baseline.payload_for_rollback(now, "Second concurrent live publish".into()),
+        "liveops-second".into(),
+        now,
+        None,
+    );
+    let (first_commit, second_commit) = tokio::join!(
+        first.commit_live_content(0, &first_candidate),
+        second.commit_live_content(0, &second_candidate)
+    );
+    assert_ne!(first_commit.unwrap(), second_commit.unwrap());
+    assert_eq!(
+        first.latest_live_content().await.unwrap().unwrap().revision,
+        1
+    );
+
+    let scheduled = LiveContentRevision::from_payload(
+        2,
+        baseline.payload_for_rollback(
+            now + chrono::Duration::hours(1),
+            "Schedule the next live revision".into(),
+        ),
+        "liveops-scheduler".into(),
+        now,
+        None,
+    );
+    assert!(second.commit_live_content(1, &scheduled).await.unwrap());
+    assert_eq!(
+        first
+            .active_live_content(now)
+            .await
+            .unwrap()
+            .unwrap()
+            .revision,
+        1
+    );
+    assert_eq!(
+        first
+            .active_live_content(now + chrono::Duration::hours(2))
+            .await
+            .unwrap()
+            .unwrap()
+            .revision,
+        2
+    );
+    assert_eq!(
+        first
+            .live_content_history(5)
+            .await
+            .unwrap()
+            .iter()
+            .map(|revision| revision.revision)
+            .collect::<Vec<_>>(),
+        vec![2, 1]
+    );
+    let rollback_to_baseline = LiveContentRevision::from_payload(
+        3,
+        baseline.payload_for_rollback(now, "Restore the built-in safe baseline".into()),
+        "liveops-rollback".into(),
+        now,
+        Some(0),
+    );
+    assert!(
+        first
+            .commit_live_content(2, &rollback_to_baseline)
+            .await
+            .unwrap()
+    );
+    assert_eq!(
+        first
+            .live_content_revision(3)
+            .await
+            .unwrap()
+            .unwrap()
+            .rolled_back_from_revision,
+        Some(0)
+    );
+    let verification = PostgresRedisStore::verify_database(&database_url)
+        .await
+        .unwrap();
+    assert_eq!(verification.live_content_revisions, 3);
 }
 
 #[tokio::test]

@@ -8,10 +8,10 @@ use uuid::Uuid;
 use crate::{
     domain::{
         AccountSession, ActivePenalty, ChatMessageType, FinishReason, GameRoom, IntegritySignal,
-        IntegritySignalKind, IntegritySignalPage, ModerationAction, ModerationActionKind,
-        ModerationCase, ModerationCasePage, NewIntegritySignal, NewModerationAction,
-        NewPlayerReport, PlayerAccount, PlayerReport, ReportStatus, RoomStatus, RoomSummary,
-        RoomVisibility, SocialRelationship, UserSession,
+        IntegritySignalKind, IntegritySignalPage, LiveContentRevision, ModerationAction,
+        ModerationActionKind, ModerationCase, ModerationCasePage, NewIntegritySignal,
+        NewModerationAction, NewPlayerReport, PlayerAccount, PlayerReport, ReportStatus,
+        RoomStatus, RoomSummary, RoomVisibility, SocialRelationship, UserSession,
     },
     error::GameError,
 };
@@ -37,6 +37,7 @@ pub struct MemoryStore {
     account_id_by_handle: DashMap<String, Uuid>,
     account_mutations: Mutex<()>,
     mission_rewards: DashMap<(Uuid, String, String), u32>,
+    live_content_revisions: Mutex<Vec<LiveContentRevision>>,
     social_relationships: DashMap<(Uuid, Uuid), SocialRelationship>,
     player_reports: DashMap<Uuid, PlayerReport>,
     moderation_actions: DashMap<Uuid, ModerationAction>,
@@ -484,6 +485,70 @@ impl GameStore for MemoryStore {
                 Ok(true)
             }
         }
+    }
+
+    async fn latest_live_content(&self) -> Result<Option<LiveContentRevision>, GameError> {
+        Ok(self.live_content_revisions.lock().await.last().cloned())
+    }
+
+    async fn active_live_content(
+        &self,
+        now: DateTime<Utc>,
+    ) -> Result<Option<LiveContentRevision>, GameError> {
+        Ok(self
+            .live_content_revisions
+            .lock()
+            .await
+            .iter()
+            .rev()
+            .find(|revision| revision.activate_at <= now)
+            .cloned())
+    }
+
+    async fn live_content_revision(
+        &self,
+        revision: u64,
+    ) -> Result<Option<LiveContentRevision>, GameError> {
+        Ok(self
+            .live_content_revisions
+            .lock()
+            .await
+            .iter()
+            .find(|candidate| candidate.revision == revision)
+            .cloned())
+    }
+
+    async fn live_content_history(
+        &self,
+        limit: usize,
+    ) -> Result<Vec<LiveContentRevision>, GameError> {
+        Ok(self
+            .live_content_revisions
+            .lock()
+            .await
+            .iter()
+            .rev()
+            .take(limit)
+            .cloned()
+            .collect())
+    }
+
+    async fn commit_live_content(
+        &self,
+        expected_revision: u64,
+        candidate: &LiveContentRevision,
+    ) -> Result<bool, GameError> {
+        let mut revisions = self.live_content_revisions.lock().await;
+        let current = revisions.last().map_or(0, |revision| revision.revision);
+        if current != expected_revision
+            || expected_revision
+                .checked_add(1)
+                .is_none_or(|revision| candidate.revision != revision)
+        {
+            return Ok(false);
+        }
+        revisions.push(candidate.clone());
+        Ok(true)
     }
 
     async fn identity_for_session(&self, session_id: Uuid) -> Result<Option<Uuid>, GameError> {
@@ -1193,7 +1258,7 @@ impl GameStore for MemoryStore {
 
 #[cfg(test)]
 mod tests {
-    use crate::domain::ReportCategory;
+    use crate::domain::{ReportCategory, baseline_live_content};
     use chrono::Utc;
 
     use super::*;
@@ -1449,6 +1514,51 @@ mod tests {
         let rewards = store.mission_rewards(account_id).await.unwrap();
         assert_eq!(rewards.len(), 2);
         assert_eq!(rewards.iter().map(|reward| reward.xp).sum::<u32>(), 200);
+    }
+
+    #[tokio::test]
+    async fn live_content_commits_with_cas_and_activates_only_eligible_revisions() {
+        let store = MemoryStore::default();
+        let now = Utc::now();
+        let baseline = baseline_live_content();
+        let scheduled = LiveContentRevision::from_payload(
+            1,
+            baseline.payload_for_rollback(now + Duration::hours(1), "Schedule revision one".into()),
+            "test-operator".into(),
+            now,
+            None,
+        );
+        assert!(store.commit_live_content(0, &scheduled).await.unwrap());
+        assert!(!store.commit_live_content(0, &scheduled).await.unwrap());
+        assert!(store.active_live_content(now).await.unwrap().is_none());
+
+        let immediate = LiveContentRevision::from_payload(
+            2,
+            baseline.payload_for_rollback(now, "Publish immediate revision two".into()),
+            "test-operator".into(),
+            now,
+            None,
+        );
+        assert!(store.commit_live_content(1, &immediate).await.unwrap());
+        assert_eq!(
+            store
+                .active_live_content(now)
+                .await
+                .unwrap()
+                .unwrap()
+                .revision,
+            2
+        );
+        assert_eq!(
+            store
+                .live_content_history(10)
+                .await
+                .unwrap()
+                .iter()
+                .map(|revision| revision.revision)
+                .collect::<Vec<_>>(),
+            vec![2, 1]
+        );
     }
 
     #[tokio::test]

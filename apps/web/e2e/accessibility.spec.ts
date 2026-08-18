@@ -163,6 +163,10 @@ test('complete keyboard flow passes automated WCAG 2.2 AA checks', async ({
   await audit(first, 'result host');
   await audit(second, 'result guest');
 
+  await first.goto('/stats');
+  await expect(first.getByRole('heading', { name: '창립 함대 시즌' })).toBeVisible();
+  await audit(first, 'season and live events');
+
   await firstContext.close();
   await secondContext.close();
 });

@@ -4,10 +4,11 @@ use uuid::Uuid;
 
 use crate::domain::{
     AccountSession, AiDifficulty, AttackRecord, ChatMessage, ChatMessageType, ChatTypingEvent,
-    Coordinate, GameSnapshot, GameStartRecord, GameTimerState, IntegritySignalKind, MatchRules,
-    ModerationAction, ModerationActionKind, PlayerAccount, PlayerReadyRecord, PlayerReportReceipt,
-    ReportCategory, ReportStatus, RoomSummary, RoomVisibility, ShipPlacement, SocialRelationship,
-    SurrenderRecord, TurnExpiredRecord,
+    Coordinate, GameSnapshot, GameStartRecord, GameTimerState, IntegritySignalKind,
+    LiveContentPayload, LiveContentRevision, MatchRules, ModerationAction, ModerationActionKind,
+    PlayerAccount, PlayerReadyRecord, PlayerReportReceipt, ReportCategory, ReportStatus,
+    RoomSummary, RoomVisibility, ShipPlacement, SocialRelationship, SurrenderRecord,
+    TurnExpiredRecord,
 };
 
 #[derive(Debug, Clone, Deserialize)]
@@ -120,6 +121,34 @@ pub struct ModerationActionInput {
 #[serde(rename_all = "camelCase")]
 pub struct ModerationActionResponse {
     pub action: ModerationAction,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PublishLiveContentInput {
+    pub expected_revision: u64,
+    pub payload: LiveContentPayload,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RollbackLiveContentInput {
+    pub expected_revision: u64,
+    pub target_revision: u64,
+    pub change_note: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct LiveContentHistoryQuery {
+    pub limit: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LiveContentHistoryResponse {
+    pub current_revision: u64,
+    pub revisions: Vec<LiveContentRevision>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

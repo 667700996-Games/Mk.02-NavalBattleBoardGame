@@ -117,6 +117,37 @@ export interface MissionProgress {
   claimable: boolean;
 }
 
+export type LiveContentStatus = 'UPCOMING' | 'ACTIVE' | 'ENDED';
+
+export interface LiveSeasonView {
+  id: string;
+  title: string;
+  description: string;
+  startsAt: string;
+  endsAt: string;
+  status: LiveContentStatus;
+}
+
+export interface LiveEventView {
+  id: string;
+  title: string;
+  description: string;
+  startsAt: string;
+  endsAt: string;
+  status: LiveContentStatus;
+}
+
+export interface LiveContentView {
+  revision: number;
+  season: LiveSeasonView;
+  events: LiveEventView[];
+  featureFlags: {
+    missionsEnabled: boolean;
+    eventBannerEnabled: boolean;
+  };
+  serverTime: string;
+}
+
 export interface PlayerProgression {
   accountId: string | null;
   handle: string;
@@ -133,6 +164,7 @@ export interface PlayerProgression {
   totalShipsSunk: number;
   achievements: AchievementProgress[];
   missions: MissionProgress[];
+  liveContent: LiveContentView;
   calculatedAt: string;
 }
 

@@ -532,7 +532,7 @@
     aspect-ratio: 1;
     border: 1px solid rgba(144, 230, 244, 0.72);
     border-radius: 50%;
-    animation: water-ring 1.8s ease-out infinite;
+    animation: water-ring 1.8s ease-out 2 both;
   }
   .hit-marker {
     color: #fff0d8;
@@ -554,7 +554,7 @@
       0 0 8px #fff0c2,
       0 0 16px #ff7b3e,
       0 0 24px rgba(255, 70, 33, 0.75);
-    animation: impact-core 1.7s ease-in-out infinite;
+    animation: impact-core 1.7s ease-in-out 2;
   }
   .hit-marker :global(svg) {
     position: relative;
@@ -587,6 +587,13 @@
     50% {
       transform: scale(1.35);
       opacity: 0.65;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .cell--selected::before,
+    .miss-marker i,
+    .hit-marker i {
+      animation: none;
     }
   }
   @container (max-width:430px) {

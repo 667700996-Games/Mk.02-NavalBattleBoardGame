@@ -8,7 +8,8 @@ bodies, proxy headers, room codes, and Redis messages are untrusted. PostgreSQL 
 source of truth; Redis may distribute events and limits but may not authorize a game mutation.
 
 Protected assets are session and recovery credentials, hidden fleets, match integrity, account
-history, chat and report evidence, service capacity, and operator access. The main boundaries are
+history, progression economy, live-content configuration, chat and report evidence, service
+capacity, and operator access. The main boundaries are
 browser → gateway, gateway → application, application → PostgreSQL/Redis, application instance →
 instance, and deployment automation → production secrets.
 
@@ -22,6 +23,7 @@ instance, and deployment automation → production secrets.
 | Matchmaking | duplicate match, queue flooding, abandoned claim, cross-instance race | durable queue, row locks with `SKIP LOCKED`, atomic pair completion, claim expiry, queue capacity and age metrics, distributed integration tests |
 | Chat | script injection, spam, control characters, impersonation | server message types and allowlists; text validation; bounded history; rate limits; text-only Svelte rendering; server-only system identity |
 | Replay | premature fleet disclosure, ID leakage, incompatible interpretation | participant authorization; FINISHED-only disclosure; protocol/ruleset versions; no session IDs; deterministic timeline tests |
+| Live content | stolen operator token, reward inflation, stale concurrent publish, unsafe schedule, audit deletion | managed admin secret and explicit operator ID; server-side allowlist/range/time validation; PostgreSQL advisory-lock CAS; append-only revisions; dry run and explicit CLI confirmation; immutable rollback revision; API and cross-instance tests |
 | Dependencies and build | vulnerable or malicious package/action, secret commit, license breach, unsafe image/IaC | locked Rust/npm graphs; Dependency Review; cargo-deny/RustSec; CodeQL for Rust, JS/TS, and Actions; Trivy vulnerability/secret/license/misconfiguration scan; Dependabot |
 | Deployment and secrets | development defaults in production, plaintext committed secret, insecure origin/cookie, partial rollout | production fail-closed validation; explicit PostgreSQL/Redis secret injection or mounted `_FILE`; HTTPS/Secure/coordination requirements; immutable-artifact and canary runbook |
 | Operations | direct database mutation, leaked logs, backup exposure, destructive recovery | structured safe client errors; no credential logging; least-privilege operator roles; encrypted backup and isolated restore drill; audited runbook actions |
@@ -37,4 +39,3 @@ Review this model before adding a new client event, account credential, matchmak
 moderation/admin action, datastore, analytics identifier, payment/economy feature, third-party SDK,
 or protocol-breaking release. Every review records the owner, date, changed data flow, abuse cases,
 tests, monitoring, and accepted residual risks.
-

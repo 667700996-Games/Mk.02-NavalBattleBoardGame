@@ -30,6 +30,7 @@ use tower_http::{
 use uuid::Uuid;
 
 const DISTRIBUTED_EVENT_CHANNEL: &str = "mk01:server-events:v1";
+const DISTRIBUTED_EVENT_CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
 const ROOM_AUTHORITY_LEASE_DURATION: Duration = Duration::from_secs(5);
 const DISTRIBUTED_RATE_LIMIT_SCRIPT: &str = r#"
 local current = redis.call('INCR', KEYS[1])
@@ -48,11 +49,12 @@ use crate::{
     domain::{
         AccountSession, AchievementProgress, ActivePenalty, AiDifficulty, AttackOutcome,
         ChatMessage, ChatTypingEvent, Coordinate, FinishReason, GameRoom, GameTimerState,
-        IntegritySignalKind, IntegritySignalPage, MissionCadence, MissionProgress,
-        ModerationAction, ModerationActionKind, ModerationCasePage, NewIntegritySignal,
-        NewModerationAction, NewPlayerReport, Orientation, PlayerAccount, PlayerKind,
-        PlayerProgression, PlayerReportReceipt, ReportCategory, ReportStatus, RoomVisibility,
-        ShipKind, ShipPlacement, SocialRelationship, UserSession,
+        IntegritySignalKind, IntegritySignalPage, LiveContentPayload, LiveContentRevision,
+        LiveContentValidation, LiveContentView, MissionCadence, MissionProgress, ModerationAction,
+        ModerationActionKind, ModerationCasePage, NewIntegritySignal, NewModerationAction,
+        NewPlayerReport, Orientation, PlayerAccount, PlayerKind, PlayerProgression,
+        PlayerReportReceipt, ReportCategory, ReportStatus, RoomVisibility, ShipKind, ShipPlacement,
+        SocialRelationship, UserSession, baseline_live_content,
     },
     error::GameError,
     protocol::{
@@ -111,6 +113,8 @@ pub struct ServerMetrics {
     pub integrity_automation: AtomicU64,
     pub integrity_collusion: AtomicU64,
     pub integrity_stalling: AtomicU64,
+    pub live_content_published: AtomicU64,
+    pub live_content_rollbacks: AtomicU64,
     http_responses_by_class: [AtomicU64; 5],
     command_latency: [[SloDistribution; 2]; CommandTransport::COUNT],
     matchmaking_latency: SloDistribution,
@@ -203,6 +207,8 @@ impl Default for ServerMetrics {
             integrity_automation: AtomicU64::new(0),
             integrity_collusion: AtomicU64::new(0),
             integrity_stalling: AtomicU64::new(0),
+            live_content_published: AtomicU64::new(0),
+            live_content_rollbacks: AtomicU64::new(0),
             http_responses_by_class: std::array::from_fn(|_| AtomicU64::new(0)),
             command_latency: std::array::from_fn(|_| {
                 std::array::from_fn(|_| SloDistribution::default())
@@ -425,6 +431,16 @@ impl ServerMetrics {
                 "mk01_integrity_stalling_total",
                 "Repeated authoritative turn timeouts detected.",
                 &self.integrity_stalling,
+            ),
+            counter(
+                "mk01_live_content_published_total",
+                "Validated live-content revisions published by operators.",
+                &self.live_content_published,
+            ),
+            counter(
+                "mk01_live_content_rollbacks_total",
+                "Live-content rollback revisions published by operators.",
+                &self.live_content_rollbacks,
             ),
             counter(
                 "mk01_websocket_disconnects_total",
@@ -1316,7 +1332,15 @@ impl AppState {
             Some(account_id) => self.store.mission_rewards(account_id).await?,
             None => Vec::new(),
         };
-        Ok(build_progression(session, &history, &rewards, Utc::now()))
+        let now = Utc::now();
+        let live_content = self.active_live_content(now).await?;
+        Ok(build_progression(
+            session,
+            &history,
+            &rewards,
+            &live_content,
+            now,
+        ))
     }
 
     pub async fn claim_mission_reward(
@@ -1328,7 +1352,8 @@ impl AppState {
         let history = self.store.history_for_session(session.id).await?;
         let rewards = self.store.mission_rewards(account_id).await?;
         let now = Utc::now();
-        let progression = build_progression(session, &history, &rewards, now);
+        let live_content = self.active_live_content(now).await?;
+        let progression = build_progression(session, &history, &rewards, &live_content, now);
         let mission = progression
             .missions
             .iter()
@@ -1342,7 +1367,156 @@ impl AppState {
             .claim_mission_reward(account_id, mission.id, &period_key, mission.reward_xp)
             .await?;
         let rewards = self.store.mission_rewards(account_id).await?;
-        Ok(build_progression(session, &history, &rewards, now))
+        Ok(build_progression(
+            session,
+            &history,
+            &rewards,
+            &live_content,
+            now,
+        ))
+    }
+
+    async fn active_live_content(
+        &self,
+        now: chrono::DateTime<Utc>,
+    ) -> Result<LiveContentRevision, GameError> {
+        Ok(self
+            .store
+            .active_live_content(now)
+            .await?
+            .unwrap_or_else(baseline_live_content))
+    }
+
+    pub async fn live_content_view(&self) -> Result<LiveContentView, GameError> {
+        let now = Utc::now();
+        Ok(LiveContentView::from_revision(
+            &self.active_live_content(now).await?,
+            now,
+        ))
+    }
+
+    async fn live_content_candidate(
+        &self,
+        expected_revision: u64,
+        payload: LiveContentPayload,
+        operator_id: String,
+        rolled_back_from_revision: Option<u64>,
+        now: chrono::DateTime<Utc>,
+    ) -> Result<LiveContentRevision, GameError> {
+        let latest = self
+            .store
+            .latest_live_content()
+            .await?
+            .unwrap_or_else(baseline_live_content);
+        if latest.revision != expected_revision {
+            return Err(GameError::LiveContentRevisionConflict);
+        }
+        let revision = expected_revision
+            .checked_add(1)
+            .ok_or(GameError::InvalidRequest)?;
+        Ok(LiveContentRevision::from_payload(
+            revision,
+            payload,
+            operator_id,
+            now,
+            rolled_back_from_revision,
+        ))
+    }
+
+    pub async fn validate_live_content(
+        &self,
+        expected_revision: u64,
+        payload: LiveContentPayload,
+        operator_id: String,
+    ) -> Result<LiveContentValidation, GameError> {
+        let now = Utc::now();
+        Ok(self
+            .live_content_candidate(expected_revision, payload, operator_id, None, now)
+            .await?
+            .validate(now))
+    }
+
+    pub async fn publish_live_content(
+        &self,
+        expected_revision: u64,
+        payload: LiveContentPayload,
+        operator_id: String,
+    ) -> Result<LiveContentRevision, GameError> {
+        let now = Utc::now();
+        let candidate = self
+            .live_content_candidate(expected_revision, payload, operator_id, None, now)
+            .await?;
+        if !candidate.validate(now).valid {
+            return Err(GameError::InvalidRequest);
+        }
+        if !self
+            .store
+            .commit_live_content(expected_revision, &candidate)
+            .await?
+        {
+            return Err(GameError::LiveContentRevisionConflict);
+        }
+        self.metrics
+            .live_content_published
+            .fetch_add(1, Ordering::Relaxed);
+        Ok(candidate)
+    }
+
+    pub async fn rollback_live_content(
+        &self,
+        expected_revision: u64,
+        target_revision: u64,
+        change_note: String,
+        operator_id: String,
+    ) -> Result<LiveContentRevision, GameError> {
+        if target_revision >= expected_revision {
+            return Err(GameError::InvalidRequest);
+        }
+        let target = if target_revision == 0 {
+            baseline_live_content()
+        } else {
+            self.store
+                .live_content_revision(target_revision)
+                .await?
+                .ok_or(GameError::LiveContentRevisionNotFound)?
+        };
+        let now = Utc::now();
+        let payload = target.payload_for_rollback(now, change_note);
+        let candidate = self
+            .live_content_candidate(
+                expected_revision,
+                payload,
+                operator_id,
+                Some(target_revision),
+                now,
+            )
+            .await?;
+        if !candidate.validate(now).valid {
+            return Err(GameError::InvalidRequest);
+        }
+        if !self
+            .store
+            .commit_live_content(expected_revision, &candidate)
+            .await?
+        {
+            return Err(GameError::LiveContentRevisionConflict);
+        }
+        self.metrics
+            .live_content_rollbacks
+            .fetch_add(1, Ordering::Relaxed);
+        Ok(candidate)
+    }
+
+    pub async fn live_content_history(
+        &self,
+        limit: usize,
+    ) -> Result<(u64, Vec<LiveContentRevision>), GameError> {
+        let mut revisions = self.store.live_content_history(limit).await?;
+        let current_revision = revisions.first().map_or(0, |revision| revision.revision);
+        if revisions.len() < limit {
+            revisions.push(baseline_live_content());
+        }
+        Ok((current_revision, revisions))
     }
 
     pub async fn social_relationships(
@@ -2741,6 +2915,7 @@ fn build_progression(
     session: &UserSession,
     history: &[GameHistoryItem],
     rewards: &[MissionReward],
+    live_content: &LiveContentRevision,
     now: chrono::DateTime<Utc>,
 ) -> PlayerProgression {
     let mut wins = 0_u32;
@@ -2829,9 +3004,10 @@ fn build_progression(
                    target: u32,
                    reward_xp: u32| {
         let period_key = mission_period_key(cadence, now);
-        let claimed = rewards
+        let claimed_reward = rewards
             .iter()
-            .any(|reward| reward.mission_id == id && reward.period_key == period_key);
+            .find(|reward| reward.mission_id == id && reward.period_key == period_key);
+        let claimed = claimed_reward.is_some();
         MissionProgress {
             id,
             cadence,
@@ -2839,7 +3015,7 @@ fn build_progression(
             description,
             progress,
             target,
-            reward_xp,
+            reward_xp: claimed_reward.map_or(reward_xp, |reward| reward.xp),
             completed: progress >= target,
             claimed,
             claimable: session.account_id.is_some() && progress >= target && !claimed,
@@ -2901,35 +3077,42 @@ fn build_progression(
                 games_played >= 25,
             ),
         ],
-        missions: vec![
-            mission(
-                "DAILY_DEPLOYMENT",
-                MissionCadence::Daily,
-                "오늘의 출항",
-                "오늘 교전 1회를 완료하십시오.",
-                daily_games,
-                1,
-                100,
-            ),
-            mission(
-                "DAILY_ACCURACY",
-                MissionCadence::Daily,
-                "정밀 포격",
-                "오늘 적 함선 칸 10개를 명중시키십시오.",
-                daily_hits,
-                10,
-                150,
-            ),
-            mission(
-                "WEEKLY_SUPREMACY",
-                MissionCadence::Weekly,
-                "주간 제해권",
-                "이번 주 교전 3회에서 승리하십시오.",
-                weekly_wins,
-                3,
-                400,
-            ),
-        ],
+        missions: live_content
+            .feature_flags
+            .missions_enabled
+            .then(|| {
+                vec![
+                    mission(
+                        "DAILY_DEPLOYMENT",
+                        MissionCadence::Daily,
+                        "오늘의 출항",
+                        "오늘 교전 1회를 완료하십시오.",
+                        daily_games,
+                        1,
+                        live_content.tuning.daily_deployment_reward_xp,
+                    ),
+                    mission(
+                        "DAILY_ACCURACY",
+                        MissionCadence::Daily,
+                        "정밀 포격",
+                        "오늘 적 함선 칸 10개를 명중시키십시오.",
+                        daily_hits,
+                        10,
+                        live_content.tuning.daily_accuracy_reward_xp,
+                    ),
+                    mission(
+                        "WEEKLY_SUPREMACY",
+                        MissionCadence::Weekly,
+                        "주간 제해권",
+                        "이번 주 교전 3회에서 승리하십시오.",
+                        weekly_wins,
+                        3,
+                        live_content.tuning.weekly_supremacy_reward_xp,
+                    ),
+                ]
+            })
+            .unwrap_or_default(),
+        live_content: LiveContentView::from_revision(live_content, now),
         calculated_at: now,
     }
 }
@@ -3023,22 +3206,38 @@ async fn connect_distributed_events(
     if settings.storage_mode == StorageMode::Memory {
         return Ok((None, None));
     }
-    let connection = async {
+    let connection = tokio::time::timeout(DISTRIBUTED_EVENT_CONNECT_TIMEOUT, async {
         let client = redis::Client::open(settings.redis_url.as_str())?;
         let publisher = ConnectionManager::new(client.clone()).await?;
         let mut subscriber = client.get_async_pubsub().await?;
         subscriber.subscribe(DISTRIBUTED_EVENT_CHANNEL).await?;
         Ok::<_, redis::RedisError>((publisher, client, subscriber))
-    }
+    })
     .await;
     match connection {
-        Ok((publisher, client, subscriber)) => Ok((Some(publisher), Some((client, subscriber)))),
-        Err(error) if settings.distributed_coordination_required => {
+        Ok(Ok((publisher, client, subscriber))) => {
+            Ok((Some(publisher), Some((client, subscriber))))
+        }
+        Ok(Err(error)) if settings.distributed_coordination_required => {
             tracing::error!(%error, "required distributed event coordination unavailable");
             Err(GameError::StorageUnavailable)
         }
-        Err(error) => {
+        Ok(Err(error)) => {
             tracing::warn!(%error, "distributed event coordination disabled; running single-instance only");
+            Ok((None, None))
+        }
+        Err(_) if settings.distributed_coordination_required => {
+            tracing::error!(
+                timeout_ms = DISTRIBUTED_EVENT_CONNECT_TIMEOUT.as_millis(),
+                "required distributed event coordination timed out"
+            );
+            Err(GameError::StorageUnavailable)
+        }
+        Err(_) => {
+            tracing::warn!(
+                timeout_ms = DISTRIBUTED_EVENT_CONNECT_TIMEOUT.as_millis(),
+                "distributed event coordination timed out; running single-instance only"
+            );
             Ok((None, None))
         }
     }
@@ -3531,8 +3730,9 @@ mod tests {
                 win_type: WinType::NormalVictory,
             },
         }];
-        let first = build_progression(&commander, &history, &[], now);
-        let repeated = build_progression(&commander, &history, &[], now);
+        let live_content = baseline_live_content();
+        let first = build_progression(&commander, &history, &[], &live_content, now);
+        let repeated = build_progression(&commander, &history, &[], &live_content, now);
         assert_eq!(first.total_xp, 311);
         assert_eq!(first.total_xp, repeated.total_xp);
         assert_eq!(first.games_played, 1);

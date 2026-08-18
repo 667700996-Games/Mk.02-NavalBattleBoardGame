@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{collections::HashSet, time::Duration};
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -9,10 +9,10 @@ use uuid::Uuid;
 use crate::{
     domain::{
         AccountSession, ActivePenalty, ChatMessageType, GameRoom, IntegritySignal,
-        IntegritySignalKind, IntegritySignalPage, ModerationAction, ModerationActionKind,
-        ModerationCase, ModerationCasePage, NewIntegritySignal, NewModerationAction,
-        NewPlayerReport, PlayerAccount, PlayerReport, ReportCategory, ReportStatus, RoomStatus,
-        RoomSummary, SocialRelationship, UserSession,
+        IntegritySignalKind, IntegritySignalPage, LiveContentRevision, ModerationAction,
+        ModerationActionKind, ModerationCase, ModerationCasePage, NewIntegritySignal,
+        NewModerationAction, NewPlayerReport, PlayerAccount, PlayerReport, ReportCategory,
+        ReportStatus, RoomStatus, RoomSummary, SocialRelationship, UserSession,
     },
     error::GameError,
 };
@@ -24,6 +24,15 @@ use super::{
 };
 
 const DELETION_RESURRECTION_COUNT_QUERY: &str = "SELECT (SELECT count(*) FROM player_accounts account JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=account.id) + (SELECT count(*) FROM user_sessions session JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=session.account_id) + (SELECT count(*) FROM progression_reward_ledger reward JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=reward.account_id) + (SELECT count(*) FROM game_result_participants participant JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=participant.account_id) + (SELECT count(*) FROM game_results result JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=ANY(result.participant_account_ids)) + (SELECT count(*) FROM player_relationships relationship JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=relationship.actor_identity_id OR tombstone.account_id=relationship.target_identity_id) + (SELECT count(*) FROM player_reports report JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=report.reporter_identity_id OR tombstone.account_id=report.target_identity_id) + (SELECT count(*) FROM integrity_signals signal JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=signal.subject_identity_id)";
+const LIVE_CONTENT_ADVISORY_LOCK: i64 = 7_190_120_260;
+const REDIS_INITIAL_CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
+
+fn decode_live_content(value: serde_json::Value) -> Result<LiveContentRevision, GameError> {
+    serde_json::from_value(value).map_err(|error| {
+        tracing::error!(%error, "stored live-content revision is invalid");
+        GameError::Internal
+    })
+}
 
 #[derive(Clone)]
 pub struct PostgresRedisStore {
@@ -40,6 +49,7 @@ pub struct DatabaseVerification {
     pub results: i64,
     pub privacy_requests: i64,
     pub deletion_tombstones: i64,
+    pub live_content_revisions: i64,
     pub checked_at: DateTime<Utc>,
 }
 
@@ -67,6 +77,18 @@ pub struct DeletionLedgerApplyReport {
     pub already_absent: u64,
     pub remaining_personal_records: i64,
     pub checked_at: DateTime<Utc>,
+}
+
+#[derive(sqlx::FromRow)]
+struct LiveContentAuditRow {
+    payload: serde_json::Value,
+    revision: i64,
+    schema_version: i32,
+    activate_at: DateTime<Utc>,
+    operator_id: String,
+    change_note: String,
+    rolled_back_from_revision: Option<i64>,
+    created_at: DateTime<Utc>,
 }
 
 impl std::fmt::Debug for PostgresRedisStore {
@@ -117,6 +139,34 @@ impl PostgresRedisStore {
                 return Err(GameError::Internal);
             }
         }
+        let live_content_rows: Vec<LiveContentAuditRow> = sqlx::query_as(
+            "SELECT payload,revision,schema_version,activate_at,operator_id,change_note,rolled_back_from_revision,created_at FROM live_content_revisions ORDER BY revision",
+        )
+        .fetch_all(&pool)
+        .await?;
+        let live_content_revision_ids: HashSet<i64> =
+            live_content_rows.iter().map(|row| row.revision).collect();
+        for row in &live_content_rows {
+            let decoded = decode_live_content(row.payload.clone())?;
+            if decoded.revision != u64::try_from(row.revision).map_err(|_| GameError::Internal)?
+                || i32::from(decoded.schema_version) != row.schema_version
+                || decoded.activate_at != row.activate_at
+                || decoded.operator_id != row.operator_id
+                || decoded.change_note != row.change_note
+                || decoded
+                    .rolled_back_from_revision
+                    .map(i64::try_from)
+                    .transpose()
+                    .map_err(|_| GameError::Internal)?
+                    != row.rolled_back_from_revision
+                || row.rolled_back_from_revision.is_some_and(|revision| {
+                    revision != 0 && !live_content_revision_ids.contains(&revision)
+                })
+                || decoded.created_at != row.created_at
+            {
+                return Err(GameError::Internal);
+            }
+        }
         let broken_references: i64 = sqlx::query_scalar(
             "SELECT (SELECT count(*) FROM user_sessions session WHERE session.current_room_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM game_rooms room WHERE room.id=session.current_room_id)) + (SELECT count(*) FROM matchmaking_queue queue WHERE NOT EXISTS (SELECT 1 FROM user_sessions session WHERE session.id=queue.session_id)) + (SELECT count(*) FROM game_result_participants participant WHERE NOT EXISTS (SELECT 1 FROM game_results result WHERE result.room_id=participant.room_id))",
         )
@@ -138,6 +188,8 @@ impl PostgresRedisStore {
             sqlx::query_scalar("SELECT count(*) FROM privacy_deletion_tombstones")
                 .fetch_one(&pool)
                 .await?;
+        let live_content_revisions =
+            i64::try_from(live_content_rows.len()).map_err(|_| GameError::Internal)?;
         let resurrected_deletions: i64 = sqlx::query_scalar(DELETION_RESURRECTION_COUNT_QUERY)
             .fetch_one(&pool)
             .await?;
@@ -152,6 +204,7 @@ impl PostgresRedisStore {
             results,
             privacy_requests,
             deletion_tombstones,
+            live_content_revisions,
             checked_at: Utc::now(),
         })
     }
@@ -292,10 +345,22 @@ impl PostgresRedisStore {
                 GameError::StorageUnavailable
             })?;
         let cache = match redis::Client::open(redis_url) {
-            Ok(client) => match ConnectionManager::new(client).await {
-                Ok(cache) => Some(cache),
-                Err(error) => {
+            Ok(client) => match tokio::time::timeout(
+                REDIS_INITIAL_CONNECT_TIMEOUT,
+                ConnectionManager::new(client),
+            )
+            .await
+            {
+                Ok(Ok(cache)) => Some(cache),
+                Ok(Err(error)) => {
                     tracing::warn!(%error, "redis unavailable; continuing with postgres only");
+                    None
+                }
+                Err(_) => {
+                    tracing::warn!(
+                        timeout_ms = REDIS_INITIAL_CONNECT_TIMEOUT.as_millis(),
+                        "redis connection timed out; continuing with postgres only"
+                    );
                     None
                 }
             },
@@ -1308,6 +1373,114 @@ impl GameStore for PostgresRedisStore {
         .execute(&self.pool)
         .await?;
         Ok(result.rows_affected() == 1)
+    }
+
+    async fn latest_live_content(&self) -> Result<Option<LiveContentRevision>, GameError> {
+        sqlx::query_scalar::<_, serde_json::Value>(
+            "SELECT payload FROM live_content_revisions ORDER BY revision DESC LIMIT 1",
+        )
+        .fetch_optional(&self.pool)
+        .await?
+        .map(decode_live_content)
+        .transpose()
+    }
+
+    async fn active_live_content(
+        &self,
+        now: DateTime<Utc>,
+    ) -> Result<Option<LiveContentRevision>, GameError> {
+        sqlx::query_scalar::<_, serde_json::Value>(
+            "SELECT payload FROM live_content_revisions WHERE activate_at <= $1 ORDER BY revision DESC LIMIT 1",
+        )
+        .bind(now)
+        .fetch_optional(&self.pool)
+        .await?
+        .map(decode_live_content)
+        .transpose()
+    }
+
+    async fn live_content_revision(
+        &self,
+        revision: u64,
+    ) -> Result<Option<LiveContentRevision>, GameError> {
+        let revision = i64::try_from(revision).map_err(|_| GameError::InvalidRequest)?;
+        sqlx::query_scalar::<_, serde_json::Value>(
+            "SELECT payload FROM live_content_revisions WHERE revision=$1",
+        )
+        .bind(revision)
+        .fetch_optional(&self.pool)
+        .await?
+        .map(decode_live_content)
+        .transpose()
+    }
+
+    async fn live_content_history(
+        &self,
+        limit: usize,
+    ) -> Result<Vec<LiveContentRevision>, GameError> {
+        let limit = i64::try_from(limit).map_err(|_| GameError::InvalidRequest)?;
+        sqlx::query_scalar::<_, serde_json::Value>(
+            "SELECT payload FROM live_content_revisions ORDER BY revision DESC LIMIT $1",
+        )
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await?
+        .into_iter()
+        .map(decode_live_content)
+        .collect()
+    }
+
+    async fn commit_live_content(
+        &self,
+        expected_revision: u64,
+        candidate: &LiveContentRevision,
+    ) -> Result<bool, GameError> {
+        let next_revision = expected_revision
+            .checked_add(1)
+            .ok_or(GameError::InvalidRequest)?;
+        if candidate.revision != next_revision {
+            return Err(GameError::InvalidRequest);
+        }
+        let expected_revision =
+            i64::try_from(expected_revision).map_err(|_| GameError::InvalidRequest)?;
+        let next_revision = i64::try_from(next_revision).map_err(|_| GameError::InvalidRequest)?;
+        let payload = serde_json::to_value(candidate).map_err(|error| {
+            tracing::error!(%error, "live-content revision serialization failed");
+            GameError::Internal
+        })?;
+        let mut transaction = self.pool.begin().await?;
+        sqlx::query("SELECT pg_advisory_xact_lock($1)")
+            .bind(LIVE_CONTENT_ADVISORY_LOCK)
+            .execute(&mut *transaction)
+            .await?;
+        let current: i64 =
+            sqlx::query_scalar("SELECT COALESCE(MAX(revision),0) FROM live_content_revisions")
+                .fetch_one(&mut *transaction)
+                .await?;
+        if current != expected_revision {
+            return Ok(false);
+        }
+        sqlx::query(
+            "INSERT INTO live_content_revisions (revision,schema_version,activate_at,payload,operator_id,change_note,rolled_back_from_revision,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",
+        )
+        .bind(next_revision)
+        .bind(i32::from(candidate.schema_version))
+        .bind(candidate.activate_at)
+        .bind(payload)
+        .bind(&candidate.operator_id)
+        .bind(&candidate.change_note)
+        .bind(
+            candidate
+                .rolled_back_from_revision
+                .map(i64::try_from)
+                .transpose()
+                .map_err(|_| GameError::InvalidRequest)?,
+        )
+        .bind(candidate.created_at)
+        .execute(&mut *transaction)
+        .await?;
+        transaction.commit().await?;
+        Ok(true)
     }
 
     async fn identity_for_session(&self, session_id: Uuid) -> Result<Option<Uuid>, GameError> {

@@ -6,7 +6,9 @@
     Activity,
     Award,
     CalendarCheck,
+    CalendarRange,
     Crosshair,
+    Flag,
     History,
     Medal,
     Play,
@@ -40,6 +42,10 @@
   const won = (game: HistoryItem) => game.result.winnerId === game.selfPlayerId;
   const duration = (seconds: number) =>
     `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+  const contentDate = (value: string) =>
+    new Intl.DateTimeFormat('ko-KR', { month: 'short', day: 'numeric' }).format(new Date(value));
+  const contentStatus = (value: 'UPCOMING' | 'ACTIVE' | 'ENDED') =>
+    value === 'ACTIVE' ? '진행 중' : value === 'UPCOMING' ? '예정' : '종료';
   const winTypeLabel = (game: HistoryItem) => {
     if (game.result.winType === 'SURRENDER') return 'SURRENDER';
     if (game.result.winType === 'DISCONNECT') return 'DISCONNECT';
@@ -96,6 +102,32 @@
     <span><Activity size={14} /> ARCHIVE SYNCHRONIZED</span>
   </header>
   {#if progression}
+    <section class="season-brief panel" aria-label="현재 시즌 및 이벤트">
+      <div class="season-emblem"><Flag size={24} /></div>
+      <div class="season-copy">
+        <small>LIVE CONTENT · REVISION {progression.liveContent.revision}</small>
+        <h2>{progression.liveContent.season.title}</h2>
+        <p>{progression.liveContent.season.description}</p>
+        <span
+          ><CalendarRange size={13} />
+          {contentDate(progression.liveContent.season.startsAt)} –
+          {contentDate(progression.liveContent.season.endsAt)} · {contentStatus(
+            progression.liveContent.season.status
+          )}</span
+        >
+      </div>
+      {#if progression.liveContent.events.length}
+        <ul class="event-list" aria-label="진행 및 예정 이벤트">
+          {#each progression.liveContent.events as event (event.id)}
+            <li>
+              <span>{contentStatus(event.status)}</span>
+              <div><strong>{event.title}</strong><small>{event.description}</small></div>
+              <time datetime={event.endsAt}>{contentDate(event.endsAt)}까지</time>
+            </li>
+          {/each}
+        </ul>
+      {/if}
+    </section>
     <section class="progression panel" aria-label="지휘관 진행도">
       <div class="rank-seal"><Star size={26} /><strong>{progression.level}</strong></div>
       <div class="rank-copy">
@@ -130,32 +162,38 @@
         ><span>현재 임무</span>
       </div>
     </section>
-    <section class="mission-grid" aria-label="현재 임무">
-      {#each progression.missions as mission (mission.id)}
-        <article class:complete={mission.completed} class="panel mission-card">
-          <div><small>{mission.cadence}</small><strong>{mission.title}</strong></div>
-          <span>{Math.min(mission.progress, mission.target)} / {mission.target}</span>
-          <p>{mission.description}</p>
-          <div class="mission-track">
-            <i style={`width: ${Math.min(100, (mission.progress / mission.target) * 100)}%`}></i>
-          </div>
-          {#if mission.claimed}
-            <em class="reward-claimed">지급 완료 · +{mission.rewardXp} XP</em>
-          {:else if mission.claimable}
-            <button
-              class="claim-button"
-              disabled={claimingMission === mission.id}
-              onclick={() => claimMission(mission.id)}
-              >{claimingMission === mission.id
-                ? '지급 중…'
-                : `+${mission.rewardXp} XP 받기`}</button
-            >
-          {:else}
-            <em>완료 보상 · +{mission.rewardXp} XP</em>
-          {/if}
-        </article>
-      {/each}
-    </section>
+    {#if progression.missions.length}
+      <section class="mission-grid" aria-label="현재 임무">
+        {#each progression.missions as mission (mission.id)}
+          <article class:complete={mission.completed} class="panel mission-card">
+            <div><small>{mission.cadence}</small><strong>{mission.title}</strong></div>
+            <span>{Math.min(mission.progress, mission.target)} / {mission.target}</span>
+            <p>{mission.description}</p>
+            <div class="mission-track">
+              <i style={`width: ${Math.min(100, (mission.progress / mission.target) * 100)}%`}></i>
+            </div>
+            {#if mission.claimed}
+              <em class="reward-claimed">지급 완료 · +{mission.rewardXp} XP</em>
+            {:else if mission.claimable}
+              <button
+                class="claim-button"
+                disabled={claimingMission === mission.id}
+                onclick={() => claimMission(mission.id)}
+                >{claimingMission === mission.id
+                  ? '지급 중…'
+                  : `+${mission.rewardXp} XP 받기`}</button
+              >
+            {:else}
+              <em>완료 보상 · +{mission.rewardXp} XP</em>
+            {/if}
+          </article>
+        {/each}
+      </section>
+    {:else}
+      <p class="content-paused panel" role="status">
+        현재 임무 운영이 일시 중지되었습니다. 완료 기록과 지급된 보상은 그대로 보존됩니다.
+      </p>
+    {/if}
     {#if progressionError}<p class="progression-error" role="alert">{progressionError}</p>{/if}
   {/if}
   {#if !loading && games.length > 0}
@@ -251,6 +289,93 @@
     grid-template-columns: repeat(4, 1fr);
     gap: 10px;
     margin-bottom: 24px;
+  }
+  .season-brief {
+    display: grid;
+    grid-template-columns: auto minmax(260px, 1fr) minmax(280px, 0.8fr);
+    align-items: center;
+    gap: 20px;
+    margin-bottom: 12px;
+    padding: 20px;
+    border-color: rgba(255, 180, 60, 0.26);
+    background:
+      linear-gradient(110deg, rgba(45, 34, 21, 0.86), rgba(7, 24, 34, 0.96)), var(--surface-raised);
+  }
+  .season-emblem {
+    display: grid;
+    width: 54px;
+    height: 54px;
+    place-items: center;
+    border: 1px solid rgba(255, 180, 60, 0.45);
+    border-radius: 50%;
+    color: var(--amber-400);
+    background: rgba(255, 180, 60, 0.07);
+  }
+  .season-copy small {
+    color: var(--amber-400);
+    font-family: var(--font-display);
+    font-size: 8px;
+    letter-spacing: 0.14em;
+  }
+  .season-copy h2 {
+    margin: 4px 0;
+    font-family: var(--font-display);
+    font-size: 16px;
+  }
+  .season-copy p {
+    margin: 0;
+    color: var(--ink-300);
+    font-size: 10px;
+  }
+  .season-copy > span {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    margin-top: 8px;
+    color: var(--ink-500);
+    font-size: 8px;
+  }
+  .event-list {
+    display: grid;
+    gap: 7px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .event-list li {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
+    gap: 9px;
+    padding: 9px;
+    border: 1px solid rgba(255, 180, 60, 0.14);
+    border-radius: 7px;
+    background: rgba(0, 0, 0, 0.14);
+  }
+  .event-list li > span {
+    padding: 3px 5px;
+    border-radius: 999px;
+    color: var(--amber-300);
+    background: rgba(255, 180, 60, 0.09);
+    font-size: 7px;
+  }
+  .event-list div {
+    display: grid;
+    gap: 2px;
+  }
+  .event-list strong {
+    font-size: 10px;
+  }
+  .event-list small,
+  .event-list time {
+    color: var(--ink-500);
+    font-size: 7px;
+  }
+  .content-paused {
+    margin: 0 0 24px;
+    padding: 14px;
+    color: var(--amber-300);
+    font-size: 9px;
   }
   .progression {
     display: grid;
@@ -533,6 +658,12 @@
     .progression {
       grid-template-columns: auto 1fr;
       gap: 14px;
+    }
+    .season-brief {
+      grid-template-columns: auto 1fr;
+    }
+    .event-list {
+      grid-column: 1 / -1;
     }
     .progression-metric {
       min-width: 0;

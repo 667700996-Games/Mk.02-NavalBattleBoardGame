@@ -84,6 +84,12 @@ pub enum GameError {
     PlayerBlocked,
     #[error("신고 사건을 찾을 수 없습니다.")]
     ReportNotFound,
+    #[error("라이브 콘텐츠 리비전을 찾을 수 없습니다.")]
+    LiveContentRevisionNotFound,
+    #[error(
+        "라이브 콘텐츠가 다른 운영자에 의해 갱신되었습니다. 최신 리비전으로 다시 검증해 주세요."
+    )]
+    LiveContentRevisionConflict,
     #[error("계정 이용이 일시 정지되었습니다.")]
     AccountSuspended,
     #[error("계정 이용이 영구 제한되었습니다.")]
@@ -140,6 +146,8 @@ impl GameError {
             Self::CapacityReached => "CAPACITY_REACHED",
             Self::PlayerBlocked => "PLAYER_BLOCKED",
             Self::ReportNotFound => "REPORT_NOT_FOUND",
+            Self::LiveContentRevisionNotFound => "LIVE_CONTENT_REVISION_NOT_FOUND",
+            Self::LiveContentRevisionConflict => "LIVE_CONTENT_REVISION_CONFLICT",
             Self::AccountSuspended => "ACCOUNT_SUSPENDED",
             Self::AccountBanned => "ACCOUNT_BANNED",
             Self::InvalidChatMessage => "INVALID_CHAT_MESSAGE",
@@ -157,7 +165,9 @@ impl GameError {
             | Self::PlayerBlocked
             | Self::AccountSuspended
             | Self::AccountBanned => StatusCode::FORBIDDEN,
-            Self::RoomNotFound | Self::ReportNotFound => StatusCode::NOT_FOUND,
+            Self::RoomNotFound | Self::ReportNotFound | Self::LiveContentRevisionNotFound => {
+                StatusCode::NOT_FOUND
+            }
             Self::RoomFull
             | Self::RoomAlreadyStarted
             | Self::AlreadyJoined
@@ -166,6 +176,7 @@ impl GameError {
             | Self::CoordinateAlreadyAttacked
             | Self::VersionConflict
             | Self::StaleRoomVersion
+            | Self::LiveContentRevisionConflict
             | Self::TurnConflict
             | Self::TurnExpired
             | Self::PlacementLocked => StatusCode::CONFLICT,

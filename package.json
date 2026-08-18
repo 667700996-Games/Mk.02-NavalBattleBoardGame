@@ -17,6 +17,7 @@
     "migrations:check": "node tools/check-migrations.mjs",
     "security:drill": "node tools/check-security-drills.mjs",
     "observability:check": "node tools/check-observability.mjs",
+    "content:ops": "node tools/manage-live-content.mjs",
     "check": "cargo check --workspace && npm --workspace @mk01/web run check",
     "lint": "cargo fmt --all -- --check && cargo clippy --workspace --all-targets -- -D warnings && npm run migrations:check && npm run security:drill && npm run observability:check && npm run fonts:check && npm --workspace @mk01/web run lint",
     "format": "cargo fmt --all && npm --workspace @mk01/web run format",

@@ -13,8 +13,8 @@ code-split entry JavaScript and CSS. The current production artifact is:
 
 | Category | Measured bytes | Total budget |
 | --- | ---: | ---: |
-| JavaScript | 329,778 | 332,000 |
-| CSS | 190,787 | 192,000 |
+| JavaScript | 332,290 | 335,000 |
+| CSS | 192,878 | 194,000 |
 | WOFF2 fonts | 505,756 | 1,200,000 |
 | Images | 2,137,055 | 2,200,000 |
 | Audio | 0 | 4,000,000 |
@@ -29,6 +29,11 @@ unvisited replay route, whose entry measures 18,187 JavaScript and 9,779 CSS byt
 20,000 and 10,500 bytes respectively. The complete-artifact ceilings were raised only to admit this
 measured code-split feature; the critical gameplay runtime limits remain 320 KB JavaScript and
 185 KB CSS, so an increase on the landing-to-result journey still fails every device tier.
+
+The versioned season/event presentation added 2,512 JavaScript and 1,907 CSS bytes to the complete
+artifact without entering the gameplay journey. Its `/stats` entry is independently capped at
+14,000 JavaScript and 10,000 CSS bytes (measured at 12,916 and 9,446 bytes), so live-content
+presentation cannot consume the reviewed total headroom silently.
 
 ## Runtime gate
 
@@ -52,14 +57,19 @@ The August 18, 2026 reference run passed all tiers:
 
 | Tier | JS / CSS / fonts | Heap | CPU tasks | Long tasks | Frame p50 / p95 | WebSocket |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| Desktop | 256,712 / 144,945 / 429,840 B | 9.9 MiB | 960 ms | 0 ms | 16.7 / 33.4 ms | 50,575 B |
-| Mobile | 256,712 / 144,945 / 429,840 B | 13.4 MiB | 2,289 ms | 0 ms | 16.7 / 18.4 ms | 54,596 B |
-| Low mobile | 256,712 / 144,945 / 429,840 B | 12.4 MiB | 6,372 ms | 0 ms | 16.7 / 18.5 ms | 58,761 B |
+| Desktop | 256,749 / 145,129 / 429,840 B | 10.6 MiB | 1,131 ms | 0 ms | 16.7 / 33.7 ms | 50,693 B |
+| Mobile | 256,749 / 145,129 / 429,840 B | 13.5 MiB | 2,297 ms | 0 ms | 16.7 / 18.5 ms | 54,735 B |
+| Low mobile | 256,749 / 145,129 / 429,840 B | 13.2 MiB | 6,079 ms | 0 ms | 16.7 / 18.5 ms | 54,772 B |
 
 Large translucent surfaces formerly used nested `backdrop-filter` blurs. The reference desktop
 sequence measured 66.7 ms frame p95 before those redundant filters were removed and 33.7 ms in the
 five-hit reference run, while the existing opaque gradients, borders, and shadows preserved the
 visual hierarchy.
+
+Resolved hit and miss markers also used to repaint their glow or water ring indefinitely. Those
+effects now run twice and settle into the same readable final marker; reduced-motion users receive
+the settled state immediately. Three consecutive desktop reference runs measured 33.4, 33.4, and
+33.5 ms frame p95 before the full three-tier gate above passed without changing any runtime limit.
 
 ## Interpretation and release use
 

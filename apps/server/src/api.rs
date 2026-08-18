@@ -19,16 +19,20 @@ use uuid::Uuid;
 
 use crate::{
     app::{AppState, SnapshotEvent},
-    domain::{GameSnapshot, IntegritySignalPage, ModerationCasePage, PlayerProgression},
+    domain::{
+        GameSnapshot, IntegritySignalPage, LiveContentRevision, LiveContentValidation,
+        LiveContentView, ModerationCasePage, PlayerProgression,
+    },
     error::GameError,
     protocol::{
         AccountDeletionInput, AccountDeletionResponse, AccountLoginInput, AccountSessionsResponse,
         AccountUpgradeInput, AccountUpgradeResponse, CreatePracticeInput, CreateRoomInput,
         CreateSessionInput, FunnelEventInput, FunnelOutcome, HealthResponse, IntegritySignalQuery,
-        JoinRoomInput, MatchmakingResponse, ModerationActionInput, ModerationActionResponse,
-        ModerationReportQuery, PlayerReportInput, PlayerReportResponse, RoomCreatedResponse,
-        RoomListResponse, RumMetricInput, SessionResponse, SocialRelationshipInput,
-        SocialRelationshipsResponse,
+        JoinRoomInput, LiveContentHistoryQuery, LiveContentHistoryResponse, MatchmakingResponse,
+        ModerationActionInput, ModerationActionResponse, ModerationReportQuery, PlayerReportInput,
+        PlayerReportResponse, PublishLiveContentInput, RollbackLiveContentInput,
+        RoomCreatedResponse, RoomListResponse, RumMetricInput, SessionResponse,
+        SocialRelationshipInput, SocialRelationshipsResponse,
     },
     store::GameHistoryItem,
 };
@@ -51,6 +55,7 @@ pub fn router() -> Router<AppState> {
             delete(revoke_account_session),
         )
         .route("/profile", get(player_profile))
+        .route("/content/live", get(live_content))
         .route(
             "/profile/missions/{mission_id}/claim",
             post(claim_mission_reward),
@@ -62,6 +67,12 @@ pub fn router() -> Router<AppState> {
         .route("/reports", post(report_player))
         .route("/admin/moderation/reports", get(moderation_reports))
         .route("/admin/integrity/signals", get(integrity_signals))
+        .route(
+            "/admin/content/revisions",
+            get(live_content_history).post(publish_live_content),
+        )
+        .route("/admin/content/validate", post(validate_live_content))
+        .route("/admin/content/rollback", post(rollback_live_content))
         .route(
             "/admin/moderation/reports/{report_id}/actions",
             post(apply_moderation_action),
@@ -345,6 +356,10 @@ async fn claim_mission_reward(
     ))
 }
 
+async fn live_content(State(state): State<AppState>) -> Result<Json<LiveContentView>, GameError> {
+    Ok(Json(state.live_content_view().await?))
+}
+
 async fn social_relationships(
     State(state): State<AppState>,
     jar: CookieJar,
@@ -423,6 +438,67 @@ async fn integrity_signals(
     Ok(Json(
         state
             .integrity_signals(query.search, query.kind, query.before, query.limit)
+            .await?,
+    ))
+}
+
+async fn live_content_history(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<LiveContentHistoryQuery>,
+) -> Result<Json<LiveContentHistoryResponse>, GameError> {
+    authenticate_operator(&state, &headers, false)?;
+    let (current_revision, revisions) = state
+        .live_content_history(query.limit.unwrap_or(25).clamp(1, 100) as usize)
+        .await?;
+    Ok(Json(LiveContentHistoryResponse {
+        current_revision,
+        revisions,
+    }))
+}
+
+async fn validate_live_content(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    input: Result<Json<PublishLiveContentInput>, JsonRejection>,
+) -> Result<Json<LiveContentValidation>, GameError> {
+    let input = parse_json(input)?;
+    let operator_id = authenticate_operator(&state, &headers, true)?;
+    Ok(Json(
+        state
+            .validate_live_content(input.expected_revision, input.payload, operator_id)
+            .await?,
+    ))
+}
+
+async fn publish_live_content(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    input: Result<Json<PublishLiveContentInput>, JsonRejection>,
+) -> Result<impl IntoResponse, GameError> {
+    let input = parse_json(input)?;
+    let operator_id = authenticate_operator(&state, &headers, true)?;
+    let revision: LiveContentRevision = state
+        .publish_live_content(input.expected_revision, input.payload, operator_id)
+        .await?;
+    Ok((StatusCode::CREATED, Json(revision)))
+}
+
+async fn rollback_live_content(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    input: Result<Json<RollbackLiveContentInput>, JsonRejection>,
+) -> Result<Json<LiveContentRevision>, GameError> {
+    let input = parse_json(input)?;
+    let operator_id = authenticate_operator(&state, &headers, true)?;
+    Ok(Json(
+        state
+            .rollback_live_content(
+                input.expected_revision,
+                input.target_revision,
+                input.change_note,
+                operator_id,
+            )
             .await?,
     ))
 }

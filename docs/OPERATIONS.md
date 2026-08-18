@@ -181,6 +181,24 @@ Korean-slice cap. Baselines, measurement definitions, and budget review rules ar
 Active matches are protocol-version 2 snapshots. A release that cannot read and preserve that
 snapshot must not share a pool with the current release.
 
+## Live-content publish and rollback
+
+Seasons, events, mission feature flags, and bounded reward tuning are stored as append-only
+PostgreSQL revisions. Operators must fetch current history, obtain a second-person review, run the
+server-side dry run, and publish against the same `expectedRevision`. A conflict means another
+operator published first and must be reviewed; it is never safe to retry blindly.
+
+After publish, confirm `/api/content/live` reports the intended active revision on more than one
+instance and inspect a real profile for the season, event, mission state, and reward amount. Compare
+`increase(mk01_live_content_published_total[15m])` with the approved change record. A rollback is a
+new revision and must increase `mk01_live_content_rollbacks_total`; history is never edited or
+deleted. If reward integrity is uncertain, publish `missionsEnabled=false` first, retain issued
+ledger entries, and then investigate. Cross-instance revision disagreement, an undecodable payload,
+or an unexpected reward is a correctness incident.
+
+The complete field bounds, CLI commands, scheduling semantics, review checklist, kill switches, and
+rollback procedure are in `LIVE_CONTENT_OPERATIONS.md`.
+
 CI's `rolling_instance_replacement_recovers_and_advances_an_active_match` test is the automated
 precondition for this drill: it writes an active match through one instance, marks a player
 disconnected, creates a replacement instance from the shared stores, reconnects inside the SLO,
@@ -190,6 +208,11 @@ The staging termination drill remains the required infrastructure-level proof be
 ## Dependency-failure drills
 
 Run quarterly in staging and after changes to storage or coordination:
+
+PostgreSQL is authoritative and its optional Redis cache abandons the initial connection after two
+seconds. Pub/Sub initialization has the same two-second bound: a non-distributed deployment then
+starts in single-instance mode, while `DISTRIBUTED_COORDINATION_REQUIRED=true` fails startup and
+readiness instead of hanging or silently degrading.
 
 1. Start at least two server instances with `DISTRIBUTED_COORDINATION_REQUIRED=true`.
 2. Play an active match with each browser connected to a different instance.

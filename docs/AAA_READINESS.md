@@ -146,12 +146,18 @@ The program is complete only when all gates below are satisfied in a production-
 
 - [x] Profile progression, achievements, daily/weekly missions, and meaningful non-pay-to-win rewards
       exist.
-- [ ] Seasons, events, content configuration, feature flags, and safe live tuning are supported.
+- [x] Seasons, events, content configuration, feature flags, and safe live tuning are supported.
 - [ ] Cosmetics cover fleet, board, effects, profile, and presentation without leaking hidden state.
 - [x] Economy and reward issuance are transactional, idempotent, auditable, and rollback-safe.
 - Evidence: profile XP/level/rank and achievements are deterministic projections of the
   authoritative result ledger; daily/weekly mission rewards use a unique account/source/period
-  ledger, exclude reversed rows, and have API and duplicate-claim tests.
+  ledger, exclude reversed rows, and have API and duplicate-claim tests. Live seasons, bounded
+  events, mission/event kill switches, and reward tuning use immutable schema-versioned revisions,
+  scheduled activation, compare-and-swap publication, dry-run validation, audited operators, and
+  rollback-as-a-new-revision. The guarded CLI requires an explicit confirmation after validation;
+  public/profile APIs and the responsive stats view expose only the active projection. Memory,
+  API, accessibility, six-profile full-match, and real PostgreSQL 16/Redis multi-instance tests
+  cover conflicting publishers, scheduled activation, kill switches, history, and rollback.
 
 ### C4. Social, spectating, and replay
 
