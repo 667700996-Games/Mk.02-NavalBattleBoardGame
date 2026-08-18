@@ -187,11 +187,11 @@ async fn postgres_account_export_and_deletion_cover_migrations_and_anonymized_ro
         return;
     };
     let store = store(&database_url, &redis_url).await;
-    let guest = session("Postgres Privacy Captain");
+    let guest = session("PrivacyCaptain");
     store.save_session(&guest).await.unwrap();
     let account = PlayerAccount {
         id: Uuid::new_v4(),
-        handle: "Postgres Privacy Captain".to_string(),
+        handle: "PrivacyCaptain".to_string(),
         created_at: Utc::now(),
     };
     let recovery_key = Uuid::new_v4().simple().to_string();

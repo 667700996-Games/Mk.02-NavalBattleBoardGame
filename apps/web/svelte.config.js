@@ -5,7 +5,23 @@ import { vitePreprocess } from '@sveltejs/vite-plugin-svelte';
 const config = {
   preprocess: vitePreprocess(),
   kit: {
-    adapter: adapter({ out: 'build' })
+    adapter: adapter({ out: 'build' }),
+    csp: {
+      mode: 'auto',
+      directives: {
+        'default-src': ['self'],
+        'base-uri': ['self'],
+        'object-src': ['none'],
+        'frame-ancestors': ['none'],
+        'form-action': ['self'],
+        'img-src': ['self', 'data:', 'blob:'],
+        'font-src': ['self'],
+        'style-src': ['self', 'unsafe-inline'],
+        'script-src': ['self'],
+        'connect-src': ['self', 'ws:', 'wss:'],
+        'worker-src': ['self', 'blob:']
+      }
+    }
   }
 };
 

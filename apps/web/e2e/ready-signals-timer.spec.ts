@@ -16,7 +16,9 @@ async function register(page: Page, nickname: string) {
 async function deploy(page: Page) {
   await expect(page.getByRole('heading', { name: '함대 배치' })).toBeVisible();
   await page.getByRole('button', { name: '자동 배치' }).click();
-  await page.getByRole('button', { name: '배치 확정' }).click();
+  const confirm = page.getByRole('button', { name: '배치 확정' });
+  await expect(confirm).toBeEnabled();
+  await confirm.click();
 }
 
 async function fire(page: Page, row: number, col: number) {
@@ -38,6 +40,13 @@ test('ready cancellation, tactical signals, deadline recovery and timeout defeat
   await first.getByRole('button', { name: '작전실 생성' }).click();
   await first.getByLabel('작전실 이름').fill('Deadline Protocol');
   await first.getByText('비공개', { exact: true }).click();
+  await first.locator('#turn-duration').evaluate((select: HTMLSelectElement) => {
+    const option = new Option('10초 E2E fixture', '10');
+    (option as HTMLOptionElement & { __value?: number }).__value = 10;
+    select.add(option);
+    option.selected = true;
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+  });
   await first.getByRole('button', { name: '작전실 편성' }).click();
   await expect(first).toHaveURL(/\/room\/[A-Z0-9]{6}$/);
   const roomCode = new URL(first.url()).pathname.split('/').at(-1)!;
@@ -162,12 +171,12 @@ test('ready cancellation, tactical signals, deadline recovery and timeout defeat
   for (let timeout = 1; timeout <= 3; timeout += 1) {
     if (timeout === 3) {
       await expect(victim.getByRole('heading', { name: '작전 패배' })).toBeVisible({
-        timeout: 10_000
+        timeout: 15_000
       });
       break;
     }
-    await expect(attacker.locator('.turn-banner--mine')).toBeVisible({ timeout: 10_000 });
-    await expect(victim.getByText(`TIMEOUT ${timeout}/3`)).toBeVisible();
+    await expect(victim.getByText(`TIMEOUT ${timeout}/3`)).toBeVisible({ timeout: 15_000 });
+    await expect(attacker.locator('.turn-banner--mine')).toBeVisible();
     await fire(attacker, timeout, 0);
     await expect(victim.locator('.turn-banner--mine')).toBeVisible();
   }

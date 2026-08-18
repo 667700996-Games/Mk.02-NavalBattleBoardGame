@@ -52,12 +52,12 @@ export default defineConfig({
     {
       name: 'mobile-chrome',
       use: { ...devices['Pixel 7'] },
-      testMatch: /responsive\.spec\.ts/
+      testMatch: /(full-game|responsive)\.spec\.ts/
     },
     {
       name: 'mobile-safari',
       use: { ...devices['iPhone 13'] },
-      testMatch: /responsive\.spec\.ts/
+      testMatch: /(full-game|responsive)\.spec\.ts/
     }
   ]
 });

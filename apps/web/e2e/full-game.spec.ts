@@ -22,7 +22,9 @@ async function register(page: Page, nickname: string) {
 async function deploy(page: Page) {
   await expect(page.getByRole('heading', { name: '함대 배치' })).toBeVisible();
   await page.getByRole('button', { name: '자동 배치' }).click();
-  await page.getByRole('button', { name: '배치 확정' }).click();
+  const confirm = page.getByRole('button', { name: '배치 확정' });
+  await expect(confirm).toBeEnabled();
+  await confirm.click();
 }
 
 async function startOperation(host: Page, guest: Page) {

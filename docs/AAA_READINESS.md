@@ -199,7 +199,7 @@ The program is complete only when all gates below are satisfied in a production-
       artifact checks on every change.
 - [ ] PostgreSQL and Redis integration tests exercise migrations, recovery, cache failure, and
       concurrent writes.
-- [ ] Full matches run on Chromium, Firefox, WebKit, and supported mobile profiles.
+- [x] Full matches run on Chromium, Firefox, WebKit, and supported mobile profiles.
 - [ ] Component, accessibility, visual-regression, property, fuzz, load, soak, and chaos suites have
       owned thresholds.
 - [ ] Coverage reports identify untested behavior; targets are risk-based rather than cosmetic.
