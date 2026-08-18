@@ -72,6 +72,8 @@ pub enum GameError {
     AccountHandleTaken,
     #[error("인증 세션이 없거나 만료되었습니다.")]
     Unauthorized,
+    #[error("랭크 매칭은 계정으로 로그인한 지휘관만 이용할 수 있습니다.")]
+    RankedAccountRequired,
     #[error("허용되지 않은 출처의 연결입니다.")]
     OriginNotAllowed,
     #[error("요청 형식이 올바르지 않습니다.")]
@@ -140,6 +142,7 @@ impl GameError {
             Self::DuplicateNickname => "DUPLICATE_NICKNAME",
             Self::AccountHandleTaken => "ACCOUNT_HANDLE_TAKEN",
             Self::Unauthorized => "UNAUTHORIZED",
+            Self::RankedAccountRequired => "RANKED_ACCOUNT_REQUIRED",
             Self::OriginNotAllowed => "ORIGIN_NOT_ALLOWED",
             Self::InvalidRequest => "INVALID_REQUEST",
             Self::RateLimited => "RATE_LIMITED",
@@ -163,6 +166,7 @@ impl GameError {
             Self::Unauthorized => StatusCode::UNAUTHORIZED,
             Self::OriginNotAllowed
             | Self::PlayerBlocked
+            | Self::RankedAccountRequired
             | Self::AccountSuspended
             | Self::AccountBanned => StatusCode::FORBIDDEN,
             Self::RoomNotFound | Self::ReportNotFound | Self::LiveContentRevisionNotFound => {

@@ -10,9 +10,9 @@ use uuid::Uuid;
 use crate::{
     domain::{
         AccountSession, ActivePenalty, GameResult, GameRoom, IntegritySignal, IntegritySignalKind,
-        IntegritySignalPage, LiveContentRevision, ModerationAction, ModerationCasePage,
-        NewIntegritySignal, NewModerationAction, NewPlayerReport, PlayerAccount, ReportStatus,
-        RoomSummary, SocialRelationship, UserSession,
+        IntegritySignalPage, LiveContentRevision, MatchmakingCriteria, MatchmakingQuality,
+        ModerationAction, ModerationCasePage, NewIntegritySignal, NewModerationAction,
+        NewPlayerReport, PlayerAccount, ReportStatus, RoomSummary, SocialRelationship, UserSession,
     },
     error::GameError,
 };
@@ -37,17 +37,34 @@ pub struct MatchmakingClaim {
     pub id: Uuid,
     pub opponent: UserSession,
     pub opponent_queued_at: DateTime<Utc>,
+    pub opponent_criteria: MatchmakingCriteria,
+    pub quality: MatchmakingQuality,
 }
 
 #[derive(Debug, Clone)]
 pub struct MatchmakingEnqueueResult {
     pub queued_at: DateTime<Utc>,
+    pub criteria: MatchmakingCriteria,
     pub claim: Option<MatchmakingClaim>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MatchmakingQueueEntry {
+    pub queued_at: DateTime<Utc>,
+    pub criteria: MatchmakingCriteria,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RankedRating {
+    pub rating: i32,
+    pub matches_played: u32,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct MatchmakingQueueStats {
     pub queued: u64,
+    pub ranked_queued: u64,
     pub oldest_age_seconds: u64,
 }
 
@@ -252,6 +269,7 @@ pub trait GameStore: Send + Sync {
     async fn enqueue_matchmaking(
         &self,
         session: &UserSession,
+        criteria: MatchmakingCriteria,
     ) -> Result<MatchmakingEnqueueResult, GameError>;
     async fn complete_matchmaking(
         &self,
@@ -260,7 +278,11 @@ pub trait GameStore: Send + Sync {
     ) -> Result<(), GameError>;
     async fn release_matchmaking_claim(&self, claim_id: Uuid) -> Result<(), GameError>;
     async fn cancel_matchmaking(&self, session_id: Uuid) -> Result<bool, GameError>;
-    async fn matchmaking_time(&self, session_id: Uuid) -> Result<Option<DateTime<Utc>>, GameError>;
+    async fn matchmaking_entry(
+        &self,
+        session_id: Uuid,
+    ) -> Result<Option<MatchmakingQueueEntry>, GameError>;
+    async fn ranked_rating(&self, account_id: Uuid) -> Result<RankedRating, GameError>;
     async fn matchmaking_queue_stats(&self) -> Result<MatchmakingQueueStats, GameError>;
     async fn prune_expired_data(
         &self,

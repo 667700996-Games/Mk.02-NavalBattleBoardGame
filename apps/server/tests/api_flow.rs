@@ -104,6 +104,30 @@ async fn create_session(app: &Router, nickname: &str) -> (String, Value) {
     (cookie, body)
 }
 
+async fn upgrade_account(app: &Router, guest_cookie: &str, handle: &str) -> (String, Value) {
+    let response = send(
+        app,
+        Request::builder()
+            .method("POST")
+            .uri("/api/accounts/upgrade")
+            .header(header::CONTENT_TYPE, "application/json")
+            .header(header::COOKIE, guest_cookie)
+            .body(Body::from(json!({ "handle": handle }).to_string()))
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let cookie = response.headers()[header::SET_COOKIE]
+        .to_str()
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap()
+        .to_string();
+    let body = json_body(response).await;
+    (cookie, body)
+}
+
 fn fleet(first_row: u8) -> Vec<ShipPlacement> {
     [
         (ShipKind::Carrier, 0_u8),
@@ -1157,6 +1181,114 @@ async fn room_and_matchmaking_capacity_limits_fail_closed() {
         StatusCode::OK,
         "an idempotent poll by an already queued player must remain available"
     );
+}
+
+#[tokio::test]
+async fn ranked_matchmaking_requires_accounts_rejects_client_authority_and_returns_quality() {
+    let app = test_app();
+    let (guest_cookie, _) = create_session(&app, "Rank Guest").await;
+    let ranked_body =
+        || Body::from(json!({ "pool": "RANKED", "region": "KOREA", "latencyMs": 55 }).to_string());
+    let shared_route_response = send(
+        &app,
+        Request::builder()
+            .method("POST")
+            .uri("/api/matchmaking")
+            .header(header::CONTENT_TYPE, "application/json")
+            .header(header::COOKIE, &guest_cookie)
+            .body(ranked_body())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(shared_route_response.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(
+        json_body(shared_route_response).await["code"],
+        "INVALID_REQUEST"
+    );
+    let guest_response = send(
+        &app,
+        Request::builder()
+            .method("POST")
+            .uri("/api/matchmaking/ranked")
+            .header(header::CONTENT_TYPE, "application/json")
+            .header(header::COOKIE, &guest_cookie)
+            .body(ranked_body())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(guest_response.status(), StatusCode::FORBIDDEN);
+    assert_eq!(
+        json_body(guest_response).await["code"],
+        "RANKED_ACCOUNT_REQUIRED"
+    );
+
+    let injected = send(
+        &app,
+        Request::builder()
+            .method("POST")
+            .uri("/api/matchmaking/ranked")
+            .header(header::CONTENT_TYPE, "application/json")
+            .header(header::COOKIE, &guest_cookie)
+            .body(Body::from(
+                json!({
+                    "pool": "RANKED",
+                    "region": "KOREA",
+                    "latencyMs": 55,
+                    "rating": 4000,
+                    "partyId": uuid::Uuid::new_v4()
+                })
+                .to_string(),
+            ))
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(injected.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(json_body(injected).await["code"], "INVALID_REQUEST");
+
+    let (first_guest_cookie, _) = create_session(&app, "Rank Alpha").await;
+    let (second_guest_cookie, _) = create_session(&app, "Rank Bravo").await;
+    let (first_cookie, first_account) =
+        upgrade_account(&app, &first_guest_cookie, "Rank Alpha").await;
+    let (second_cookie, second_account) =
+        upgrade_account(&app, &second_guest_cookie, "Rank Bravo").await;
+    assert_ne!(
+        first_account["account"]["id"],
+        second_account["account"]["id"]
+    );
+
+    let enqueue = |cookie: &str| {
+        Request::builder()
+            .method("POST")
+            .uri("/api/matchmaking/ranked")
+            .header(header::CONTENT_TYPE, "application/json")
+            .header(header::COOKIE, cookie)
+            .body(ranked_body())
+            .unwrap()
+    };
+    let first_response = send(&app, enqueue(&first_cookie)).await;
+    assert_eq!(first_response.status(), StatusCode::OK);
+    let first_queued = json_body(first_response).await;
+    assert_eq!(first_queued["queued"], true);
+    assert_eq!(first_queued["ticket"]["pool"], "RANKED");
+    assert_eq!(first_queued["ticket"]["region"], "KOREA");
+    assert_eq!(first_queued["ticket"]["reportedLatencyMs"], 55);
+    assert_eq!(first_queued["ticket"]["rating"], 1500);
+    assert_eq!(first_queued["ticket"]["partySize"], 1);
+    assert_eq!(first_queued["ticket"]["searchWindow"]["phase"], "EXACT");
+    assert!(first_queued["ticket"].get("partyId").is_none());
+
+    let second_response = send(&app, enqueue(&second_cookie)).await;
+    assert_eq!(second_response.status(), StatusCode::OK);
+    let matched = json_body(second_response).await;
+    assert_eq!(matched["queued"], false);
+    assert_eq!(matched["matchQuality"]["pool"], "RANKED");
+    assert_eq!(matched["matchQuality"]["phase"], "EXACT");
+    assert_eq!(matched["matchQuality"]["ratingDelta"], 0);
+    assert_eq!(
+        matched["snapshot"]["matchmakingQuality"],
+        matched["matchQuality"]
+    );
+    assert_eq!(matched["snapshot"]["room"]["name"], "랭크 교전");
 }
 
 #[tokio::test]

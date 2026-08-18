@@ -50,11 +50,13 @@ use crate::{
         AccountSession, AchievementProgress, ActivePenalty, AiDifficulty, AttackOutcome,
         ChatMessage, ChatTypingEvent, Coordinate, FinishReason, GameRoom, GameTimerState,
         IntegritySignalKind, IntegritySignalPage, LiveContentPayload, LiveContentRevision,
-        LiveContentValidation, LiveContentView, MissionCadence, MissionProgress, ModerationAction,
-        ModerationActionKind, ModerationCasePage, NewIntegritySignal, NewModerationAction,
-        NewPlayerReport, Orientation, PlayerAccount, PlayerKind, PlayerProgression,
-        PlayerReportReceipt, ReportCategory, ReportStatus, RoomVisibility, ShipKind, ShipPlacement,
-        SocialRelationship, UserSession, baseline_live_content,
+        LiveContentValidation, LiveContentView, MatchmakingCriteria, MatchmakingPool,
+        MatchmakingPreferences, MatchmakingQuality, MatchmakingSearchWindow, MissionCadence,
+        MissionProgress, ModerationAction, ModerationActionKind, ModerationCasePage,
+        NewIntegritySignal, NewModerationAction, NewPlayerReport, Orientation, PlayerAccount,
+        PlayerKind, PlayerProgression, PlayerReportReceipt, ReportCategory, ReportStatus,
+        RoomVisibility, ShipKind, ShipPlacement, SocialRelationship, UserSession,
+        baseline_live_content,
     },
     error::GameError,
     protocol::{
@@ -64,7 +66,8 @@ use crate::{
     rate_limit::FixedWindowRateLimiter,
     store::{
         AccountDeletionScope, AccountDeletionStats, GameHistoryItem, GameStore,
-        MatchmakingQueueStats, MemoryStore, MissionReward, PostgresRedisStore,
+        MatchmakingQueueEntry, MatchmakingQueueStats, MemoryStore, MissionReward,
+        PostgresRedisStore,
     },
     ws,
 };
@@ -88,6 +91,15 @@ pub struct AppState {
     integrity_signal_cooldowns: Arc<DashMap<(Uuid, IntegritySignalKind), std::time::Instant>>,
 }
 
+#[derive(Debug, Clone)]
+pub struct MatchmakingOutcome {
+    pub room: Option<GameRoom>,
+    pub queued_at: Option<chrono::DateTime<Utc>>,
+    pub criteria: MatchmakingCriteria,
+    pub search_window: MatchmakingSearchWindow,
+    pub quality: Option<MatchmakingQuality>,
+}
+
 #[derive(Debug)]
 pub struct ServerMetrics {
     started_at: std::time::Instant,
@@ -102,7 +114,9 @@ pub struct ServerMetrics {
     pub room_authority_acquisitions: AtomicU64,
     pub room_authority_conflicts: AtomicU64,
     pub matchmaking_queued: AtomicU64,
+    pub ranked_matchmaking_queued: AtomicU64,
     pub matchmaking_completed: AtomicU64,
+    pub ranked_matchmaking_completed: AtomicU64,
     pub matchmaking_cancelled: AtomicU64,
     pub retention_sessions_deleted: AtomicU64,
     pub retention_rooms_deleted: AtomicU64,
@@ -196,7 +210,9 @@ impl Default for ServerMetrics {
             room_authority_acquisitions: AtomicU64::new(0),
             room_authority_conflicts: AtomicU64::new(0),
             matchmaking_queued: AtomicU64::new(0),
+            ranked_matchmaking_queued: AtomicU64::new(0),
             matchmaking_completed: AtomicU64::new(0),
+            ranked_matchmaking_completed: AtomicU64::new(0),
             matchmaking_cancelled: AtomicU64::new(0),
             retention_sessions_deleted: AtomicU64::new(0),
             retention_rooms_deleted: AtomicU64::new(0),
@@ -378,9 +394,19 @@ impl ServerMetrics {
                 &self.matchmaking_queued,
             ),
             counter(
+                "mk01_ranked_matchmaking_queued_total",
+                "Ranked matchmaking enqueue responses without an immediate match.",
+                &self.ranked_matchmaking_queued,
+            ),
+            counter(
                 "mk01_matchmaking_completed_total",
                 "Durably completed matchmaking pairs.",
                 &self.matchmaking_completed,
+            ),
+            counter(
+                "mk01_ranked_matchmaking_completed_total",
+                "Durably completed ranked matchmaking pairs.",
+                &self.ranked_matchmaking_completed,
             ),
             counter(
                 "mk01_matchmaking_cancelled_total",
@@ -461,6 +487,11 @@ impl ServerMetrics {
                 "mk01_matchmaking_queue_depth",
                 "Current durable matchmaking queue entries.",
                 matchmaking.queued,
+            ),
+            gauge(
+                "mk01_ranked_matchmaking_queue_depth",
+                "Current durable ranked matchmaking queue entries.",
+                matchmaking.ranked_queued,
             ),
             gauge(
                 "mk01_matchmaking_oldest_age_seconds",
@@ -2822,47 +2853,90 @@ impl AppState {
     pub async fn enqueue_matchmaking(
         &self,
         session: UserSession,
-    ) -> Result<Option<GameRoom>, GameError> {
+        preferences: MatchmakingPreferences,
+    ) -> Result<MatchmakingOutcome, GameError> {
         if session.current_room_id.is_some() {
             return Err(GameError::AlreadyJoined);
         }
-        if self.store.matchmaking_time(session.id).await?.is_none()
+        let preferences = preferences.validate()?;
+        let criteria = match preferences.pool {
+            MatchmakingPool::Casual => MatchmakingCriteria::casual(session.id),
+            MatchmakingPool::Ranked => {
+                let account_id = session.account_id.ok_or(GameError::RankedAccountRequired)?;
+                let rating = self.store.ranked_rating(account_id).await?.rating;
+                MatchmakingCriteria::ranked(
+                    account_id,
+                    preferences.region,
+                    preferences.latency_ms.ok_or(GameError::InvalidRequest)?,
+                    rating,
+                )?
+            }
+        };
+        if self.store.matchmaking_entry(session.id).await?.is_none()
             && self.store.matchmaking_queue_stats().await?.queued
                 >= self.settings.max_matchmaking_queue
         {
             return Err(GameError::CapacityReached);
         }
-        let queued = self.store.enqueue_matchmaking(&session).await?;
+        let queued = self.store.enqueue_matchmaking(&session, criteria).await?;
         let own_queued_at = queued.queued_at;
         let Some(claim) = queued.claim else {
             self.metrics
                 .matchmaking_queued
                 .fetch_add(1, Ordering::Relaxed);
-            return Ok(None);
+            if criteria.pool == MatchmakingPool::Ranked {
+                self.metrics
+                    .ranked_matchmaking_queued
+                    .fetch_add(1, Ordering::Relaxed);
+            }
+            return Ok(MatchmakingOutcome {
+                room: None,
+                queued_at: Some(own_queued_at),
+                criteria: queued.criteria,
+                search_window: MatchmakingSearchWindow::at(own_queued_at, Utc::now()),
+                quality: None,
+            });
         };
         let claim_id = claim.id;
         let opponent_queued_at = claim.opponent_queued_at;
+        let quality = claim.quality;
         let result = async {
             let code = self.unique_room_code().await?;
             let mut room = GameRoom::new(
                 code,
-                "신속 교전".to_string(),
+                if criteria.pool == MatchmakingPool::Ranked {
+                    "랭크 교전".to_string()
+                } else {
+                    "신속 교전".to_string()
+                },
                 RoomVisibility::Private,
                 &claim.opponent,
             )?;
             room.join(&session)?;
+            room.matchmaking_quality = Some(quality);
             self.store.complete_matchmaking(claim_id, &mut room).await?;
             self.metrics.record_matchmaking_latency(own_queued_at);
             self.metrics.record_matchmaking_latency(opponent_queued_at);
             self.metrics
                 .matchmaking_completed
                 .fetch_add(1, Ordering::Relaxed);
+            if criteria.pool == MatchmakingPool::Ranked {
+                self.metrics
+                    .ranked_matchmaking_completed
+                    .fetch_add(1, Ordering::Relaxed);
+            }
             self.rooms
                 .insert(room.id, Arc::new(Mutex::new(room.clone())));
             self.broadcast_snapshots(&room, SnapshotEvent::PlayerJoined)
                 .await;
             self.broadcast_latest_chat_message(&room).await;
-            Ok::<_, GameError>(room)
+            Ok::<_, GameError>(MatchmakingOutcome {
+                room: Some(room),
+                queued_at: None,
+                criteria: queued.criteria,
+                search_window: MatchmakingSearchWindow::at(own_queued_at, Utc::now()),
+                quality: Some(quality),
+            })
         }
         .await;
         if result.is_err() {
@@ -2874,7 +2948,7 @@ impl AppState {
                 );
             }
         }
-        result.map(Some)
+        result
     }
 
     pub async fn cancel_matchmaking(&self, session_id: Uuid) -> Result<bool, GameError> {
@@ -2887,11 +2961,11 @@ impl AppState {
         Ok(cancelled)
     }
 
-    pub async fn matchmaking_time(
+    pub async fn matchmaking_entry(
         &self,
         session_id: Uuid,
-    ) -> Result<Option<chrono::DateTime<Utc>>, GameError> {
-        self.store.matchmaking_time(session_id).await
+    ) -> Result<Option<MatchmakingQueueEntry>, GameError> {
+        self.store.matchmaking_entry(session_id).await
     }
 
     async fn unique_room_code(&self) -> Result<String, GameError> {
@@ -3550,8 +3624,18 @@ mod tests {
         metrics.record_matchmaking_latency(Utc::now() - chrono::Duration::seconds(31));
         metrics.record_active_match_recovery(Duration::from_millis(4_500));
         metrics.record_websocket_disconnect(Duration::from_millis(3_600), true);
+        metrics
+            .ranked_matchmaking_queued
+            .store(2, Ordering::Relaxed);
+        metrics
+            .ranked_matchmaking_completed
+            .store(1, Ordering::Relaxed);
 
-        let output = metrics.render_prometheus(MatchmakingQueueStats::default());
+        let output = metrics.render_prometheus(MatchmakingQueueStats {
+            queued: 3,
+            ranked_queued: 2,
+            oldest_age_seconds: 31,
+        });
         assert!(output.contains("mk01_http_responses_total{class=\"2xx\"} 1"));
         assert!(output.contains("mk01_http_responses_total{class=\"5xx\"} 1"));
         assert!(output.contains(
@@ -3561,6 +3645,9 @@ mod tests {
             "mk01_command_duration_milliseconds_count{transport=\"websocket\",outcome=\"rejected\"} 1"
         ));
         assert!(output.contains("mk01_matchmaking_duration_seconds_count 1"));
+        assert!(output.contains("mk01_ranked_matchmaking_queued_total 2"));
+        assert!(output.contains("mk01_ranked_matchmaking_completed_total 1"));
+        assert!(output.contains("mk01_ranked_matchmaking_queue_depth 2"));
         assert!(output.contains("mk01_active_match_recovery_milliseconds_count 1"));
         assert!(output.contains("mk01_unexpected_disconnects_total 1"));
         assert!(output.contains("mk01_websocket_disconnects_total 1"));
@@ -3630,8 +3717,22 @@ mod tests {
         store.save_session(&bravo).await.unwrap();
         let state = AppState::with_store(Settings::default(), store);
 
-        assert!(state.enqueue_matchmaking(alpha).await.unwrap().is_none());
-        assert!(state.enqueue_matchmaking(bravo).await.unwrap().is_some());
+        assert!(
+            state
+                .enqueue_matchmaking(alpha, MatchmakingPreferences::default())
+                .await
+                .unwrap()
+                .room
+                .is_none()
+        );
+        assert!(
+            state
+                .enqueue_matchmaking(bravo, MatchmakingPreferences::default())
+                .await
+                .unwrap()
+                .room
+                .is_some()
+        );
 
         let output = state
             .metrics

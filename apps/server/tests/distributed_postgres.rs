@@ -9,7 +9,8 @@ use mk01_server::{
     app::hash_token,
     config::{Settings, StorageMode},
     domain::{
-        ConnectionState, Coordinate, GameRoom, LiveContentRevision, Orientation, PlayerAccount,
+        ConnectionState, Coordinate, DEFAULT_RANKED_RATING, GameRoom, LiveContentRevision,
+        MatchmakingCriteria, MatchmakingRegion, MatchmakingSearchPhase, Orientation, PlayerAccount,
         RoomStatus, RoomVisibility, ShipKind, ShipPlacement, UserSession, baseline_live_content,
     },
     protocol::{HeartbeatResponse, ServerEvent},
@@ -67,6 +68,35 @@ async fn store(database_url: &str, redis_url: &str) -> Arc<PostgresRedisStore> {
             .await
             .expect("postgres and redis integration services must be available"),
     )
+}
+
+async fn account_session(
+    store: &PostgresRedisStore,
+    nickname: &str,
+) -> (UserSession, PlayerAccount) {
+    let guest = session(nickname);
+    store.save_session(&guest).await.unwrap();
+    let account = PlayerAccount {
+        id: Uuid::new_v4(),
+        handle: format!("R{}", &Uuid::new_v4().simple().to_string()[..10]),
+        created_at: Utc::now(),
+    };
+    let next_token_hash = Uuid::new_v4().simple().to_string();
+    store
+        .create_account(
+            guest.id,
+            &account,
+            &hash_token(&Uuid::new_v4().simple().to_string()),
+            &next_token_hash,
+        )
+        .await
+        .unwrap();
+    let session = store
+        .session_by_token_hash(&next_token_hash)
+        .await
+        .unwrap()
+        .unwrap();
+    (session, account)
 }
 
 #[tokio::test]
@@ -144,9 +174,15 @@ async fn postgres_fences_stale_writes_and_atomically_completes_distributed_match
         .unwrap();
     assert_eq!(takeover_room.persistence_revision, 3);
 
-    let queued = first_store.enqueue_matchmaking(&alpha).await.unwrap();
+    let queued = first_store
+        .enqueue_matchmaking(&alpha, MatchmakingCriteria::casual(alpha.id))
+        .await
+        .unwrap();
     assert!(queued.claim.is_none());
-    let matched = second_store.enqueue_matchmaking(&bravo).await.unwrap();
+    let matched = second_store
+        .enqueue_matchmaking(&bravo, MatchmakingCriteria::casual(bravo.id))
+        .await
+        .unwrap();
     let claim = matched
         .claim
         .expect("the second player must claim the pair");
@@ -184,6 +220,155 @@ async fn postgres_fences_stale_writes_and_atomically_completes_distributed_match
             .current_room_id,
         Some(match_room.id)
     );
+}
+
+#[tokio::test]
+async fn postgres_ranked_matchmaking_enforces_authority_and_mutual_widening_across_instances() {
+    let Some((database_url, redis_url)) = integration_urls() else {
+        eprintln!("skipping distributed integration test without TEST_DATABASE_URL/TEST_REDIS_URL");
+        return;
+    };
+    let first_store = store(&database_url, &redis_url).await;
+    let second_store = store(&database_url, &redis_url).await;
+    let (first, first_account) = account_session(&first_store, "RankPgAlpha").await;
+    let (second, second_account) = account_session(&second_store, "RankPgBravo").await;
+    let database = sqlx::PgPool::connect(&database_url).await.unwrap();
+    let legacy_casual = session("LegacyCasual");
+    first_store.save_session(&legacy_casual).await.unwrap();
+    sqlx::query("INSERT INTO matchmaking_queue (session_id,queued_at) VALUES ($1,now())")
+        .bind(legacy_casual.id)
+        .execute(&database)
+        .await
+        .unwrap();
+    assert_eq!(
+        first_store
+            .matchmaking_entry(legacy_casual.id)
+            .await
+            .unwrap()
+            .unwrap()
+            .criteria,
+        MatchmakingCriteria::casual(legacy_casual.id),
+        "the additive migration must keep stable-version queue writes readable"
+    );
+    assert!(
+        first_store
+            .cancel_matchmaking(legacy_casual.id)
+            .await
+            .unwrap()
+    );
+    second_store.ranked_rating(second_account.id).await.unwrap();
+    sqlx::query("UPDATE ranked_ratings SET rating=1680, matches_played=12 WHERE account_id=$1")
+        .bind(second_account.id)
+        .execute(&database)
+        .await
+        .unwrap();
+
+    let first_criteria = MatchmakingCriteria::ranked(
+        first_account.id,
+        MatchmakingRegion::Korea,
+        80,
+        DEFAULT_RANKED_RATING,
+    )
+    .unwrap();
+    let second_criteria =
+        MatchmakingCriteria::ranked(second_account.id, MatchmakingRegion::Japan, 90, 1_680)
+            .unwrap();
+    assert!(
+        first_store
+            .enqueue_matchmaking(&first, first_criteria)
+            .await
+            .unwrap()
+            .claim
+            .is_none()
+    );
+    assert!(
+        second_store
+            .enqueue_matchmaking(&second, second_criteria)
+            .await
+            .unwrap()
+            .claim
+            .is_none(),
+        "exact windows must reject different regional/rating profiles"
+    );
+
+    sqlx::query(
+        "UPDATE matchmaking_queue SET queued_at=now()-interval '31 seconds' WHERE session_id=ANY($1)",
+    )
+    .bind(vec![first.id, second.id])
+    .execute(&database)
+    .await
+    .unwrap();
+    let matched = second_store
+        .enqueue_matchmaking(&second, second_criteria)
+        .await
+        .unwrap()
+        .claim
+        .expect("both mutually widened regional windows must match");
+    assert_eq!(matched.opponent.id, first.id);
+    assert_eq!(matched.quality.phase, MatchmakingSearchPhase::Regional);
+    assert_eq!(matched.quality.rating_delta, 180);
+    assert_eq!(matched.quality.max_reported_latency_ms, 90);
+    second_store
+        .release_matchmaking_claim(matched.id)
+        .await
+        .unwrap();
+    assert!(first_store.cancel_matchmaking(first.id).await.unwrap());
+    assert!(second_store.cancel_matchmaking(second.id).await.unwrap());
+
+    let spoofed = MatchmakingCriteria::ranked(
+        first_account.id,
+        MatchmakingRegion::Korea,
+        80,
+        DEFAULT_RANKED_RATING + 500,
+    )
+    .unwrap();
+    assert_eq!(
+        first_store
+            .enqueue_matchmaking(&first, spoofed)
+            .await
+            .unwrap_err(),
+        mk01_server::error::GameError::InvalidRequest
+    );
+
+    let mut same_party_session = session("RankPgSameParty");
+    same_party_session.account_id = Some(first_account.id);
+    first_store.save_session(&same_party_session).await.unwrap();
+    assert!(
+        first_store
+            .enqueue_matchmaking(&first, first_criteria)
+            .await
+            .unwrap()
+            .claim
+            .is_none()
+    );
+    assert!(
+        second_store
+            .enqueue_matchmaking(&same_party_session, first_criteria)
+            .await
+            .unwrap()
+            .claim
+            .is_none(),
+        "two sessions for one account must not self-match as separate parties"
+    );
+    assert_eq!(
+        first_store
+            .matchmaking_queue_stats()
+            .await
+            .unwrap()
+            .ranked_queued,
+        2
+    );
+    assert!(first_store.cancel_matchmaking(first.id).await.unwrap());
+    assert!(
+        second_store
+            .cancel_matchmaking(same_party_session.id)
+            .await
+            .unwrap()
+    );
+    let verification = PostgresRedisStore::verify_database(&database_url)
+        .await
+        .unwrap();
+    assert!(verification.ranked_ratings >= 2);
 }
 
 #[tokio::test]
@@ -365,7 +550,7 @@ async fn postgres_account_export_and_deletion_cover_migrations_and_anonymized_ro
     let verification = PostgresRedisStore::verify_database(&database_url)
         .await
         .unwrap();
-    assert!(verification.migrations_applied >= 13);
+    assert!(verification.migrations_applied >= 14);
     assert!(verification.deletion_tombstones >= 1);
 }
 

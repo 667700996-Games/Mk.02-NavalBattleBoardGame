@@ -5,7 +5,8 @@ use uuid::Uuid;
 use crate::domain::{
     AccountSession, AiDifficulty, AttackRecord, ChatMessage, ChatMessageType, ChatTypingEvent,
     Coordinate, GameSnapshot, GameStartRecord, GameTimerState, IntegritySignalKind,
-    LiveContentPayload, LiveContentRevision, MatchRules, ModerationAction, ModerationActionKind,
+    LiveContentPayload, LiveContentRevision, MatchRules, MatchmakingPool, MatchmakingQuality,
+    MatchmakingRegion, MatchmakingSearchWindow, ModerationAction, ModerationActionKind,
     PlayerAccount, PlayerReadyRecord, PlayerReportReceipt, ReportCategory, ReportStatus,
     RoomSummary, RoomVisibility, ShipPlacement, SocialRelationship, SurrenderRecord,
     TurnExpiredRecord,
@@ -683,6 +684,8 @@ pub struct HeartbeatResponse {
 pub struct MatchmakingStatus {
     pub queued: bool,
     pub queued_at: Option<DateTime<Utc>>,
+    pub ticket: Option<MatchmakingTicket>,
+    pub match_quality: Option<MatchmakingQuality>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -690,7 +693,20 @@ pub struct MatchmakingStatus {
 pub struct MatchmakingResponse {
     pub queued: bool,
     pub queued_at: Option<DateTime<Utc>>,
+    pub ticket: MatchmakingTicket,
+    pub match_quality: Option<MatchmakingQuality>,
     pub snapshot: Option<GameSnapshot>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatchmakingTicket {
+    pub pool: MatchmakingPool,
+    pub region: MatchmakingRegion,
+    pub reported_latency_ms: u16,
+    pub rating: Option<i32>,
+    pub party_size: u8,
+    pub search_window: MatchmakingSearchWindow,
 }
 
 #[cfg(test)]

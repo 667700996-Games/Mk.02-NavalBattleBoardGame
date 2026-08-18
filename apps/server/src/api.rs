@@ -1,5 +1,6 @@
 use axum::{
     Json, Router,
+    body::Bytes,
     extract::{
         ConnectInfo, Path, Query, State,
         rejection::{JsonRejection, PathRejection},
@@ -21,7 +22,8 @@ use crate::{
     app::{AppState, SnapshotEvent},
     domain::{
         GameSnapshot, IntegritySignalPage, LiveContentRevision, LiveContentValidation,
-        LiveContentView, ModerationCasePage, PlayerProgression,
+        LiveContentView, MatchmakingPool, MatchmakingPreferences, ModerationCasePage,
+        PlayerProgression,
     },
     error::GameError,
     protocol::{
@@ -29,8 +31,8 @@ use crate::{
         AccountUpgradeInput, AccountUpgradeResponse, CreatePracticeInput, CreateRoomInput,
         CreateSessionInput, FunnelEventInput, FunnelOutcome, HealthResponse, IntegritySignalQuery,
         JoinRoomInput, LiveContentHistoryQuery, LiveContentHistoryResponse, MatchmakingResponse,
-        ModerationActionInput, ModerationActionResponse, ModerationReportQuery, PlayerReportInput,
-        PlayerReportResponse, PublishLiveContentInput, RollbackLiveContentInput,
+        MatchmakingTicket, ModerationActionInput, ModerationActionResponse, ModerationReportQuery,
+        PlayerReportInput, PlayerReportResponse, PublishLiveContentInput, RollbackLiveContentInput,
         RoomCreatedResponse, RoomListResponse, RumMetricInput, SessionResponse,
         SocialRelationshipInput, SocialRelationshipsResponse,
     },
@@ -93,6 +95,7 @@ pub fn router() -> Router<AppState> {
             "/matchmaking",
             post(enqueue_matchmaking).delete(cancel_matchmaking),
         )
+        .route("/matchmaking/ranked", post(enqueue_ranked_matchmaking))
 }
 
 async fn metrics(State(state): State<AppState>) -> impl IntoResponse {
@@ -697,21 +700,56 @@ async fn enqueue_matchmaking(
     State(state): State<AppState>,
     jar: CookieJar,
     headers: HeaderMap,
+    body: Bytes,
+) -> Result<Json<MatchmakingResponse>, GameError> {
+    if !body.is_empty() {
+        return Err(GameError::InvalidRequest);
+    }
+    let session = authenticate(&state, &jar, &headers).await?;
+    matchmaking_response(&state, session, MatchmakingPreferences::default()).await
+}
+
+async fn enqueue_ranked_matchmaking(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+    body: Bytes,
 ) -> Result<Json<MatchmakingResponse>, GameError> {
     let session = authenticate(&state, &jar, &headers).await?;
-    let result = state.enqueue_matchmaking(session.clone()).await?;
+    let preferences = serde_json::from_slice::<MatchmakingPreferences>(&body)
+        .map_err(|_| GameError::InvalidRequest)?;
+    if preferences.pool != MatchmakingPool::Ranked {
+        return Err(GameError::InvalidRequest);
+    }
+    matchmaking_response(&state, session, preferences).await
+}
+
+async fn matchmaking_response(
+    state: &AppState,
+    session: crate::domain::UserSession,
+    preferences: MatchmakingPreferences,
+) -> Result<Json<MatchmakingResponse>, GameError> {
+    let result = state
+        .enqueue_matchmaking(session.clone(), preferences)
+        .await?;
     let snapshot = result
+        .room
         .as_ref()
         .map(|room| room.snapshot_for(session.id))
         .transpose()?;
-    let queued_at = if snapshot.is_none() {
-        state.matchmaking_time(session.id).await?
-    } else {
-        None
+    let ticket = MatchmakingTicket {
+        pool: result.criteria.pool,
+        region: result.criteria.region,
+        reported_latency_ms: result.criteria.latency_ms,
+        rating: result.criteria.rating,
+        party_size: result.criteria.party_size,
+        search_window: result.search_window,
     };
     Ok(Json(MatchmakingResponse {
         queued: snapshot.is_none(),
-        queued_at,
+        queued_at: result.queued_at,
+        ticket,
+        match_quality: result.quality,
         snapshot,
     }))
 }

@@ -41,11 +41,19 @@ The program is complete only when all gates below are satisfied in a production-
 ### A2. Matchmaking and timers
 
 - [x] Matchmaking is durable, distributed, idempotent, cancellable, and cleans abandoned entries.
-- [ ] Ranked matchmaking supports region, latency, rating, party, and widening search constraints.
+- [x] Ranked matchmaking supports region, latency, rating, party, and widening search constraints.
 - [x] Turn and reconnect deadlines are durable jobs claimed once with fencing/idempotency.
 - [x] No process scans every active room at a fixed sub-second interval.
 - Evidence: two-instance matchmaking tests, worker failover tests, timer duplicate-delivery tests,
-  and queue-depth/age metrics.
+  and queue-depth/age metrics. Ranked tickets use a measured, bounded RTT and player-selected region
+  while PostgreSQL supplies rating, account-backed solo-party identity, queue age, and atomic claim
+  authority. Exact, regional, and global windows widen only when both players satisfy the elapsed,
+  rating, RTT, party, and region constraints. Domain/memory/API tests reject guests, injected
+  rating/party fields, spoofed stored ratings, profile changes, and same-account self-matches. A
+  real PostgreSQL/Redis two-instance test proves 31-second mutual widening and rolling-compatible
+  legacy casual writes; Chromium, Firefox, and WebKit verify the lobby's RTT probe, safe request,
+  visible search phase/rating, polling, and cancellation. `RANKED_MATCHMAKING.md` fixes the policy
+  and explicitly leaves ranked progression and seasons to C2.
 
 ### A3. Transport protection and backpressure
 

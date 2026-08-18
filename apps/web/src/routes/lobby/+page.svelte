@@ -21,7 +21,17 @@
   import { realtime } from '$lib/realtime';
   import { gameSnapshot, session, socketStatus } from '$lib/stores';
   import { Avatar, Badge, Button, Field, Modal, Skeleton, Surface } from '$lib/ui';
-  import type { AiDifficulty, GameMode, RoomSummary, RoomVisibility } from '$lib/types';
+  import type {
+    AiDifficulty,
+    GameMode,
+    MatchmakingPool,
+    MatchmakingPreferences,
+    MatchmakingRegion,
+    MatchmakingResponse,
+    MatchmakingTicket,
+    RoomSummary,
+    RoomVisibility
+  } from '$lib/types';
 
   let rooms: RoomSummary[] = [];
   let loading = true;
@@ -38,10 +48,15 @@
   let practicing = false;
   let queuedAt: Date | null = null;
   let elapsed = 0;
+  let matchPool: MatchmakingPool = 'CASUAL';
+  let rankedRegion: MatchmakingRegion = 'KOREA';
+  let measuredLatency: number | null = null;
+  let matchmakingTicket: MatchmakingTicket | null = null;
 
   onMount(() => {
     let refreshTimer: ReturnType<typeof setInterval>;
     let queueTimer: ReturnType<typeof setInterval>;
+    let matchmakingPollTimer: ReturnType<typeof setInterval>;
     let unsubscribe: (() => void) | undefined;
     (async () => {
       try {
@@ -71,6 +86,9 @@
         queueTimer = setInterval(() => {
           elapsed = queuedAt ? Math.floor((Date.now() - queuedAt.getTime()) / 1000) : 0;
         }, 1_000);
+        matchmakingPollTimer = setInterval(() => {
+          if (matching) void pollMatchmaking();
+        }, 3_000);
       } catch (caught) {
         if (caught instanceof ApiError && caught.code === 'SERVER_PROTOCOL_MISMATCH') {
           error = caught.message;
@@ -84,6 +102,7 @@
     return () => {
       if (refreshTimer) clearInterval(refreshTimer);
       if (queueTimer) clearInterval(queueTimer);
+      if (matchmakingPollTimer) clearInterval(matchmakingPollTimer);
       unsubscribe?.();
     };
   });
@@ -140,22 +159,56 @@
       trackFunnelAbandoned('lobby_entered');
       matching = false;
       queuedAt = null;
+      matchmakingTicket = null;
       return;
     }
     try {
-      const response = await api.enqueueMatchmaking();
-      if (response.snapshot) {
-        gameSnapshot.set(response.snapshot);
-        trackFunnelReached('room_joined');
-        await goto(resolve('/room/[code]', { code: response.snapshot.room.code }));
-      } else {
-        matching = true;
-        queuedAt = new Date(response.queuedAt ?? Date.now());
+      if (matchPool === 'RANKED' && !$session?.accountId) {
+        error = '랭크 매칭은 계정 업그레이드 후 이용할 수 있습니다.';
+        return;
       }
+      if (matchPool === 'RANKED' && measuredLatency === null) {
+        await measureLatency();
+      }
+      const response = await api.enqueueMatchmaking(currentMatchmakingPreferences());
+      await acceptMatchmakingResponse(response);
     } catch (caught) {
       trackFunnelFailure('room_joined', 'matchmaking');
       error = caught instanceof ApiError ? caught.message : '빠른 매칭을 시작하지 못했습니다.';
     }
+  }
+
+  function currentMatchmakingPreferences(): MatchmakingPreferences | undefined {
+    return matchPool === 'RANKED'
+      ? { pool: 'RANKED', region: rankedRegion, latencyMs: measuredLatency ?? 300 }
+      : undefined;
+  }
+
+  async function acceptMatchmakingResponse(response: MatchmakingResponse) {
+    matchmakingTicket = response.ticket;
+    if (response.snapshot) {
+      matching = false;
+      gameSnapshot.set(response.snapshot);
+      trackFunnelReached('room_joined');
+      await goto(resolve('/room/[code]', { code: response.snapshot.room.code }));
+      return;
+    }
+    matching = true;
+    queuedAt = new Date(response.queuedAt ?? Date.now());
+  }
+
+  async function pollMatchmaking() {
+    try {
+      await acceptMatchmakingResponse(
+        await api.enqueueMatchmaking(currentMatchmakingPreferences())
+      );
+    } catch {
+      // Keep the durable ticket and retry on the next polling interval.
+    }
+  }
+
+  async function measureLatency() {
+    measuredLatency = await api.measureMatchmakingLatency();
   }
 
   async function startPractice(difficulty: AiDifficulty) {
@@ -222,14 +275,56 @@
         <Badge tone={matching ? 'warning' : 'cyan'} pulse={matching}
           >{matching ? 'SEARCHING SIGNALS' : 'QUICK DEPLOYMENT'}</Badge
         >
-        <h2>{matching ? '상대 지휘관 탐색 중' : '빠른 교전'}</h2>
+        <h2>
+          {matching ? '상대 지휘관 탐색 중' : matchPool === 'RANKED' ? '랭크 교전' : '빠른 교전'}
+        </h2>
         <p>
           {matching
-            ? `${elapsed}초 경과 · 안전한 매칭 채널에서 대기 중입니다.`
-            : '같은 신호를 기다리는 지휘관과 즉시 1:1 비공개 작전을 편성합니다.'}
+            ? `${elapsed}초 경과 · ${matchmakingTicket?.searchWindow.phase ?? 'EXACT'} 범위에서 대기 중입니다.`
+            : matchPool === 'RANKED'
+              ? '레이팅·리전 RTT 기반 1:1 매칭입니다.'
+              : '같은 신호를 기다리는 지휘관과 즉시 1:1 비공개 작전을 편성합니다.'}
         </p>
+        <div class="matchmaking-profile" aria-label="매칭 조건">
+          <div class="matchmaking-pool" role="group" aria-label="매칭 유형">
+            <button
+              type="button"
+              class:active={matchPool === 'CASUAL'}
+              aria-pressed={matchPool === 'CASUAL'}
+              disabled={matching}
+              onclick={() => (matchPool = 'CASUAL')}>일반</button
+            >
+            <button
+              type="button"
+              class:active={matchPool === 'RANKED'}
+              aria-pressed={matchPool === 'RANKED'}
+              disabled={matching}
+              onclick={() => (matchPool = 'RANKED')}>랭크</button
+            >
+          </div>
+          {#if matchPool === 'RANKED'}
+            <label>
+              <span>리전</span>
+              <select bind:value={rankedRegion} disabled={matching} aria-label="랭크 매칭 리전">
+                <option value="KOREA">한국</option>
+                <option value="JAPAN">일본</option>
+                <option value="SOUTHEAST_ASIA">동남아시아</option>
+                <option value="NORTH_AMERICA_WEST">북미 서부</option>
+                <option value="NORTH_AMERICA_EAST">북미 동부</option>
+                <option value="EUROPE">유럽</option>
+              </select>
+            </label>
+            <button class="latency-probe" type="button" disabled={matching} onclick={measureLatency}
+              >{measuredLatency ? `${measuredLatency}ms 재측정` : 'RTT 측정'}</button
+            >
+          {/if}
+        </div>
         <div class="matching-telemetry">
-          <span><i></i> ENCRYPTED LINK</span><span>2 PLAYERS</span><span>RANDOM INITIATIVE</span>
+          <span><i></i> ENCRYPTED LINK</span><span>SOLO PARTY</span><span
+            >{matchmakingTicket?.rating
+              ? `RATING ${matchmakingTicket.rating}`
+              : 'RANDOM INITIATIVE'}</span
+          >
         </div>
       </div>
       <Button variant={matching ? 'danger' : 'primary'} size="lg" onclick={toggleMatchmaking}>
@@ -616,6 +711,41 @@
     color: var(--ink-300);
     font-size: 12px;
     line-height: 1.7;
+  }
+  .matchmaking-profile {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 7px;
+    margin-top: 11px;
+  }
+  .matchmaking-pool {
+    display: flex;
+  }
+  .matchmaking-profile button,
+  .matchmaking-profile select {
+    height: 28px;
+    padding: 0 8px;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    color: var(--ink-300);
+    background: rgba(2, 14, 20, 0.7);
+    font: 600 9px var(--font-display);
+  }
+  .matchmaking-pool button.active {
+    color: var(--cyan-300);
+  }
+  .matchmaking-profile label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--ink-500);
+    font: 600 9px var(--font-display);
+  }
+  .matchmaking-profile .latency-probe {
+    color: var(--amber-400);
+  }
+  .matchmaking-profile :disabled {
+    opacity: 0.6;
   }
   .matching-telemetry {
     display: flex;

@@ -9,18 +9,19 @@ use uuid::Uuid;
 use crate::{
     domain::{
         AccountSession, ActivePenalty, ChatMessageType, GameRoom, IntegritySignal,
-        IntegritySignalKind, IntegritySignalPage, LiveContentRevision, ModerationAction,
-        ModerationActionKind, ModerationCase, ModerationCasePage, NewIntegritySignal,
-        NewModerationAction, NewPlayerReport, PlayerAccount, PlayerReport, ReportCategory,
-        ReportStatus, RoomStatus, RoomSummary, SocialRelationship, UserSession,
+        IntegritySignalKind, IntegritySignalPage, LiveContentRevision, MatchmakingCriteria,
+        MatchmakingPool, MatchmakingRegion, ModerationAction, ModerationActionKind, ModerationCase,
+        ModerationCasePage, NewIntegritySignal, NewModerationAction, NewPlayerReport,
+        PlayerAccount, PlayerReport, ReportCategory, ReportStatus, RoomStatus, RoomSummary,
+        SocialRelationship, UserSession, matchmaking_quality,
     },
     error::GameError,
 };
 
 use super::{
     AccountDeletionScope, AccountDeletionStats, GameHistoryItem, GameStore, MatchmakingClaim,
-    MatchmakingEnqueueResult, MatchmakingQueueStats, MissionReward, RetentionStats,
-    RoomAuthorityLease,
+    MatchmakingEnqueueResult, MatchmakingQueueEntry, MatchmakingQueueStats, MissionReward,
+    RankedRating, RetentionStats, RoomAuthorityLease,
 };
 
 const DELETION_RESURRECTION_COUNT_QUERY: &str = "SELECT (SELECT count(*) FROM player_accounts account JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=account.id) + (SELECT count(*) FROM user_sessions session JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=session.account_id) + (SELECT count(*) FROM progression_reward_ledger reward JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=reward.account_id) + (SELECT count(*) FROM game_result_participants participant JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=participant.account_id) + (SELECT count(*) FROM game_results result JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=ANY(result.participant_account_ids)) + (SELECT count(*) FROM player_relationships relationship JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=relationship.actor_identity_id OR tombstone.account_id=relationship.target_identity_id) + (SELECT count(*) FROM player_reports report JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=report.reporter_identity_id OR tombstone.account_id=report.target_identity_id) + (SELECT count(*) FROM integrity_signals signal JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=signal.subject_identity_id)";
@@ -47,6 +48,8 @@ pub struct DatabaseVerification {
     pub sessions: i64,
     pub rooms: i64,
     pub results: i64,
+    pub matchmaking_entries: i64,
+    pub ranked_ratings: i64,
     pub privacy_requests: i64,
     pub deletion_tombstones: i64,
     pub live_content_revisions: i64,
@@ -89,6 +92,56 @@ struct LiveContentAuditRow {
     change_note: String,
     rolled_back_from_revision: Option<i64>,
     created_at: DateTime<Utc>,
+}
+
+#[derive(sqlx::FromRow)]
+struct MatchmakingCandidateRow {
+    id: Uuid,
+    nickname: String,
+    token_hash: String,
+    created_at: DateTime<Utc>,
+    last_seen_at: DateTime<Utc>,
+    current_room_id: Option<Uuid>,
+    account_id: Option<Uuid>,
+    queued_at: DateTime<Utc>,
+    pool: String,
+    region: String,
+    latency_ms: i32,
+    rating: Option<i32>,
+    party_id: Option<Uuid>,
+    party_size: i16,
+}
+
+#[derive(sqlx::FromRow)]
+struct MatchmakingProfileRow {
+    session_id: Uuid,
+    pool: String,
+    region: String,
+    latency_ms: i32,
+    rating: Option<i32>,
+    party_id: Option<Uuid>,
+    party_size: i16,
+}
+
+fn decode_matchmaking_criteria(
+    session_id: Uuid,
+    pool: &str,
+    region: &str,
+    latency_ms: i32,
+    rating: Option<i32>,
+    party_id: Option<Uuid>,
+    party_size: i16,
+) -> Result<MatchmakingCriteria, GameError> {
+    MatchmakingCriteria {
+        pool: MatchmakingPool::from_db_str(pool)?,
+        region: MatchmakingRegion::from_db_str(region)?,
+        latency_ms: u16::try_from(latency_ms).map_err(|_| GameError::Internal)?,
+        rating,
+        party_id: party_id.unwrap_or(session_id),
+        party_size: u8::try_from(party_size).map_err(|_| GameError::Internal)?,
+    }
+    .validate()
+    .map_err(|_| GameError::Internal)
 }
 
 impl std::fmt::Debug for PostgresRedisStore {
@@ -139,6 +192,22 @@ impl PostgresRedisStore {
                 return Err(GameError::Internal);
             }
         }
+        let matchmaking_rows: Vec<MatchmakingProfileRow> = sqlx::query_as(
+            "SELECT session_id,pool,region,latency_ms,rating,party_id,party_size FROM matchmaking_queue",
+        )
+        .fetch_all(&pool)
+        .await?;
+        for row in &matchmaking_rows {
+            decode_matchmaking_criteria(
+                row.session_id,
+                &row.pool,
+                &row.region,
+                row.latency_ms,
+                row.rating,
+                row.party_id,
+                row.party_size,
+            )?;
+        }
         let live_content_rows: Vec<LiveContentAuditRow> = sqlx::query_as(
             "SELECT payload,revision,schema_version,activate_at,operator_id,change_note,rolled_back_from_revision,created_at FROM live_content_revisions ORDER BY revision",
         )
@@ -181,6 +250,9 @@ impl PostgresRedisStore {
         let results: i64 = sqlx::query_scalar("SELECT count(*) FROM game_results")
             .fetch_one(&pool)
             .await?;
+        let ranked_ratings: i64 = sqlx::query_scalar("SELECT count(*) FROM ranked_ratings")
+            .fetch_one(&pool)
+            .await?;
         let privacy_requests: i64 = sqlx::query_scalar("SELECT count(*) FROM privacy_requests")
             .fetch_one(&pool)
             .await?;
@@ -202,6 +274,8 @@ impl PostgresRedisStore {
             sessions,
             rooms: snapshots.len() as i64,
             results,
+            matchmaking_entries: matchmaking_rows.len() as i64,
+            ranked_ratings,
             privacy_requests,
             deletion_tombstones,
             live_content_revisions,
@@ -749,6 +823,12 @@ impl GameStore for PostgresRedisStore {
         .bind(account_id)
         .fetch_all(&mut *transaction)
         .await?;
+        let ranked_rating: Option<serde_json::Value> = sqlx::query_scalar(
+            "SELECT jsonb_build_object('rating',rating,'matchesPlayed',matches_played,'updatedAt',updated_at) FROM ranked_ratings WHERE account_id=$1",
+        )
+        .bind(account_id)
+        .fetch_optional(&mut *transaction)
+        .await?;
         let relationships: Vec<serde_json::Value> = sqlx::query_scalar(
             "SELECT jsonb_build_object('targetIdentityId',target_identity_id,'targetNickname',target_nickname,'muted',muted,'blocked',blocked,'updatedAt',updated_at) FROM player_relationships WHERE actor_identity_id=ANY($1) ORDER BY updated_at DESC",
         )
@@ -790,6 +870,7 @@ impl GameStore for PostgresRedisStore {
             "sessions": sessions,
             "gameHistory": game_history,
             "progressionRewards": rewards,
+            "rankedRating": ranked_rating,
             "socialRelationships": relationships,
             "moderationReports": reports,
             "moderationActions": moderation_actions,
@@ -1129,17 +1210,46 @@ impl GameStore for PostgresRedisStore {
     async fn enqueue_matchmaking(
         &self,
         session: &UserSession,
+        criteria: MatchmakingCriteria,
     ) -> Result<MatchmakingEnqueueResult, GameError> {
         let mut transaction = self.pool.begin().await?;
-        let current_room_id: Option<Option<Uuid>> =
-            sqlx::query_scalar("SELECT current_room_id FROM user_sessions WHERE id=$1 FOR UPDATE")
-                .bind(session.id)
-                .fetch_optional(&mut *transaction)
-                .await?;
-        match current_room_id {
+        let stored_session: Option<(Option<Uuid>, Option<Uuid>)> = sqlx::query_as(
+            "SELECT current_room_id, account_id FROM user_sessions WHERE id=$1 AND token_hash=CAST($2 AS CHAR(64)) FOR UPDATE",
+        )
+        .bind(session.id)
+        .bind(&session.token_hash)
+        .fetch_optional(&mut *transaction)
+        .await?;
+        let account_id = match stored_session {
             None => return Err(GameError::Unauthorized),
-            Some(Some(_)) => return Err(GameError::AlreadyJoined),
-            Some(None) => {}
+            Some((Some(_), _)) => return Err(GameError::AlreadyJoined),
+            Some((None, account_id)) => account_id,
+        };
+
+        let criteria = criteria.validate()?;
+        match criteria.pool {
+            MatchmakingPool::Casual => {
+                if criteria != MatchmakingCriteria::casual(session.id) {
+                    return Err(GameError::InvalidRequest);
+                }
+            }
+            MatchmakingPool::Ranked => {
+                let account_id = account_id.ok_or(GameError::Unauthorized)?;
+                sqlx::query(
+                    "INSERT INTO ranked_ratings (account_id) SELECT id FROM player_accounts WHERE id=$1 ON CONFLICT (account_id) DO NOTHING",
+                )
+                .bind(account_id)
+                .execute(&mut *transaction)
+                .await?;
+                let authoritative_rating: Option<i32> =
+                    sqlx::query_scalar("SELECT rating FROM ranked_ratings WHERE account_id=$1")
+                        .bind(account_id)
+                        .fetch_optional(&mut *transaction)
+                        .await?;
+                if criteria.party_id != account_id || criteria.rating != authoritative_rating {
+                    return Err(GameError::InvalidRequest);
+                }
+            }
         }
 
         sqlx::query(
@@ -1153,67 +1263,163 @@ impl GameStore for PostgresRedisStore {
         .execute(&mut *transaction)
         .await?;
         sqlx::query(
-            "INSERT INTO matchmaking_queue (session_id, queued_at) VALUES ($1, now()) ON CONFLICT (session_id) DO NOTHING",
+            "INSERT INTO matchmaking_queue (session_id, queued_at, pool, region, latency_ms, rating, party_id, party_size) VALUES ($1, now(), $2, $3, $4, $5, $6, $7) ON CONFLICT (session_id) DO NOTHING",
         )
         .bind(session.id)
+        .bind(criteria.pool.as_db_str())
+        .bind(criteria.region.as_db_str())
+        .bind(i32::from(criteria.latency_ms))
+        .bind(criteria.rating)
+        .bind(criteria.party_id)
+        .bind(i16::from(criteria.party_size))
         .execute(&mut *transaction)
         .await?;
 
-        let (queued_at, existing_claim): (DateTime<Utc>, Option<Uuid>) = sqlx::query_as(
-            "SELECT queued_at, claim_id FROM matchmaking_queue WHERE session_id=$1 FOR UPDATE",
-        )
+        let own_row: (
+            DateTime<Utc>,
+            Option<Uuid>,
+            String,
+            String,
+            i32,
+            Option<i32>,
+            Option<Uuid>,
+            i16,
+        ) =
+            sqlx::query_as(
+                "SELECT queued_at, claim_id, pool, region, latency_ms, rating, party_id, party_size FROM matchmaking_queue WHERE session_id=$1 FOR UPDATE",
+            )
         .bind(session.id)
         .fetch_one(&mut *transaction)
         .await?;
+        let queued_at = own_row.0;
+        let existing_claim = own_row.1;
+        let stored_criteria = decode_matchmaking_criteria(
+            session.id, &own_row.2, &own_row.3, own_row.4, own_row.5, own_row.6, own_row.7,
+        )?;
+        if stored_criteria != criteria {
+            return Err(GameError::InvalidState);
+        }
         if existing_claim.is_some() {
             transaction.commit().await?;
             return Ok(MatchmakingEnqueueResult {
                 queued_at,
+                criteria,
                 claim: None,
             });
         }
 
-        let own_identity = session.account_id.unwrap_or(session.id);
-        let opponent: Option<(
-            Uuid,
-            String,
-            String,
-            DateTime<Utc>,
-            DateTime<Utc>,
-            Option<Uuid>,
-            Option<Uuid>,
-            DateTime<Utc>,
-        )> = sqlx::query_as(
-            "SELECT sessions.id, sessions.nickname, sessions.token_hash, sessions.created_at, sessions.last_seen_at, sessions.current_room_id, sessions.account_id, queue.queued_at FROM matchmaking_queue queue JOIN user_sessions sessions ON sessions.id=queue.session_id WHERE queue.session_id<>$1 AND queue.claim_id IS NULL AND sessions.current_room_id IS NULL AND NOT EXISTS (SELECT 1 FROM player_relationships relationships WHERE relationships.blocked AND ((relationships.actor_identity_id=$2 AND relationships.target_identity_id=COALESCE(sessions.account_id,sessions.id)) OR (relationships.actor_identity_id=COALESCE(sessions.account_id,sessions.id) AND relationships.target_identity_id=$2))) ORDER BY queue.queued_at ASC FOR UPDATE OF queue SKIP LOCKED LIMIT 1",
+        let own_identity = account_id.unwrap_or(session.id);
+        let opponent: Option<MatchmakingCandidateRow> = sqlx::query_as(
+            r#"SELECT sessions.id, sessions.nickname, sessions.token_hash, sessions.created_at,
+                sessions.last_seen_at, sessions.current_room_id, sessions.account_id,
+                queue.queued_at, queue.pool, queue.region, queue.latency_ms, queue.rating,
+                queue.party_id, queue.party_size
+              FROM matchmaking_queue queue
+              JOIN user_sessions sessions ON sessions.id=queue.session_id
+              WHERE queue.session_id<>$1
+                AND queue.claim_id IS NULL
+                AND queue.pool=$3
+                AND sessions.current_room_id IS NULL
+                AND COALESCE(queue.party_id,queue.session_id)<>$4
+                AND queue.party_size=$5
+                AND NOT EXISTS (
+                  SELECT 1 FROM player_relationships relationships
+                  WHERE relationships.blocked AND (
+                    (relationships.actor_identity_id=$2 AND relationships.target_identity_id=COALESCE(sessions.account_id,sessions.id))
+                    OR (relationships.actor_identity_id=COALESCE(sessions.account_id,sessions.id) AND relationships.target_identity_id=$2)
+                  )
+                )
+                AND (
+                  $3='CASUAL'
+                  OR (
+                    $6 <= CASE
+                      WHEN now()-$9 >= interval '90 seconds' THEN 300
+                      WHEN now()-$9 >= interval '30 seconds' THEN 200
+                      ELSE 120 END
+                    AND queue.latency_ms <= CASE
+                      WHEN now()-queue.queued_at >= interval '90 seconds' THEN 300
+                      WHEN now()-queue.queued_at >= interval '30 seconds' THEN 200
+                      ELSE 120 END
+                    AND abs(queue.rating-$7) <= LEAST(
+                      CASE WHEN now()-$9 >= interval '90 seconds' THEN 500 WHEN now()-$9 >= interval '30 seconds' THEN 250 ELSE 100 END,
+                      CASE WHEN now()-queue.queued_at >= interval '90 seconds' THEN 500 WHEN now()-queue.queued_at >= interval '30 seconds' THEN 250 ELSE 100 END
+                    )
+                    AND (
+                      queue.region=$8
+                      OR (
+                        now()-$9 >= interval '30 seconds'
+                        AND now()-queue.queued_at >= interval '30 seconds'
+                        AND CASE queue.region
+                          WHEN 'KOREA' THEN 'ASIA_PACIFIC'
+                          WHEN 'JAPAN' THEN 'ASIA_PACIFIC'
+                          WHEN 'SOUTHEAST_ASIA' THEN 'ASIA_PACIFIC'
+                          WHEN 'NORTH_AMERICA_WEST' THEN 'NORTH_AMERICA'
+                          WHEN 'NORTH_AMERICA_EAST' THEN 'NORTH_AMERICA'
+                          WHEN 'EUROPE' THEN 'EUROPE'
+                          ELSE 'INVALID' END
+                        = CASE $8
+                          WHEN 'KOREA' THEN 'ASIA_PACIFIC'
+                          WHEN 'JAPAN' THEN 'ASIA_PACIFIC'
+                          WHEN 'SOUTHEAST_ASIA' THEN 'ASIA_PACIFIC'
+                          WHEN 'NORTH_AMERICA_WEST' THEN 'NORTH_AMERICA'
+                          WHEN 'NORTH_AMERICA_EAST' THEN 'NORTH_AMERICA'
+                          WHEN 'EUROPE' THEN 'EUROPE'
+                          ELSE 'INVALID' END
+                      )
+                      OR (
+                        now()-$9 >= interval '90 seconds'
+                        AND now()-queue.queued_at >= interval '90 seconds'
+                      )
+                    )
+                  )
+                )
+              ORDER BY queue.queued_at ASC
+              FOR UPDATE OF queue SKIP LOCKED
+              LIMIT 1"#,
         )
         .bind(session.id)
         .bind(own_identity)
+        .bind(criteria.pool.as_db_str())
+        .bind(criteria.party_id)
+        .bind(i16::from(criteria.party_size))
+        .bind(i32::from(criteria.latency_ms))
+        .bind(criteria.rating)
+        .bind(criteria.region.as_db_str())
+        .bind(queued_at)
         .fetch_optional(&mut *transaction)
         .await?;
 
-        let Some((
-            id,
-            nickname,
-            token_hash,
-            created_at,
-            last_seen_at,
-            current_room_id,
-            account_id,
-            opponent_queued_at,
-        )) = opponent
-        else {
+        let Some(opponent) = opponent else {
             transaction.commit().await?;
             return Ok(MatchmakingEnqueueResult {
                 queued_at,
+                criteria,
                 claim: None,
             });
         };
+        let opponent_criteria = decode_matchmaking_criteria(
+            opponent.id,
+            &opponent.pool,
+            &opponent.region,
+            opponent.latency_ms,
+            opponent.rating,
+            opponent.party_id,
+            opponent.party_size,
+        )?;
+        let quality = matchmaking_quality(
+            criteria,
+            queued_at,
+            opponent_criteria,
+            opponent.queued_at,
+            Utc::now(),
+        )
+        .ok_or(GameError::Internal)?;
         let claim_id = Uuid::new_v4();
         let claimed = sqlx::query(
             "UPDATE matchmaking_queue SET claim_id=$1, claimed_at=now() WHERE session_id=ANY($2) AND claim_id IS NULL",
         )
         .bind(claim_id)
-        .bind(vec![session.id, id])
+        .bind(vec![session.id, opponent.id])
         .execute(&mut *transaction)
         .await?;
         if claimed.rows_affected() != 2 {
@@ -1223,18 +1429,21 @@ impl GameStore for PostgresRedisStore {
 
         Ok(MatchmakingEnqueueResult {
             queued_at,
+            criteria,
             claim: Some(MatchmakingClaim {
                 id: claim_id,
                 opponent: UserSession {
-                    id,
-                    account_id,
-                    nickname,
-                    token_hash,
-                    created_at,
-                    last_seen_at,
-                    current_room_id,
+                    id: opponent.id,
+                    account_id: opponent.account_id,
+                    nickname: opponent.nickname,
+                    token_hash: opponent.token_hash,
+                    created_at: opponent.created_at,
+                    last_seen_at: opponent.last_seen_at,
+                    current_room_id: opponent.current_room_id,
                 },
-                opponent_queued_at,
+                opponent_queued_at: opponent.queued_at,
+                opponent_criteria,
+                quality,
             }),
         })
     }
@@ -1905,22 +2114,66 @@ impl GameStore for PostgresRedisStore {
         u64::try_from(count).map_err(|_| GameError::Internal)
     }
 
-    async fn matchmaking_time(&self, session_id: Uuid) -> Result<Option<DateTime<Utc>>, GameError> {
-        sqlx::query_scalar("SELECT queued_at FROM matchmaking_queue WHERE session_id=$1")
+    async fn matchmaking_entry(
+        &self,
+        session_id: Uuid,
+    ) -> Result<Option<MatchmakingQueueEntry>, GameError> {
+        let row: Option<(
+            DateTime<Utc>,
+            String,
+            String,
+            i32,
+            Option<i32>,
+            Option<Uuid>,
+            i16,
+        )> =
+            sqlx::query_as(
+                "SELECT queued_at, pool, region, latency_ms, rating, party_id, party_size FROM matchmaking_queue WHERE session_id=$1",
+            )
             .bind(session_id)
             .fetch_optional(&self.pool)
-            .await
-            .map_err(Into::into)
+            .await?;
+        row.map(
+            |(queued_at, pool, region, latency_ms, rating, party_id, party_size)| {
+                Ok(MatchmakingQueueEntry {
+                    queued_at,
+                    criteria: decode_matchmaking_criteria(
+                        session_id, &pool, &region, latency_ms, rating, party_id, party_size,
+                    )?,
+                })
+            },
+        )
+        .transpose()
+    }
+
+    async fn ranked_rating(&self, account_id: Uuid) -> Result<RankedRating, GameError> {
+        sqlx::query(
+            "INSERT INTO ranked_ratings (account_id) SELECT id FROM player_accounts WHERE id=$1 ON CONFLICT (account_id) DO NOTHING",
+        )
+        .bind(account_id)
+        .execute(&self.pool)
+        .await?;
+        let row: Option<(i32, i32)> =
+            sqlx::query_as("SELECT rating, matches_played FROM ranked_ratings WHERE account_id=$1")
+                .bind(account_id)
+                .fetch_optional(&self.pool)
+                .await?;
+        let (rating, matches_played) = row.ok_or(GameError::Unauthorized)?;
+        Ok(RankedRating {
+            rating,
+            matches_played: u32::try_from(matches_played).map_err(|_| GameError::Internal)?,
+        })
     }
 
     async fn matchmaking_queue_stats(&self) -> Result<MatchmakingQueueStats, GameError> {
-        let (queued, oldest_age_seconds): (i64, i64) = sqlx::query_as(
-            "SELECT count(*)::bigint, COALESCE(EXTRACT(EPOCH FROM now()-min(queued_at)), 0)::bigint FROM matchmaking_queue",
+        let (queued, ranked_queued, oldest_age_seconds): (i64, i64, i64) = sqlx::query_as(
+            "SELECT count(*)::bigint, count(*) FILTER (WHERE pool='RANKED')::bigint, COALESCE(EXTRACT(EPOCH FROM now()-min(queued_at)), 0)::bigint FROM matchmaking_queue",
         )
         .fetch_one(&self.pool)
         .await?;
         Ok(MatchmakingQueueStats {
             queued: queued.max(0) as u64,
+            ranked_queued: ranked_queued.max(0) as u64,
             oldest_age_seconds: oldest_age_seconds.max(0) as u64,
         })
     }

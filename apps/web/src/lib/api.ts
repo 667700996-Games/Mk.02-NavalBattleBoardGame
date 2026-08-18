@@ -10,6 +10,8 @@ import type {
   IntegritySignalKind,
   IntegritySignalPage,
   MatchRules,
+  MatchmakingPreferences,
+  MatchmakingResponse,
   ModerationAction,
   ModerationActionKind,
   ModerationCasePage,
@@ -215,16 +217,22 @@ export const api = {
   },
   history: () => request<{ games: HistoryItem[] }>('/games/history'),
   replay: (roomId: string) => request<GameReplay>(`/games/${roomId}/replay`),
-  enqueueMatchmaking: async () => {
-    const response = await request<{
-      queued: boolean;
-      queuedAt: string | null;
-      snapshot: unknown | null;
-    }>('/matchmaking', { method: 'POST' });
+  measureMatchmakingLatency: async () => {
+    const startedAt = performance.now();
+    await request<unknown>('/health');
+    return Math.max(1, Math.round(performance.now() - startedAt));
+  },
+  enqueueMatchmaking: async (preferences?: MatchmakingPreferences) => {
+    const response = await request<
+      Omit<MatchmakingResponse, 'snapshot'> & { snapshot: unknown | null }
+    >(preferences?.pool === 'RANKED' ? '/matchmaking/ranked' : '/matchmaking', {
+      method: 'POST',
+      ...(preferences ? { body: JSON.stringify(preferences) } : {})
+    });
     return {
       ...response,
       snapshot: response.snapshot === null ? null : compatibleSnapshot(response.snapshot)
-    };
+    } satisfies MatchmakingResponse;
   },
   cancelMatchmaking: () => request<void>('/matchmaking', { method: 'DELETE' })
 };

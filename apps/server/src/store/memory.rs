@@ -7,24 +7,27 @@ use uuid::Uuid;
 
 use crate::{
     domain::{
-        AccountSession, ActivePenalty, ChatMessageType, FinishReason, GameRoom, IntegritySignal,
-        IntegritySignalKind, IntegritySignalPage, LiveContentRevision, ModerationAction,
-        ModerationActionKind, ModerationCase, ModerationCasePage, NewIntegritySignal,
-        NewModerationAction, NewPlayerReport, PlayerAccount, PlayerReport, ReportStatus,
-        RoomStatus, RoomSummary, RoomVisibility, SocialRelationship, UserSession,
+        AccountSession, ActivePenalty, ChatMessageType, DEFAULT_RANKED_RATING, FinishReason,
+        GameRoom, IntegritySignal, IntegritySignalKind, IntegritySignalPage, LiveContentRevision,
+        MatchmakingCriteria, MatchmakingPool, ModerationAction, ModerationActionKind,
+        ModerationCase, ModerationCasePage, NewIntegritySignal, NewModerationAction,
+        NewPlayerReport, PlayerAccount, PlayerReport, ReportStatus, RoomStatus, RoomSummary,
+        RoomVisibility, SocialRelationship, UserSession, matchmaking_quality,
     },
     error::GameError,
 };
 
 use super::{
     AccountDeletionScope, AccountDeletionStats, GameHistoryItem, GameStore, MatchmakingClaim,
-    MatchmakingEnqueueResult, MatchmakingQueueStats, MissionReward, RetentionStats,
+    MatchmakingEnqueueResult, MatchmakingQueueEntry, MatchmakingQueueStats, MissionReward,
+    RankedRating, RetentionStats,
 };
 
 #[derive(Debug, Clone)]
 struct MatchmakingEntry {
     session: UserSession,
     queued_at: DateTime<Utc>,
+    criteria: MatchmakingCriteria,
     claim_id: Option<Uuid>,
     claimed_at: Option<DateTime<Utc>>,
 }
@@ -47,6 +50,7 @@ pub struct MemoryStore {
     privacy_requests: DashMap<Uuid, serde_json::Value>,
     rooms: DashMap<Uuid, GameRoom>,
     matchmaking: Mutex<HashMap<Uuid, MatchmakingEntry>>,
+    ranked_ratings: DashMap<Uuid, RankedRating>,
 }
 
 #[async_trait]
@@ -266,6 +270,10 @@ impl GameStore for MemoryStore {
             .filter(|signal| identities.contains(&signal.subject_identity_id))
             .map(|signal| signal.value().clone())
             .collect();
+        let ranked_rating = self
+            .ranked_ratings
+            .get(&account_id)
+            .map(|rating| *rating.value());
         let archive = serde_json::json!({
             "formatVersion": 1,
             "requestId": request_id,
@@ -274,6 +282,7 @@ impl GameStore for MemoryStore {
             "sessions": sessions,
             "gameHistory": history,
             "progressionRewards": rewards,
+            "rankedRating": ranked_rating,
             "socialRelationships": relationships,
             "moderationReports": reports,
             "moderationActions": moderation_actions,
@@ -435,6 +444,7 @@ impl GameStore for MemoryStore {
         self.account_id_by_handle
             .remove(&account.handle.to_lowercase());
         self.accounts.remove(&account_id);
+        self.ranked_ratings.remove(&account_id);
         self.privacy_requests.insert(
             request_id,
             serde_json::json!({
@@ -965,6 +975,7 @@ impl GameStore for MemoryStore {
     async fn enqueue_matchmaking(
         &self,
         session: &UserSession,
+        criteria: MatchmakingCriteria,
     ) -> Result<MatchmakingEnqueueResult, GameError> {
         let stored_session = self
             .sessions_by_hash
@@ -973,7 +984,27 @@ impl GameStore for MemoryStore {
         if stored_session.current_room_id.is_some() {
             return Err(GameError::AlreadyJoined);
         }
-        drop(stored_session);
+        let stored_session = stored_session.value().clone();
+        if stored_session.id != session.id {
+            return Err(GameError::Unauthorized);
+        }
+
+        let criteria = criteria.validate()?;
+        match criteria.pool {
+            MatchmakingPool::Casual => {
+                if criteria != MatchmakingCriteria::casual(stored_session.id) {
+                    return Err(GameError::InvalidRequest);
+                }
+            }
+            MatchmakingPool::Ranked => {
+                let account_id = stored_session.account_id.ok_or(GameError::Unauthorized)?;
+                if criteria.party_id != account_id
+                    || criteria.rating != Some(self.ranked_rating(account_id).await?.rating)
+                {
+                    return Err(GameError::InvalidRequest);
+                }
+            }
+        }
 
         let now = Utc::now();
         let stale_before = now - Duration::seconds(30);
@@ -991,9 +1022,13 @@ impl GameStore for MemoryStore {
         }
 
         let queued_at = if let Some(entry) = queue.get(&session.id) {
+            if entry.criteria != criteria {
+                return Err(GameError::InvalidState);
+            }
             if entry.claim_id.is_some() {
                 return Ok(MatchmakingEnqueueResult {
                     queued_at: entry.queued_at,
+                    criteria,
                     claim: None,
                 });
             }
@@ -1002,8 +1037,9 @@ impl GameStore for MemoryStore {
             queue.insert(
                 session.id,
                 MatchmakingEntry {
-                    session: session.clone(),
+                    session: stored_session.clone(),
                     queued_at: now,
+                    criteria,
                     claim_id: None,
                     claimed_at: None,
                 },
@@ -1011,12 +1047,12 @@ impl GameStore for MemoryStore {
             now
         };
 
-        let own_identity = session.account_id.unwrap_or(session.id);
-        let opponent_id = queue
+        let own_identity = stored_session.account_id.unwrap_or(stored_session.id);
+        let opponent_match = queue
             .iter()
-            .filter(|(session_id, entry)| {
-                if **session_id == session.id || entry.claim_id.is_some() {
-                    return false;
+            .filter_map(|(session_id, entry)| {
+                if *session_id == session.id || entry.claim_id.is_some() {
+                    return None;
                 }
                 let opponent_identity = entry.session.account_id.unwrap_or(entry.session.id);
                 let own_blocks = self
@@ -1027,13 +1063,17 @@ impl GameStore for MemoryStore {
                     .social_relationships
                     .get(&(opponent_identity, own_identity))
                     .is_some_and(|relationship| relationship.blocked);
-                !own_blocks && !opponent_blocks
+                if own_blocks || opponent_blocks {
+                    return None;
+                }
+                matchmaking_quality(criteria, queued_at, entry.criteria, entry.queued_at, now)
+                    .map(|quality| (*session_id, entry.queued_at, quality))
             })
-            .min_by_key(|(_, entry)| entry.queued_at)
-            .map(|(session_id, _)| *session_id);
-        let Some(opponent_id) = opponent_id else {
+            .min_by_key(|(_, opponent_queued_at, _)| *opponent_queued_at);
+        let Some((opponent_id, _, quality)) = opponent_match else {
             return Ok(MatchmakingEnqueueResult {
                 queued_at,
+                criteria,
                 claim: None,
             });
         };
@@ -1043,6 +1083,7 @@ impl GameStore for MemoryStore {
             .get_mut(&opponent_id)
             .expect("selected matchmaking opponent must exist");
         let opponent_queued_at = opponent.queued_at;
+        let opponent_criteria = opponent.criteria;
         opponent.claim_id = Some(claim_id);
         opponent.claimed_at = Some(now);
         let opponent = opponent.session.clone();
@@ -1054,10 +1095,13 @@ impl GameStore for MemoryStore {
 
         Ok(MatchmakingEnqueueResult {
             queued_at,
+            criteria,
             claim: Some(MatchmakingClaim {
                 id: claim_id,
                 opponent,
                 opponent_queued_at,
+                opponent_criteria,
+                quality,
             }),
         })
     }
@@ -1142,13 +1186,32 @@ impl GameStore for MemoryStore {
         Ok(queue.remove(&session_id).is_some())
     }
 
-    async fn matchmaking_time(&self, session_id: Uuid) -> Result<Option<DateTime<Utc>>, GameError> {
+    async fn matchmaking_entry(
+        &self,
+        session_id: Uuid,
+    ) -> Result<Option<MatchmakingQueueEntry>, GameError> {
         Ok(self
             .matchmaking
             .lock()
             .await
             .get(&session_id)
-            .map(|entry| entry.queued_at))
+            .map(|entry| MatchmakingQueueEntry {
+                queued_at: entry.queued_at,
+                criteria: entry.criteria,
+            }))
+    }
+
+    async fn ranked_rating(&self, account_id: Uuid) -> Result<RankedRating, GameError> {
+        if !self.accounts.contains_key(&account_id) {
+            return Err(GameError::Unauthorized);
+        }
+        Ok(*self
+            .ranked_ratings
+            .entry(account_id)
+            .or_insert(RankedRating {
+                rating: DEFAULT_RANKED_RATING,
+                matches_played: 0,
+            }))
     }
 
     async fn matchmaking_queue_stats(&self) -> Result<MatchmakingQueueStats, GameError> {
@@ -1165,6 +1228,10 @@ impl GameStore for MemoryStore {
             .unwrap_or_default();
         Ok(MatchmakingQueueStats {
             queued: queue.len() as u64,
+            ranked_queued: queue
+                .values()
+                .filter(|entry| entry.criteria.pool == MatchmakingPool::Ranked)
+                .count() as u64,
             oldest_age_seconds,
         })
     }
@@ -1279,6 +1346,25 @@ mod tests {
         }
     }
 
+    async fn ranked_session(store: &MemoryStore, nickname: &str) -> UserSession {
+        let account_id = Uuid::new_v4();
+        let mut session = named_session(nickname);
+        session.account_id = Some(account_id);
+        store.accounts.insert(
+            account_id,
+            (
+                PlayerAccount {
+                    id: account_id,
+                    handle: nickname.to_string(),
+                    created_at: Utc::now(),
+                },
+                "ranked-test-recovery-hash".to_string(),
+            ),
+        );
+        store.save_session(&session).await.unwrap();
+        session
+    }
+
     #[tokio::test]
     async fn stale_room_snapshots_cannot_overwrite_a_newer_revision() {
         let store = MemoryStore::default();
@@ -1316,20 +1402,29 @@ mod tests {
         store.save_session(&first).await.unwrap();
         store.save_session(&second).await.unwrap();
 
-        let queued = store.enqueue_matchmaking(&first).await.unwrap();
+        let queued = store
+            .enqueue_matchmaking(&first, MatchmakingCriteria::casual(first.id))
+            .await
+            .unwrap();
         assert!(queued.claim.is_none());
         assert_eq!(
-            store.matchmaking_time(first.id).await.unwrap(),
-            Some(queued.queued_at)
+            store.matchmaking_entry(first.id).await.unwrap(),
+            Some(MatchmakingQueueEntry {
+                queued_at: queued.queued_at,
+                criteria: MatchmakingCriteria::casual(first.id),
+            })
         );
 
-        let matched = store.enqueue_matchmaking(&second).await.unwrap();
+        let matched = store
+            .enqueue_matchmaking(&second, MatchmakingCriteria::casual(second.id))
+            .await
+            .unwrap();
         let claim = matched.claim.unwrap();
         assert_eq!(claim.opponent.id, first.id);
         assert_eq!(claim.opponent_queued_at, queued.queued_at);
         assert!(
             store
-                .enqueue_matchmaking(&first)
+                .enqueue_matchmaking(&first, MatchmakingCriteria::casual(first.id))
                 .await
                 .unwrap()
                 .claim
@@ -1369,8 +1464,160 @@ mod tests {
                 .current_room_id,
             Some(room.id)
         );
-        assert!(store.matchmaking_time(first.id).await.unwrap().is_none());
-        assert!(store.matchmaking_time(second.id).await.unwrap().is_none());
+        assert!(store.matchmaking_entry(first.id).await.unwrap().is_none());
+        assert!(store.matchmaking_entry(second.id).await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn ranked_matchmaking_uses_authoritative_rating_and_mutual_widening() {
+        let store = MemoryStore::default();
+        let first = ranked_session(&store, "Rank Alpha").await;
+        let second = ranked_session(&store, "Rank Bravo").await;
+        let first_account = first.account_id.unwrap();
+        let second_account = second.account_id.unwrap();
+        store.ranked_ratings.insert(
+            second_account,
+            RankedRating {
+                rating: 1_680,
+                matches_played: 12,
+            },
+        );
+        let first_criteria = MatchmakingCriteria::ranked(
+            first_account,
+            crate::domain::MatchmakingRegion::Korea,
+            80,
+            DEFAULT_RANKED_RATING,
+        )
+        .unwrap();
+        let second_criteria = MatchmakingCriteria::ranked(
+            second_account,
+            crate::domain::MatchmakingRegion::Japan,
+            90,
+            1_680,
+        )
+        .unwrap();
+
+        assert!(
+            store
+                .enqueue_matchmaking(&first, first_criteria)
+                .await
+                .unwrap()
+                .claim
+                .is_none()
+        );
+        let changed_profile = MatchmakingCriteria::ranked(
+            first_account,
+            crate::domain::MatchmakingRegion::Japan,
+            80,
+            DEFAULT_RANKED_RATING,
+        )
+        .unwrap();
+        assert_eq!(
+            store
+                .enqueue_matchmaking(&first, changed_profile)
+                .await
+                .unwrap_err(),
+            GameError::InvalidState,
+            "an idempotent ticket cannot be mutated to reset or widen its profile"
+        );
+        assert!(
+            store
+                .enqueue_matchmaking(&second, second_criteria)
+                .await
+                .unwrap()
+                .claim
+                .is_none(),
+            "different regional/rating exact windows must not match"
+        );
+        {
+            let mut queue = store.matchmaking.lock().await;
+            for entry in queue.values_mut() {
+                entry.queued_at = Utc::now() - Duration::seconds(31);
+            }
+        }
+        let matched = store
+            .enqueue_matchmaking(&second, second_criteria)
+            .await
+            .unwrap()
+            .claim
+            .expect("both widened regional windows should match");
+        assert_eq!(matched.opponent.id, first.id);
+        assert_eq!(matched.quality.rating_delta, 180);
+        assert_eq!(
+            matched.quality.phase,
+            crate::domain::MatchmakingSearchPhase::Regional
+        );
+        assert_eq!(
+            store.matchmaking_queue_stats().await.unwrap().ranked_queued,
+            2
+        );
+    }
+
+    #[tokio::test]
+    async fn ranked_matchmaking_rejects_guests_spoofed_ratings_and_same_party_sessions() {
+        let store = MemoryStore::default();
+        let guest = named_session("Rank Guest");
+        store.save_session(&guest).await.unwrap();
+        let fake_account = Uuid::new_v4();
+        let guest_criteria = MatchmakingCriteria::ranked(
+            fake_account,
+            crate::domain::MatchmakingRegion::Korea,
+            40,
+            DEFAULT_RANKED_RATING,
+        )
+        .unwrap();
+        assert_eq!(
+            store
+                .enqueue_matchmaking(&guest, guest_criteria)
+                .await
+                .unwrap_err(),
+            GameError::Unauthorized
+        );
+
+        let first = ranked_session(&store, "Party Alpha").await;
+        let account_id = first.account_id.unwrap();
+        let spoofed = MatchmakingCriteria::ranked(
+            account_id,
+            crate::domain::MatchmakingRegion::Korea,
+            40,
+            DEFAULT_RANKED_RATING + 500,
+        )
+        .unwrap();
+        assert_eq!(
+            store
+                .enqueue_matchmaking(&first, spoofed)
+                .await
+                .unwrap_err(),
+            GameError::InvalidRequest
+        );
+
+        let criteria = MatchmakingCriteria::ranked(
+            account_id,
+            crate::domain::MatchmakingRegion::Korea,
+            40,
+            DEFAULT_RANKED_RATING,
+        )
+        .unwrap();
+        assert!(
+            store
+                .enqueue_matchmaking(&first, criteria)
+                .await
+                .unwrap()
+                .claim
+                .is_none()
+        );
+        let mut second = named_session("Party Bravo");
+        second.account_id = Some(account_id);
+        store.save_session(&second).await.unwrap();
+        assert!(
+            store
+                .enqueue_matchmaking(&second, criteria)
+                .await
+                .unwrap()
+                .claim
+                .is_none(),
+            "two sessions owned by one account are the same solo party"
+        );
     }
 
     #[tokio::test]
@@ -1382,7 +1629,10 @@ mod tests {
         let active = named_session("Active");
         store.save_session(&expired).await.unwrap();
         store.save_session(&active).await.unwrap();
-        store.enqueue_matchmaking(&active).await.unwrap();
+        store
+            .enqueue_matchmaking(&active, MatchmakingCriteria::casual(active.id))
+            .await
+            .unwrap();
 
         let mut cancelled = GameRoom::new(
             "OLD234".to_string(),

@@ -23,7 +23,8 @@ silently relaxing an alert is not allowed.
 The server exposes Prometheus text at `/api/metrics`. The endpoint currently includes request and
 rate-limit totals, local WebSocket connections/events, distributed publish success/failure, room
 mutation/version-conflict and authority acquisition/conflict totals, matchmaking
-queue/completion/cancellation totals, current queue depth, oldest queue-entry age, and retention
+queue/completion/cancellation totals, ranked queue/completion totals, total and ranked queue depth,
+oldest queue-entry age, and retention
 deletion totals for sessions, completed rooms, abandoned queue entries, closed moderation cases,
 integrity signals, the privacy-preserving new-player funnel, and bounded real-user performance
 histograms below.
@@ -48,6 +49,10 @@ client-side telemetry cannot silently dilute product availability or command lat
 - `mk01_matchmaking_duration_seconds` records two observations per durable pair: each player's
   original queue time to the successful room transaction. The p95 query is
   `histogram_quantile(0.95, sum by (le) (rate(mk01_matchmaking_duration_seconds_bucket[15m])))`.
+  Compare `mk01_ranked_matchmaking_queue_depth` with `mk01_matchmaking_queue_depth`, and alert on
+  ranked completion starvation when ranked queue depth is non-zero but
+  `increase(mk01_ranked_matchmaking_completed_total[15m])` remains zero. Search phase and widening
+  limits are defined in `RANKED_MATCHMAKING.md`; do not expand them ad hoc during an incident.
 - `mk01_websocket_disconnects_total`, `mk01_unexpected_disconnects_total`, and
   `mk01_websocket_connected_milliseconds_total` distinguish a normal client Close frame from an
   abnormal EOF or send/receive failure. The primary rate is

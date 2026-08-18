@@ -194,7 +194,8 @@ POSTGRES_PASSWORD='replace-this-local-password' docker compose up --build
 | `GET`         | `/games/recover`        | 진행 중 게임 복구                        |
 | `GET`         | `/games/history`        | 최근 50개 경기 결과                      |
 | `GET`         | `/games/{roomId}/replay` | 종료 경기의 참가자 전용 버전형 복기      |
-| `POST/DELETE` | `/matchmaking`          | 빠른 매칭 대기/취소                      |
+| `POST/DELETE` | `/matchmaking`          | 일반 매칭 대기/상태 갱신/취소            |
+| `POST`        | `/matchmaking/ranked`   | 계정 기반 랭크 매칭 대기/상태 갱신       |
 
 오류는 `{ code, message, requestId }` 형태의 안전한 JSON으로 반환됩니다. 잘못된 JSON·UUID도 내부 파서 정보 대신 `INVALID_REQUEST`로 일관되게 처리합니다.
 
@@ -287,6 +288,7 @@ POSTGRES_PASSWORD='replace-this-local-password' docker compose up --build
 
 취약점 제보 절차는 [SECURITY.md](SECURITY.md), 역할·심각도·패치 SLO·증거·훈련은
 [취약점 대응 런북](docs/VULNERABILITY_RESPONSE.md)을 참조하세요. 서비스 SLO, 경보,
+랭크 큐의 권위 경계와 검색 확대 정책은 [랭크 매치메이킹 정책](docs/RANKED_MATCHMAKING.md)에서,
 캐나리, 의존성 장애, 백업 복구 훈련은 [운영 런북](docs/OPERATIONS.md)에서,
 [서비스 사고 대응](docs/INCIDENT_RESPONSE.md)은 역할·상태 공지·사후분석 절차를,
 세션·채팅·리플레이·백업 보존은 [데이터 수명주기 정책](docs/DATA_LIFECYCLE.md)에서
@@ -323,7 +325,7 @@ npm run budget      # JS/CSS/폰트/이미지/오디오 파일·총량 제한과
 체크섬·암호화를 검증하고, 과거 백업에 되살아난 계정 삭제를 먼저 재적용한 뒤에만
 스냅샷·참조 무결성과 RPO/RTO 증거를 승인합니다.
 
-Rust 테스트는 대기실 상태 머신, 멱등성, 버전 충돌, 배치, AI의 결정적·비반복 공격, 공격/만료 경쟁, 재시작 복구, 채팅 검증과 공개 정보 필터를 검증합니다. CI의 PostgreSQL/Redis 통합 테스트는 동시 CAS 쓰기와 라이브 콘텐츠 발행에서 단 하나만 성공함, 권위 임대 만료 후 인수와 오래 멈춘 소유자의 펜싱, 분산 매칭의 원자적 확정, 두 AppState 사이 Pub/Sub 이벤트 전달, Redis 장애의 제한 시간 내 격리를 검증합니다. Playwright는 Chromium·Firefox·WebKit과 Pixel 7·iPhone 13·iPad Pro 11 프로필에서 독립 브라우저 2개의 전체 경기·변조 요청 거절·새로고침 복구·숨은 정보 비노출을 검증하고, 로비에서 결과까지의 가로 오버플로와 문서 CSP 아래의 실제 hydration을 검사합니다.
+Rust 테스트는 대기실 상태 머신, 멱등성, 버전 충돌, 배치, AI의 결정적·비반복 공격, 공격/만료 경쟁, 재시작 복구, 채팅 검증과 공개 정보 필터를 검증합니다. CI의 PostgreSQL/Redis 통합 테스트는 동시 CAS 쓰기와 라이브 콘텐츠 발행에서 단 하나만 성공함, 권위 임대 만료 후 인수와 오래 멈춘 소유자의 펜싱, 분산 일반·랭크 매칭의 원자적 확정과 상호 검색 확대, 두 AppState 사이 Pub/Sub 이벤트 전달, Redis 장애의 제한 시간 내 격리를 검증합니다. Playwright는 Chromium·Firefox·WebKit과 Pixel 7·iPhone 13·iPad Pro 11 프로필에서 독립 브라우저 2개의 전체 경기·변조 요청 거절·새로고침 복구·숨은 정보 비노출을 검증하고, 랭크 RTT 측정·안전한 요청·검색 단계 표시·취소, 로비에서 결과까지의 가로 오버플로와 문서 CSP 아래의 실제 hydration을 검사합니다.
 
 Security workflow는 취약점 대응 모의훈련, Rust·JavaScript/TypeScript·GitHub Actions
 CodeQL, PR 의존성 심사, RustSec/cargo-deny, 저장소·비밀·라이선스·Docker/IaC Trivy

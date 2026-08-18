@@ -14,6 +14,16 @@ export type PlayerReadyState = 'NOT_READY' | 'READY';
 export type PlayerRole = 'HOST' | 'GUEST';
 export type PlayerKind = 'HUMAN' | 'AI';
 export type AiDifficulty = 'RECRUIT' | 'OFFICER' | 'ADMIRAL';
+export type MatchmakingPool = 'CASUAL' | 'RANKED';
+export type MatchmakingRegion =
+  | 'AUTO'
+  | 'KOREA'
+  | 'JAPAN'
+  | 'SOUTHEAST_ASIA'
+  | 'NORTH_AMERICA_WEST'
+  | 'NORTH_AMERICA_EAST'
+  | 'EUROPE';
+export type MatchmakingSearchPhase = 'EXACT' | 'REGIONAL' | 'GLOBAL';
 export type ShipKind = 'CARRIER' | 'BATTLESHIP' | 'CRUISER' | 'SUBMARINE' | 'DESTROYER';
 export type Orientation = 'HORIZONTAL' | 'VERTICAL';
 export type AttackOutcome = 'MISS' | 'HIT' | 'SUNK';
@@ -48,6 +58,44 @@ export interface Session {
   nickname: string;
   currentRoomId: string | null;
   expiresAt: string;
+}
+
+export interface MatchmakingSearchWindow {
+  phase: MatchmakingSearchPhase;
+  ratingDelta: number;
+  maxLatencyMs: number;
+  elapsedSeconds: number;
+}
+
+export interface MatchmakingQuality {
+  pool: MatchmakingPool;
+  phase: MatchmakingSearchPhase;
+  ratingDelta: number;
+  maxReportedLatencyMs: number;
+  partySize: number;
+}
+
+export interface MatchmakingTicket {
+  pool: MatchmakingPool;
+  region: MatchmakingRegion;
+  reportedLatencyMs: number;
+  rating: number | null;
+  partySize: number;
+  searchWindow: MatchmakingSearchWindow;
+}
+
+export interface MatchmakingPreferences {
+  pool: MatchmakingPool;
+  region: MatchmakingRegion;
+  latencyMs?: number;
+}
+
+export interface MatchmakingResponse {
+  queued: boolean;
+  queuedAt: string | null;
+  ticket: MatchmakingTicket;
+  matchQuality: MatchmakingQuality | null;
+  snapshot: GameSnapshot | null;
 }
 
 export interface PlayerAccount {
@@ -87,6 +135,7 @@ export interface AccountDataExport {
   sessions: AccountSession[];
   gameHistory: unknown[];
   progressionRewards: unknown[];
+  rankedRating: { rating: number; matchesPlayed: number; updatedAt?: string } | null;
   socialRelationships: unknown[];
   moderationReports: unknown[];
   moderationActions: unknown[];
@@ -409,6 +458,7 @@ export interface GameSnapshot {
   selfPlayerId: string;
   players: PlayerPublic[];
   practiceDifficulty: AiDifficulty | null;
+  matchmakingQuality?: MatchmakingQuality | null;
   rules: MatchRules;
   ownBoard: OwnBoardSnapshot | null;
   targetBoard: TargetBoardSnapshot | null;
@@ -594,7 +644,12 @@ export type ServerEvent =
   | { type: 'turn:expired'; payload: TurnExpiredRecord }
   | {
       type: 'matchmaking:queued' | 'matchmaking:cancelled';
-      payload: { queued: boolean; queuedAt: string | null };
+      payload: {
+        queued: boolean;
+        queuedAt: string | null;
+        ticket: MatchmakingTicket | null;
+        matchQuality: MatchmakingQuality | null;
+      };
     }
   | { type: 'heartbeat'; payload: { serverTime: string } };
 
