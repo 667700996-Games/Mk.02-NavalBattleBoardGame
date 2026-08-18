@@ -37,6 +37,10 @@ function sameSet(left, right) {
   );
 }
 
+function lineCount(source) {
+  return source.length === 0 ? 0 : source.replace(/\n$/, "").split("\n").length;
+}
+
 const ignoredDirectories = new Set([
   ".git",
   ".svelte-kit",
@@ -393,6 +397,115 @@ for (const file of browserGameFiles) {
       `${file}: pure browser game logic cannot depend on network, global state, route, or presentation modules`,
     );
   }
+}
+
+const requiredDecompositionFiles = [
+  "apps/server/src/app/accounts.rs",
+  "apps/server/src/app/connections.rs",
+  "apps/server/src/app/live_content.rs",
+  "apps/server/src/app/matchmaking.rs",
+  "apps/server/src/app/metrics.rs",
+  "apps/server/src/app/rooms.rs",
+  "apps/server/src/app/router.rs",
+  "apps/server/src/app/safety.rs",
+  "apps/server/src/app/timers.rs",
+  "apps/server/src/domain/room/chat.rs",
+  "apps/server/src/domain/room/projection.rs",
+  "apps/server/src/domain/room/state.rs",
+  "apps/server/src/domain/room/timers.rs",
+  "apps/web/src/lib/components/lobby/LobbyCommandDashboard.svelte",
+  "apps/web/src/lib/components/lobby/LobbyRoomOperations.svelte",
+  "apps/web/src/routes/lobby/lobby.css",
+];
+for (const file of requiredDecompositionFiles) {
+  if (!criticalFiles.includes(file))
+    fail(`${file}: required responsibility module is missing`);
+}
+
+const boundedServerModules = criticalFiles.filter(
+  (file) =>
+    file === "apps/server/src/app.rs" ||
+    /^apps\/server\/src\/app\/[^/]+\.rs$/.test(file),
+);
+for (const file of boundedServerModules) {
+  const source = await readFile(resolve(root, file), "utf8");
+  if (lineCount(source) > 800)
+    fail(`${file}: service orchestration module exceeds 800 lines`);
+}
+
+const boundedRoomModules = criticalFiles.filter(
+  (file) =>
+    file === "apps/server/src/domain/room.rs" ||
+    /^apps\/server\/src\/domain\/room\/[^/]+\.rs$/.test(file),
+);
+for (const file of boundedRoomModules) {
+  const source = await readFile(resolve(root, file), "utf8");
+  if (lineCount(source) > 1_000)
+    fail(
+      `${file}: authoritative room responsibility module exceeds 1000 lines`,
+    );
+}
+
+const routeComponents = criticalFiles.filter(
+  (file) =>
+    file.startsWith("apps/web/src/routes/") && file.endsWith("/+page.svelte"),
+);
+for (const file of routeComponents) {
+  const source = await readFile(resolve(root, file), "utf8");
+  const styleStart = source.indexOf("<style>");
+  const orchestrationAndMarkup =
+    styleStart === -1 ? source : source.slice(0, styleStart);
+  if (lineCount(orchestrationAndMarkup) > 650)
+    fail(`${file}: route orchestration and markup exceed 650 lines`);
+  if (lineCount(source) > 1_200)
+    fail(`${file}: route component exceeds 1200 lines`);
+}
+
+const lobbyRoutePath = "apps/web/src/routes/lobby/+page.svelte";
+const lobbyRoute = await readFile(resolve(root, lobbyRoutePath), "utf8");
+if (lineCount(lobbyRoute) > 400)
+  fail(`${lobbyRoutePath}: lobby orchestration route exceeds 400 lines`);
+for (const componentName of ["LobbyCommandDashboard", "LobbyRoomOperations"]) {
+  if (!lobbyRoute.includes(`${componentName}.svelte`))
+    fail(`${lobbyRoutePath}: missing ${componentName} presentation boundary`);
+}
+
+const lobbyStylesPath = "apps/web/src/routes/lobby/lobby.css";
+const lobbyStyles = await readFile(resolve(root, lobbyStylesPath), "utf8");
+if (lineCount(lobbyStyles) > 1_000)
+  fail(`${lobbyStylesPath}: lobby presentation stylesheet exceeds 1000 lines`);
+if (!lobbyStyles.includes(".lobby-page {"))
+  fail(`${lobbyStylesPath}: presentation styles must remain route scoped`);
+
+const lobbyPresentationFiles = criticalFiles.filter(
+  (file) =>
+    file.startsWith("apps/web/src/lib/components/lobby/") &&
+    file.endsWith(".svelte"),
+);
+for (const file of lobbyPresentationFiles) {
+  const source = await readFile(resolve(root, file), "utf8");
+  if (lineCount(source) > 250)
+    fail(`${file}: lobby presentation component exceeds 250 lines`);
+  if (/from\s+['"]\$lib\/(api|realtime|stores)(?:['"/])/.test(source)) {
+    fail(
+      `${file}: lobby presentation cannot own network or global-state orchestration`,
+    );
+  }
+}
+
+const roomRoute = await readFile(
+  resolve(root, "apps/web/src/routes/room/[code]/+page.svelte"),
+  "utf8",
+);
+for (const componentName of [
+  "BattleView",
+  "ChatDrawer",
+  "FleetPlacement",
+  "ResultView",
+  "WaitingView",
+]) {
+  if (!roomRoute.includes(`${componentName}.svelte`))
+    fail(`room route is missing the ${componentName} responsibility component`);
 }
 
 for (const required of [

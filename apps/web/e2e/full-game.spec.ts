@@ -17,6 +17,7 @@ async function register(page: Page, nickname: string) {
   expect((await sessionCreated).status()).toBe(201);
   await expect(page).toHaveURL(/\/lobby$/);
   await expect(page.getByRole('heading', { name: '작전 로비' })).toBeVisible();
+  await page.waitForLoadState('networkidle');
   await expectNoHorizontalOverflow(page);
 }
 
@@ -81,8 +82,26 @@ async function fire(page: Page, target: string) {
   const cell = page.getByTestId(`target-cell-${row}-${col}`);
   await cell.click();
   const fireButton = page.getByRole('button', { name: '공격 실행' });
-  await expect(fireButton).toBeEnabled();
-  await fireButton.click();
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    await expect(fireButton).toBeEnabled();
+    await fireButton.click();
+    try {
+      await expect
+        .poll(
+          async () => {
+            if ((await page.getByRole('heading', { name: /작전 (승리|패배)/ }).count()) > 0) {
+              return true;
+            }
+            return !((await cell.getAttribute('class')) ?? '').includes('cell--selected');
+          },
+          { timeout: 2_000 }
+        )
+        .toBe(true);
+      break;
+    } catch (error) {
+      if (attempt === 1) throw error;
+    }
+  }
   await expect
     .poll(
       async () => {

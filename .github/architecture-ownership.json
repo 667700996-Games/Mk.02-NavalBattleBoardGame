@@ -66,6 +66,7 @@
       "pathPrefixes": [
         "apps/server/src/api.rs",
         "apps/server/src/app.rs",
+        "apps/server/src/app/",
         "apps/server/src/config.rs",
         "apps/server/src/error.rs",
         "apps/server/src/lib.rs",

@@ -134,18 +134,25 @@ production release train.
 
 ## Known debt and decomposition sequence
 
-Architecture documentation does not satisfy the separate large-module decomposition gate. The
-baseline review keeps `ARCH-001` open because `app.rs`, both store implementations, `domain/room.rs`,
-and several route components remain too large. The required sequence is:
+The AAA room/UI decomposition gate is implemented and reviewed in `MODULE_DECOMPOSITION.md`.
+`app.rs` is now a bounded composition shell over responsibility modules; `domain/room.rs` delegates
+chat, projections, state helpers, timer/recovery, and tests; the lobby route delegates command and
+room-operation presentation surfaces; and the room route retains dedicated waiting, placement, battle, result, and
+chat components. The executable architecture gate requires those boundaries, caps runtime service
+modules at 800 lines, room responsibility modules at 1,000 lines, route logic/markup at 650 lines,
+the lobby route at 400 lines, and lobby presentation components at 250 lines. It also rejects
+network or global-state imports from those presentation components.
 
-1. extract room application services, timer/recovery, matchmaking, moderation/live-content, metrics,
-   and distributed delivery from `app.rs` behind explicit use-case interfaces;
-2. split storage by session/account, room/result, matchmaking/ranked, safety/privacy, and live-content
+The dated baseline review remains immutable and therefore still records `ARCH-001` as open at its
+`74c3390` base. Its residual scope is storage decomposition and additional feature-route refinement,
+which are valuable architecture debt but are not part of the completed room/UI AAA gate. Continue in
+this order:
+
+1. split storage by session/account, room/result, matchmaking/ranked, safety/privacy, and live-content
    repositories while preserving one transactional PostgreSQL adapter;
-3. split route orchestration from lobby/room/stats/settings presentation state and keep reusable UI
-   components free of route/network ownership;
-4. add module-size and forbidden-import thresholds only after the new boundaries exist, so the gate
-   measures architecture rather than encouraging mechanical file shuffling.
+2. refine stats/settings feature presentation when their logic/markup approaches the enforced route
+   ceiling; reusable presentation components must remain free of route/network ownership;
+3. lower size ceilings only after extracted interfaces prove stable in normal and failure-path tests.
 
 `ARCH-002` tracks the store-owned deletion statistics DTO currently exposed through `protocol.rs`.
 Move public response DTOs to the transport boundary during the application-service split; do not move

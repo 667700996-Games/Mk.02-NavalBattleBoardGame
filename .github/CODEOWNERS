@@ -4,6 +4,7 @@
 /apps/server/src/domain/** @667700996
 /apps/server/src/api.rs @667700996
 /apps/server/src/app.rs @667700996
+/apps/server/src/app/** @667700996
 /apps/server/src/config.rs @667700996
 /apps/server/src/error.rs @667700996
 /apps/server/src/lib.rs @667700996

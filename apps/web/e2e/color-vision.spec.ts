@@ -81,7 +81,10 @@ test('color-vision presets persist and every combat state has non-color semantic
   await assertSemanticPalette(page, 'tritanopia');
 
   await page.goto('/lobby');
-  await page.getByRole('button', { name: /신병 RECRUIT/ }).click();
+  await Promise.all([
+    page.waitForURL(/\/room\//),
+    page.getByRole('button', { name: /신병 RECRUIT/ }).click()
+  ]);
   await expect(page.getByRole('heading', { name: '함대 배치' })).toBeVisible();
   await expect(page.locator('.launch-sequence')).toBeHidden();
   await page.getByRole('button', { name: '자동 배치' }).click();

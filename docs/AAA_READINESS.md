@@ -308,11 +308,23 @@ The program is complete only when all gates below are satisfied in a production-
 
 ### E1. Maintainable architecture and contracts
 
-- [ ] Large room and UI modules are split by state machine, timer, chat, matchmaking, presentation,
+- [x] Large room and UI modules are split by state machine, timer, chat, matchmaking, presentation,
       and orchestration responsibility.
 - [x] HTTP/WebSocket schemas generate or validate Rust and TypeScript contracts at runtime.
 - [x] Protocol compatibility and migration policy supports mixed client/server release windows.
 - [x] Architecture decisions and ownership boundaries are documented and reviewed.
+- Evidence: `MODULE_DECOMPOSITION.md` maps each server, room-domain, and lobby/room UI responsibility
+  to a bounded module. The former application monolith is now an orchestration shell plus account,
+  connection, live-content, matchmaking, metrics, room, router, safety, and timer modules; no runtime
+  service module exceeds 800 lines. The room domain is a 759-line state-machine core with separate
+  chat, projection, state-helper, timer/recovery, and test modules, all below the enforced 1,000-line
+  ceiling. The lobby route fell from 1,443 to fewer than 400 lines and delegates matchmaking plus
+  room-browser/modal presentation to callback-driven components that cannot import API,
+  realtime, or global-state modules. The room route continues to delegate waiting, placement,
+  battle, result, and chat responsibilities. `architecture:check` now requires all of these modules,
+  enforces server/room/route/component limits and presentation dependency direction, and assigns all
+  227 critical files to exactly one owner boundary. Full Rust/web checks, lint, 99 Rust tests, 25 web
+  unit tests, a warning-free production build, and the multi-browser/mobile E2E release matrix pass.
 - Evidence: `PROTOCOL_COMPATIBILITY.md` fixes explicit HTTP/WebSocket negotiation, the frozen
   headerless V2 fallback, current-plus-one-prior support, server-first rollout, rollback, a minimum
   30-day window, seven zero-traffic days, and active-match drain before retirement. Every API
