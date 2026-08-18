@@ -39,7 +39,7 @@ client-side telemetry cannot silently dilute product availability or command lat
   Thirty-day availability is
   `sum(increase(mk01_http_responses_total{class!="5xx"}[30d])) / sum(increase(mk01_http_responses_total[30d]))`.
   Require traffic in the denominator. Page when error-budget burn is true for either the one-hour
-  + five-minute pair at 14.4× or the six-hour + thirty-minute pair at 6×.
+  - five-minute pair at 14.4× or the six-hour + thirty-minute pair at 6×.
 - `mk01_command_duration_milliseconds{transport,outcome}` uses identical fixed buckets for
   authenticated HTTP product routes and every parsed WebSocket command. Public session creation,
   login, health, readiness, metrics and anonymous telemetry routes are excluded. The release p95
@@ -55,7 +55,7 @@ client-side telemetry cannot silently dilute product availability or command lat
   limits are defined in `RANKED_MATCHMAKING.md`; do not expand them ad hoc during an incident. The
   recent-opponent health ratio is
   `sum(increase(mk01_ranked_matchmaking_rematches_total[30m])) /
-  clamp_min(sum(increase(mk01_ranked_matchmaking_completed_total[30m])), 1)`. Ticket above 25% only
+clamp_min(sum(increase(mk01_ranked_matchmaking_completed_total[30m])), 1)`. Ticket above 25% only
   after at least 20 completions; first inspect regional pool diversity, RTT distribution, rating
   bands, and abusive queue cycling rather than disabling rematch protection.
   For leaderboard integrity, compare
@@ -123,8 +123,7 @@ and the same acquisition/channel mix; do not compare raw counters across process
 The browser reports one page-lifecycle sample for LCP, CLS, and INP plus one attack-command sample
 for each authoritative result. Only fixed `route` (`landing`, `tutorial`, `lobby`, `join`, `room`,
 `account`, `replay`, `other`) and `device_tier` (`desktop`, `mobile`, `low_mobile`) labels are
-accepted. LCP, INP, and attack latency use milliseconds; CLS uses its unitless value multiplied by
-1000. The server rejects unknown fields and out-of-range values, then immediately folds accepted
+accepted. LCP, INP, and attack latency use milliseconds; CLS uses its unitless value multiplied by 1000. The server rejects unknown fields and out-of-range values, then immediately folds accepted
 samples into cumulative histograms:
 
 - `mk01_rum_lcp_milliseconds`;
@@ -268,9 +267,20 @@ deletion ledger. `scripts/restore-postgres-drill.sh` refuses non-isolated databa
 backups older than the RPO or deletion ledgers older than one hour by default, rejects corruption,
 applies forward migrations and every deletion tombstone, verifies
 relational/snapshot/privacy invariants, and writes timestamped JSON evidence. CI backs up a fixture
-before account deletion and proves that ledger replay removes the resurrected account/session, with
-stricter five-minute RPO and two-minute RTO fixture gates. At least quarterly in production-like
-staging:
+before account deletion. The fixture covers the account/session, matchmaking, progression and
+ranked rewards, rating, standing, leaderboard entry, relationship, submitted report, unrelated-case
+direct moderation target, and integrity signal. A random per-run GPG passphrase is never uploaded.
+Ledger replay must remove every account-linked row while retaining the unrelated report and
+non-personal leaderboard snapshot shell, with stricter five-minute RPO and two-minute RTO fixture
+gates.
+
+The August 18, 2026 local parity drill verified both SHA-256 sidecars, decrypted the independent GPG
+AES-256 backup and deletion ledger, applied all 18 migrations, and restored into an isolated
+database. Backup age was 37 seconds, ledger age 13 seconds, and full restore time 1 second against
+the 300 / 300 / 120-second fixture gates. The restored database contained zero accounts, sessions,
+queue rows, rewards, ratings, standings, leaderboard entries, relationships, account reports,
+direct-target actions, or integrity signals; it retained one unrelated report, one empty snapshot
+shell, and one deletion tombstone. At least quarterly in production-like staging:
 
 1. restore the latest full backup and point-in-time logs into an isolated staging database;
 2. run migrations with the release artifact;

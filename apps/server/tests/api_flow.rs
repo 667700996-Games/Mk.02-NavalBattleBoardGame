@@ -677,6 +677,7 @@ async fn account_export_excludes_credentials_and_verified_deletion_anonymizes_ro
     assert_eq!(archive["account"]["id"], account_id);
     assert_eq!(archive["credentialsExcluded"], true);
     assert_eq!(archive["sessions"].as_array().unwrap().len(), 1);
+    assert!(archive["rankedLeaderboardEntries"].is_array());
     let serialized_archive = archive.to_string();
     assert!(!serialized_archive.contains(&recovery_key));
     assert!(!serialized_archive.contains("tokenHash"));

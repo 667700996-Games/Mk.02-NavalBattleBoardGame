@@ -554,7 +554,10 @@ impl GameStore for MemoryStore {
         let moderation_actions: Vec<_> = self
             .moderation_actions
             .iter()
-            .filter(|action| report_ids.contains(&action.report_id))
+            .filter(|action| {
+                report_ids.contains(&action.report_id)
+                    || identities.contains(&action.target_identity_id)
+            })
             .map(|action| action.value().clone())
             .collect();
         let integrity_signals: Vec<_> = self
@@ -586,6 +589,31 @@ impl GameStore for MemoryStore {
                 })
             })
             .collect();
+        let ranked_leaderboard_entries: Vec<_> = self
+            .leaderboard_snapshots
+            .iter()
+            .flat_map(|snapshot| {
+                snapshot
+                    .entries
+                    .iter()
+                    .filter(|entry| entry.account_id == account_id)
+                    .map(|entry| {
+                        serde_json::json!({
+                            "snapshotId": snapshot.id,
+                            "seasonId": snapshot.season_id,
+                            "rank": entry.rank,
+                            "rating": entry.rating,
+                            "matchesPlayed": entry.matches_played,
+                            "wins": entry.wins,
+                            "losses": entry.losses,
+                            "peakRating": entry.peak_rating,
+                            "generatedAt": snapshot.generated_at,
+                            "archived": snapshot.archived,
+                        })
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect();
         let archive = serde_json::json!({
             "formatVersion": 1,
             "requestId": request_id,
@@ -597,6 +625,7 @@ impl GameStore for MemoryStore {
             "rankedRating": ranked_rating,
             "rankedStandings": ranked_standings,
             "rankedRewards": ranked_rewards,
+            "rankedLeaderboardEntries": ranked_leaderboard_entries,
             "leaderboardVisible": self.leaderboard_visibility.get(&account_id).is_none_or(|visible| *visible),
             "socialRelationships": relationships,
             "moderationReports": reports,
@@ -738,7 +767,10 @@ impl GameStore for MemoryStore {
         let action_ids: Vec<_> = self
             .moderation_actions
             .iter()
-            .filter(|action| report_ids.contains(&action.report_id))
+            .filter(|action| {
+                report_ids.contains(&action.report_id)
+                    || identities.contains(&action.target_identity_id)
+            })
             .map(|action| action.id)
             .collect();
         for action_id in action_ids {

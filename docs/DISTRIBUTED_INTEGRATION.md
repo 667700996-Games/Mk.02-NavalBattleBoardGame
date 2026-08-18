@@ -39,6 +39,11 @@ The eleven cases prove these controls against actual PostgreSQL and Redis protoc
 - account export/deletion, immutable balance pins, live-content CAS, ranked settlement, rematch
   fairness, and leaderboard privacy retain their relational invariants.
 
+The privacy case also expires the account's last device session before deletion. It proves the
+durable result participant index still finds and anonymizes room/result copies, exports every
+derived identity class, strips result UUID arrays, deletes direct-target moderation actions, evicts
+the Redis room cache, and preserves unrelated moderation evidence.
+
 After the suite, `mk01-server --verify-restore` decodes every retained room and matchmaking snapshot,
 compares relational revisions and balance pins, checks migrations and orphan references, and writes
 JSON evidence. CI derives the expected migration count from `migrations/checksums.sha256`, requires

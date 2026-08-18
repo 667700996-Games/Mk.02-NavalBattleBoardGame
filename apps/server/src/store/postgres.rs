@@ -28,7 +28,7 @@ use super::{
     RankedRating, RetentionStats, RoomAuthorityLease,
 };
 
-const DELETION_RESURRECTION_COUNT_QUERY: &str = "SELECT (SELECT count(*) FROM player_accounts account JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=account.id) + (SELECT count(*) FROM user_sessions session JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=session.account_id) + (SELECT count(*) FROM progression_reward_ledger reward JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=reward.account_id) + (SELECT count(*) FROM ranked_reward_ledger reward JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=reward.account_id) + (SELECT count(*) FROM ranked_season_standings standing JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=standing.account_id) + (SELECT count(*) FROM ranked_match_participants participant JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=participant.account_id) + (SELECT count(*) FROM ranked_leaderboard_snapshot_entries entry JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=entry.account_id) + (SELECT count(*) FROM game_result_participants participant JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=participant.account_id) + (SELECT count(*) FROM game_results result JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=ANY(result.participant_account_ids)) + (SELECT count(*) FROM player_relationships relationship JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=relationship.actor_identity_id OR tombstone.account_id=relationship.target_identity_id) + (SELECT count(*) FROM player_reports report JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=report.reporter_identity_id OR tombstone.account_id=report.target_identity_id) + (SELECT count(*) FROM integrity_signals signal JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=signal.subject_identity_id)";
+const DELETION_RESURRECTION_COUNT_QUERY: &str = "SELECT (SELECT count(*) FROM player_accounts account JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=account.id) + (SELECT count(*) FROM user_sessions session JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=session.account_id) + (SELECT count(*) FROM progression_reward_ledger reward JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=reward.account_id) + (SELECT count(*) FROM ranked_ratings rating JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=rating.account_id) + (SELECT count(*) FROM ranked_reward_ledger reward JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=reward.account_id) + (SELECT count(*) FROM ranked_season_standings standing JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=standing.account_id) + (SELECT count(*) FROM ranked_match_participants participant JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=participant.account_id) + (SELECT count(*) FROM ranked_leaderboard_snapshot_entries entry JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=entry.account_id) + (SELECT count(*) FROM game_result_participants participant JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=participant.account_id) + (SELECT count(*) FROM game_results result JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=ANY(result.participant_account_ids)) + (SELECT count(*) FROM player_relationships relationship JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=relationship.actor_identity_id OR tombstone.account_id=relationship.target_identity_id) + (SELECT count(*) FROM player_reports report JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=report.reporter_identity_id OR tombstone.account_id=report.target_identity_id) + (SELECT count(*) FROM player_moderation_actions action JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=action.target_identity_id) + (SELECT count(*) FROM integrity_signals signal JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=signal.subject_identity_id)";
 const LIVE_CONTENT_ADVISORY_LOCK: i64 = 7_190_120_260;
 const REDIS_INITIAL_CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
 
@@ -1164,11 +1164,22 @@ impl GameStore for PostgresRedisStore {
                 .bind(account_id)
                 .fetch_one(&mut *transaction)
                 .await?;
-        let session_ids: Vec<Uuid> =
+        let mut session_ids: Vec<Uuid> =
             sqlx::query_scalar("SELECT id FROM user_sessions WHERE account_id=$1")
                 .bind(account_id)
                 .fetch_all(&mut *transaction)
                 .await?;
+        let historical_session_ids: Vec<Uuid> = sqlx::query_scalar(
+            "SELECT DISTINCT session_id FROM game_result_participants WHERE account_id=$1",
+        )
+        .bind(account_id)
+        .fetch_all(&mut *transaction)
+        .await?;
+        for session_id in historical_session_ids {
+            if !session_ids.contains(&session_id) {
+                session_ids.push(session_id);
+            }
+        }
         let mut identities = session_ids.clone();
         identities.push(account_id);
         let sessions: Vec<serde_json::Value> = sqlx::query_scalar(
@@ -1214,6 +1225,12 @@ impl GameStore for PostgresRedisStore {
         .bind(account_id)
         .fetch_all(&mut *transaction)
         .await?;
+        let ranked_leaderboard_entries: Vec<serde_json::Value> = sqlx::query_scalar(
+            "SELECT jsonb_build_object('snapshotId',entry.snapshot_id,'seasonId',snapshot.season_id,'rank',entry.rank,'rating',entry.rating,'matchesPlayed',entry.matches_played,'wins',entry.wins,'losses',entry.losses,'peakRating',entry.peak_rating,'generatedAt',snapshot.generated_at,'archived',snapshot.archived) FROM ranked_leaderboard_snapshot_entries entry JOIN ranked_leaderboard_snapshots snapshot ON snapshot.id=entry.snapshot_id WHERE entry.account_id=$1 ORDER BY snapshot.generated_at,entry.rank",
+        )
+        .bind(account_id)
+        .fetch_all(&mut *transaction)
+        .await?;
         let relationships: Vec<serde_json::Value> = sqlx::query_scalar(
             "SELECT jsonb_build_object('targetIdentityId',target_identity_id,'targetNickname',target_nickname,'muted',muted,'blocked',blocked,'updatedAt',updated_at) FROM player_relationships WHERE actor_identity_id=ANY($1) ORDER BY updated_at DESC",
         )
@@ -1227,7 +1244,7 @@ impl GameStore for PostgresRedisStore {
         .fetch_all(&mut *transaction)
         .await?;
         let moderation_actions: Vec<serde_json::Value> = sqlx::query_scalar(
-            "SELECT jsonb_build_object('id',action.id,'reportId',action.report_id,'action',action.action_type,'reason',action.reason,'expiresAt',action.expires_at,'reversesActionId',action.reverses_action_id,'createdAt',action.created_at) FROM player_moderation_actions action JOIN player_reports report ON report.id=action.report_id WHERE report.reporter_identity_id=ANY($1) OR report.target_identity_id=ANY($1) ORDER BY action.created_at",
+            "SELECT jsonb_build_object('id',action.id,'reportId',action.report_id,'action',action.action_type,'reason',action.reason,'expiresAt',action.expires_at,'reversesActionId',action.reverses_action_id,'createdAt',action.created_at) FROM player_moderation_actions action JOIN player_reports report ON report.id=action.report_id WHERE report.reporter_identity_id=ANY($1) OR report.target_identity_id=ANY($1) OR action.target_identity_id=ANY($1) ORDER BY action.created_at",
         )
         .bind(&identities)
         .fetch_all(&mut *transaction)
@@ -1259,6 +1276,7 @@ impl GameStore for PostgresRedisStore {
             "rankedStandings": ranked_standings,
             "rankedMatchResults": ranked_match_results,
             "rankedRewards": ranked_rewards,
+            "rankedLeaderboardEntries": ranked_leaderboard_entries,
             "leaderboardVisible": leaderboard_visible,
             "socialRelationships": relationships,
             "moderationReports": reports,
@@ -1290,7 +1308,18 @@ impl GameStore for PostgresRedisStore {
                 .bind(account_id)
                 .fetch_all(&mut *transaction)
                 .await?;
-        let session_ids: Vec<_> = sessions.iter().map(|(id, _)| *id).collect();
+        let mut session_ids: Vec<_> = sessions.iter().map(|(id, _)| *id).collect();
+        let historical_session_ids: Vec<Uuid> = sqlx::query_scalar(
+            "SELECT DISTINCT session_id FROM game_result_participants WHERE account_id=$1",
+        )
+        .bind(account_id)
+        .fetch_all(&mut *transaction)
+        .await?;
+        for session_id in historical_session_ids {
+            if !session_ids.contains(&session_id) {
+                session_ids.push(session_id);
+            }
+        }
         let deleted_names: Vec<_> = std::iter::once(account_handle.clone())
             .chain(sessions.iter().map(|(_, nickname)| nickname.clone()))
             .collect();
@@ -1378,6 +1407,12 @@ impl GameStore for PostgresRedisStore {
                 .execute(&mut *transaction)
                 .await?;
         }
+        sqlx::query(
+            "UPDATE game_results SET participant_account_ids=array_remove(participant_account_ids,$1) WHERE $1=ANY(participant_account_ids)",
+        )
+        .bind(account_id)
+        .execute(&mut *transaction)
+        .await?;
         let rewards_deleted =
             sqlx::query("DELETE FROM progression_reward_ledger WHERE account_id=$1")
                 .bind(account_id)
@@ -1397,6 +1432,10 @@ impl GameStore for PostgresRedisStore {
         .execute(&mut *transaction)
         .await?
         .rows_affected();
+        sqlx::query("DELETE FROM player_moderation_actions WHERE target_identity_id=ANY($1)")
+            .bind(&identities)
+            .execute(&mut *transaction)
+            .await?;
         let reports_deleted = sqlx::query(
             "DELETE FROM player_reports WHERE reporter_identity_id=ANY($1) OR target_identity_id=ANY($1)",
         )

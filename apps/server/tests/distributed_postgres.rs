@@ -22,6 +22,7 @@ use mk01_server::{
         PrivacyDeletionTombstone,
     },
 };
+use redis::AsyncCommands;
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
@@ -1062,6 +1063,78 @@ async fn postgres_account_export_and_deletion_cover_migrations_and_anonymized_ro
         .await
         .unwrap()
         .unwrap();
+    let audit_pool = sqlx::PgPool::connect(&database_url).await.unwrap();
+    let leaderboard_snapshot_id = Uuid::new_v4();
+    let submitted_report_id = Uuid::new_v4();
+    let direct_action_report_id = Uuid::new_v4();
+    let direct_action_id = Uuid::new_v4();
+    let relationship_target = Uuid::new_v4();
+    sqlx::query("INSERT INTO progression_reward_ledger (id,account_id,source_kind,source_id,period_key,xp) VALUES ($1,$2,'MISSION','PRIVACY_DAILY','2026-08-18',100)")
+        .bind(Uuid::new_v4())
+        .bind(account.id)
+        .execute(&audit_pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO ranked_ratings (account_id,rating,matches_played,season_id) VALUES ($1,1530,5,'PRIVACY_SEASON')")
+        .bind(account.id)
+        .execute(&audit_pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO ranked_season_standings (account_id,season_id,rating,matches_played,wins,losses,peak_rating) VALUES ($1,'PRIVACY_SEASON',1530,5,3,2,1540)")
+        .bind(account.id)
+        .execute(&audit_pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO ranked_reward_ledger (id,account_id,source_kind,source_id,season_id,xp) VALUES ($1,$2,'RANKED_SEASON','PRIVACY_REWARD','PRIVACY_SEASON',250)")
+        .bind(Uuid::new_v4())
+        .bind(account.id)
+        .execute(&audit_pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO ranked_leaderboard_snapshots (id,season_id,generated_at,expires_at,archived) VALUES ($1,'PRIVACY_SEASON',now(),now()+interval '5 minutes',false)")
+        .bind(leaderboard_snapshot_id)
+        .execute(&audit_pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO ranked_leaderboard_snapshot_entries (snapshot_id,rank,account_id,rating,matches_played,wins,losses,peak_rating) VALUES ($1,1,$2,1530,5,3,2,1540)")
+        .bind(leaderboard_snapshot_id)
+        .bind(account.id)
+        .execute(&audit_pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO player_relationships (actor_identity_id,target_identity_id,target_nickname,muted,blocked) VALUES ($1,$2,'Privacy Peer',true,false)")
+        .bind(account.id)
+        .bind(relationship_target)
+        .execute(&audit_pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO player_reports (id,reporter_identity_id,target_identity_id,target_nickname,category,details,evidence) VALUES ($1,$2,$3,'Privacy Report Target','OTHER','privacy export fixture','{}')")
+        .bind(submitted_report_id)
+        .bind(account.id)
+        .bind(Uuid::new_v4())
+        .execute(&audit_pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO player_reports (id,reporter_identity_id,target_identity_id,target_nickname,category,details,evidence) VALUES ($1,$2,$3,'Unrelated Report Target','OTHER','direct action fixture','{}')")
+        .bind(direct_action_report_id)
+        .bind(Uuid::new_v4())
+        .bind(Uuid::new_v4())
+        .execute(&audit_pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO player_moderation_actions (id,report_id,target_identity_id,operator_id,action_type,reason) VALUES ($1,$2,$3,'privacy-test-operator','WARN','direct account action fixture')")
+        .bind(direct_action_id)
+        .bind(direct_action_report_id)
+        .bind(account.id)
+        .execute(&audit_pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO integrity_signals (id,subject_identity_id,kind,severity,confidence,evidence,first_observed_at,last_observed_at) VALUES ($1,$2,'AUTOMATION',3,0.9,'{}',now(),now())")
+        .bind(Uuid::new_v4())
+        .bind(account.id)
+        .execute(&audit_pool)
+        .await
+        .unwrap();
 
     let mut room = GameRoom::new(
         Uuid::new_v4().simple().to_string()[..6].to_ascii_uppercase(),
@@ -1072,6 +1145,29 @@ async fn postgres_account_export_and_deletion_cover_migrations_and_anonymized_ro
     .unwrap();
     room.leave(account_session.id).unwrap();
     store.save_room(&mut room).await.unwrap();
+    let historical_player_id = room.players[0].id;
+    sqlx::query("INSERT INTO game_results (room_id,room_name,participant_session_ids,participant_account_ids,result,finished_at) VALUES ($1,$2,$3,$4,'{}',now())")
+        .bind(room.id)
+        .bind(&room.name)
+        .bind(vec![account_session.id])
+        .bind(vec![account.id])
+        .execute(&audit_pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO game_result_participants (room_id,player_id,session_id,account_id) VALUES ($1,$2,$3,$4)")
+        .bind(room.id)
+        .bind(historical_player_id)
+        .bind(account_session.id)
+        .bind(account.id)
+        .execute(&audit_pool)
+        .await
+        .unwrap();
+    store.room_by_id(room.id).await.unwrap().unwrap();
+    sqlx::query("DELETE FROM user_sessions WHERE id=$1")
+        .bind(account_session.id)
+        .execute(&audit_pool)
+        .await
+        .unwrap();
 
     let export_request_id = Uuid::new_v4();
     let archive = store
@@ -1085,6 +1181,23 @@ async fn postgres_account_export_and_deletion_cover_migrations_and_anonymized_ro
         .unwrap();
     assert_eq!(archive["account"]["id"], account.id.to_string());
     assert_eq!(archive["credentialsExcluded"], true);
+    assert_eq!(archive["sessions"].as_array().unwrap().len(), 0);
+    assert_eq!(archive["gameHistory"].as_array().unwrap().len(), 1);
+    assert_eq!(archive["progressionRewards"].as_array().unwrap().len(), 1);
+    assert!(archive["rankedRating"].is_object());
+    assert_eq!(archive["rankedStandings"].as_array().unwrap().len(), 1);
+    assert_eq!(archive["rankedRewards"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        archive["rankedLeaderboardEntries"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_eq!(archive["socialRelationships"].as_array().unwrap().len(), 1);
+    assert_eq!(archive["moderationReports"].as_array().unwrap().len(), 1);
+    assert_eq!(archive["moderationActions"].as_array().unwrap().len(), 1);
+    assert_eq!(archive["integritySignals"].as_array().unwrap().len(), 1);
     let serialized_archive = archive.to_string();
     assert!(!serialized_archive.contains(&recovery_key));
     assert!(!serialized_archive.contains("token_hash"));
@@ -1097,11 +1210,15 @@ async fn postgres_account_export_and_deletion_cover_migrations_and_anonymized_ro
             &hash_token("delete-subject"),
             &[room.id],
             Utc::now(),
-            AccountDeletionScope::LiveRequest,
+            AccountDeletionScope::RestoredBackup,
         )
         .await
         .unwrap();
-    assert_eq!(stats.sessions_deleted, 1);
+    assert_eq!(stats.sessions_deleted, 0);
+    assert_eq!(stats.rewards_deleted, 2);
+    assert_eq!(stats.relationships_deleted, 1);
+    assert_eq!(stats.reports_deleted, 1);
+    assert_eq!(stats.integrity_signals_deleted, 1);
     assert_eq!(stats.rooms_anonymized, 1);
     assert!(
         store
@@ -1117,6 +1234,16 @@ async fn postgres_account_export_and_deletion_cover_migrations_and_anonymized_ro
             .unwrap()
             .is_none()
     );
+    let redis_client = redis::Client::open(redis_url.as_str()).unwrap();
+    let mut redis_connection = redis_client
+        .get_multiplexed_async_connection()
+        .await
+        .unwrap();
+    let cached_room_exists: bool = redis_connection
+        .exists(format!("mk01:room:{}", room.id))
+        .await
+        .unwrap();
+    assert!(!cached_room_exists);
     let anonymized = store
         .room_by_id_authoritative(room.id)
         .await
@@ -1130,8 +1257,47 @@ async fn postgres_account_export_and_deletion_cover_migrations_and_anonymized_ro
             .iter()
             .all(|message| !message.content.contains(&account.handle))
     );
+    let result_identities: (Vec<Uuid>, Vec<Uuid>) = sqlx::query_as(
+        "SELECT participant_session_ids,participant_account_ids FROM game_results WHERE room_id=$1",
+    )
+    .bind(room.id)
+    .fetch_one(&audit_pool)
+    .await
+    .unwrap();
+    assert!(!result_identities.0.contains(&account_session.id));
+    assert!(!result_identities.1.contains(&account.id));
+    let participant_identity: (Uuid, Option<Uuid>) = sqlx::query_as(
+        "SELECT session_id,account_id FROM game_result_participants WHERE room_id=$1",
+    )
+    .bind(room.id)
+    .fetch_one(&audit_pool)
+    .await
+    .unwrap();
+    assert_ne!(participant_identity.0, account_session.id);
+    assert_eq!(participant_identity.1, None);
+    let removed_derived_records: i64 = sqlx::query_scalar(
+        "SELECT (SELECT count(*) FROM ranked_ratings WHERE account_id=$1) + (SELECT count(*) FROM ranked_season_standings WHERE account_id=$1) + (SELECT count(*) FROM ranked_reward_ledger WHERE account_id=$1) + (SELECT count(*) FROM progression_reward_ledger WHERE account_id=$1) + (SELECT count(*) FROM ranked_leaderboard_snapshot_entries WHERE account_id=$1) + (SELECT count(*) FROM player_relationships WHERE actor_identity_id=$1 OR target_identity_id=$1) + (SELECT count(*) FROM player_reports WHERE reporter_identity_id=$1 OR target_identity_id=$1) + (SELECT count(*) FROM player_moderation_actions WHERE target_identity_id=$1) + (SELECT count(*) FROM integrity_signals WHERE subject_identity_id=$1)",
+    )
+    .bind(account.id)
+    .fetch_one(&audit_pool)
+    .await
+    .unwrap();
+    assert_eq!(removed_derived_records, 0);
+    let unrelated_report_survives: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM player_reports WHERE id=$1)")
+            .bind(direct_action_report_id)
+            .fetch_one(&audit_pool)
+            .await
+            .unwrap();
+    assert!(unrelated_report_survives);
+    let direct_action_survives: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM player_moderation_actions WHERE id=$1)")
+            .bind(direct_action_id)
+            .fetch_one(&audit_pool)
+            .await
+            .unwrap();
+    assert!(!direct_action_survives);
 
-    let audit_pool = sqlx::PgPool::connect(&database_url).await.unwrap();
     let audit: (String, String) =
         sqlx::query_as("SELECT request_type,status FROM privacy_requests WHERE id=$1")
             .bind(delete_request_id)

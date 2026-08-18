@@ -110,17 +110,23 @@ The program is complete only when all gates below are satisfied in a production-
 
 - [x] Sessions, abandoned rooms, chat, replay, telemetry, moderation, and account data have retention
       and deletion policies.
-- [ ] User export and deletion cover every datastore, cache, backup policy, and derived record.
-- [ ] PostgreSQL backups are encrypted and automated; restore drills meet RPO/RTO.
+- [x] User export and deletion cover every datastore, cache, backup policy, and derived record.
+- [x] PostgreSQL backups are encrypted and automated; restore drills meet RPO/RTO.
 - [ ] Migrations are backward compatible with mixed-version rolling deployments.
 - Evidence: `DATA_LIFECYCLE.md` defines enforced boundaries for every data class. The hourly worker
   prunes inactive sessions, abandoned matchmaking, terminal room/chat/replay records, closed
   moderation cases, and integrity signals using configurable UTC cutoffs and publishes per-class
   counters. Unit coverage proves expired terminal data is removed while active sessions and open or
-  recent safety records survive. Account export/deletion APIs cover credentials, sessions,
-  results, progression, social, moderation, integrity and both cache layers. An encrypted deletion
-  ledger and fail-closed restore replay now prevent older backups from resurrecting an account; the
-  gate remains open until the PostgreSQL CI restore artifact proves that replay end to end.
+  recent safety records survive. Account export/deletion APIs cover credentials, current and
+  expired-session history, progression, ranked standings/rewards/deltas, leaderboard entries,
+  social, reports, direct moderation targets, integrity, room/result copies, and both cache layers.
+  The real PostgreSQL/Redis test expires the last session, verifies every export class, anonymizes
+  room and result identifiers, evicts Redis, removes all derived rows, and preserves unrelated
+  evidence. The automated backup job uses a random per-run key, SHA-256 and GPG AES-256 for both the
+  backup and independent deletion ledger, refuses stale/corrupt inputs and non-isolated targets,
+  reapplies tombstones, runs migrations and full restore verification, enforces RPO/RTO, and retains
+  90-day JSON evidence. The clean parity drill restored in one second and found zero resurrected
+  personal records across the comprehensive fixture.
 
 ## Gate C — Game product and player retention
 

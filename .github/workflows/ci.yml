@@ -166,15 +166,17 @@ jobs:
         run: |
           cargo build --release -p mk01-server
           target/release/mk01-server --migrate-only
-          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "INSERT INTO player_accounts (id,handle,recovery_key_hash,created_at) VALUES ('00000000-0000-4000-8000-000000000010','RestoreFixture',repeat('b',64),now())"
-          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "INSERT INTO user_sessions (id,account_id,nickname,token_hash,created_at,last_seen_at) VALUES ('00000000-0000-4000-8000-000000000001','00000000-0000-4000-8000-000000000010','RestoreFixture',repeat('a',64),now(),now())"
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f apps/server/tests/fixtures/privacy-backup-source.sql
       - name: Create encrypted backup and meet restore RPO/RTO
         run: |
+          umask 077
           mkdir -p .artifacts/backups
-          printf '%s' 'ci-restore-drill-passphrase-only' > .artifacts/backup-passphrase
+          openssl rand -base64 48 > .artifacts/backup-passphrase
           backup_file="$(BACKUP_DESTINATION="$PWD/.artifacts/backups" BACKUP_PASSPHRASE_FILE="$PWD/.artifacts/backup-passphrase" scripts/backup-postgres.sh)"
-          jq -n '{formatVersion:1,generatedAt:"2026-08-18T00:00:00Z",tombstones:[{accountId:"00000000-0000-4000-8000-000000000010",requestId:"00000000-0000-4000-8000-000000000020",subjectFingerprint:("c" * 64),deletedAt:"2026-08-18T00:00:00Z"}]}' > .artifacts/deletion-request.json
-          target/release/mk01-server --apply-deletion-ledger .artifacts/deletion-request.json
+          drill_now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          jq -n --arg now "$drill_now" '{formatVersion:1,generatedAt:$now,tombstones:[{accountId:"00000000-0000-4000-8000-000000000010",requestId:"00000000-0000-4000-8000-000000000020",subjectFingerprint:("c" * 64),deletedAt:$now}]}' > .artifacts/deletion-request.json
+          source_deletion_report="$(target/release/mk01-server --apply-deletion-ledger .artifacts/deletion-request.json)"
+          jq -e '.applied == 1 and .remainingPersonalRecords == 0' <<< "$source_deletion_report"
           ledger_file="$(DELETION_LEDGER_DESTINATION="$PWD/.artifacts/backups" DELETION_LEDGER_PASSPHRASE_FILE="$PWD/.artifacts/backup-passphrase" MK01_SERVER_BIN="$PWD/target/release/mk01-server" scripts/export-deletion-ledger.sh)"
           psql "postgres://mk01:mk01@127.0.0.1:5432/postgres" -v ON_ERROR_STOP=1 -c 'CREATE DATABASE mk01_restore'
           BACKUP_FILE="$backup_file" \
@@ -188,7 +190,9 @@ jobs:
             MAX_DELETION_LEDGER_AGE_SECONDS=300 \
             RESTORE_EVIDENCE_FILE="$PWD/.artifacts/restore-evidence.json" \
             scripts/restore-postgres-drill.sh
-          jq -e '.database.sessions == 0 and .database.deletionTombstones == 1 and .deletionLedgerApplication.applied == 1 and .deletionLedgerApplication.remainingPersonalRecords == 0 and .restoreSeconds <= .rtoGateSeconds and .backupAgeSeconds <= .rpoGateSeconds and .deletionLedgerAgeSeconds <= .deletionLedgerFreshnessGateSeconds' .artifacts/restore-evidence.json
+          jq -e '.database.sessions == 0 and .database.rankedRatings == 0 and .database.rankedStandings == 0 and .database.rankedRewards == 0 and .database.deletionTombstones == 1 and .database.rankedLeaderboardSnapshots == 1 and .deletionLedgerApplication.applied == 1 and .deletionLedgerApplication.remainingPersonalRecords == 0 and .restoreSeconds <= .rtoGateSeconds and .backupAgeSeconds <= .rpoGateSeconds and .deletionLedgerAgeSeconds <= .deletionLedgerFreshnessGateSeconds' .artifacts/restore-evidence.json
+          retained_evidence="$(psql 'postgres://mk01:mk01@127.0.0.1:5432/mk01_restore' -Atc "SELECT (SELECT count(*) FROM player_reports WHERE id='00000000-0000-4000-8000-000000000041'),(SELECT count(*) FROM player_moderation_actions WHERE id='00000000-0000-4000-8000-000000000042')")"
+          test "$retained_evidence" = '1|0'
       - uses: actions/upload-artifact@v6
         with:
           name: postgres-restore-drill-${{ github.sha }}
