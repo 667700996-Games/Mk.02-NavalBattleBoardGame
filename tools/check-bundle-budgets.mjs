@@ -1,13 +1,21 @@
-import { readdir, stat } from 'node:fs/promises';
-import { extname, join, relative } from 'node:path';
+import { readFile } from "node:fs/promises";
+import { readdir, stat } from "node:fs/promises";
+import { extname, join, relative } from "node:path";
 
-const root = join(process.cwd(), 'apps/web/.svelte-kit/output/client');
-const limits = {
-  '.js': { perFile: 100_000, total: 320_000 },
-  '.css': { perFile: 90_000, total: 185_000 },
-  '.woff2': { perFile: 550_000, total: 1_200_000 }
-};
-const totals = new Map(Object.keys(limits).map((extension) => [extension, 0]));
+const root = join(process.cwd(), "apps/web/.svelte-kit/output/client");
+const budgetConfig = JSON.parse(
+  await readFile(
+    join(process.cwd(), "config/performance-budgets.json"),
+    "utf8",
+  ),
+);
+const categories = Object.entries(budgetConfig.artifact);
+const extensionCategory = new Map(
+  categories.flatMap(([name, budget]) =>
+    budget.extensions.map((extension) => [extension, { name, budget }]),
+  ),
+);
+const totals = new Map(categories.map(([name]) => [name, 0]));
 const failures = [];
 
 async function walk(directory) {
@@ -19,33 +27,37 @@ async function walk(directory) {
     }
     const extension = extname(entry.name);
     const bytes = (await stat(path)).size;
-    if (extension === '.woff') {
-      failures.push(`${relative(root, path)} uses legacy WOFF (${bytes} bytes)`);
+    if (extension === ".woff") {
+      failures.push(
+        `${relative(root, path)} uses legacy WOFF (${bytes} bytes)`,
+      );
       continue;
     }
-    const budget = limits[extension];
-    if (!budget) continue;
-    totals.set(extension, (totals.get(extension) ?? 0) + bytes);
-    if (bytes > budget.perFile) {
+    const category = extensionCategory.get(extension);
+    if (!category) continue;
+    totals.set(category.name, (totals.get(category.name) ?? 0) + bytes);
+    if (bytes > category.budget.perFileBytes) {
       failures.push(
-        `${relative(root, path)} is ${bytes} bytes; ${extension} file budget is ${budget.perFile}`
+        `${relative(root, path)} is ${bytes} bytes; ${category.name} file budget is ${category.budget.perFileBytes}`,
       );
     }
   }
 }
 
 await walk(root);
-for (const [extension, bytes] of totals) {
-  const budget = limits[extension];
-  if (bytes > budget.total) {
-    failures.push(`${extension} total is ${bytes} bytes; budget is ${budget.total}`);
+for (const [name, bytes] of totals) {
+  const budget = budgetConfig.artifact[name];
+  if (bytes > budget.totalBytes) {
+    failures.push(
+      `${name} total is ${bytes} bytes; budget is ${budget.totalBytes}`,
+    );
   }
 }
 
 if (failures.length) {
-  console.error(`Bundle budget failed:\n- ${failures.join('\n- ')}`);
+  console.error(`Bundle budget failed:\n- ${failures.join("\n- ")}`);
   process.exit(1);
 }
 console.log(
-  `Bundle budget passed: ${[...totals].map(([extension, bytes]) => `${extension}=${bytes}`).join(', ')}`
+  `Bundle budget passed: ${[...totals].map(([name, bytes]) => `${name}=${bytes}`).join(", ")}`,
 );

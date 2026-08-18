@@ -12,7 +12,8 @@
     "format": "prettier --write .",
     "test:unit": "vitest run",
     "test:a11y": "playwright test e2e/accessibility.spec.ts e2e/color-vision.spec.ts e2e/input-prompts.spec.ts --project=chromium",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "test:performance": "npm run build && playwright test --config=playwright.performance.config.ts"
   },
   "dependencies": {
     "@fontsource/ibm-plex-sans-kr": "5.3.0",

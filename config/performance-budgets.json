@@ -1,0 +1,82 @@
+{
+  "artifact": {
+    "javascript": {
+      "extensions": [".js"],
+      "perFileBytes": 100000,
+      "totalBytes": 320000
+    },
+    "css": {
+      "extensions": [".css"],
+      "perFileBytes": 90000,
+      "totalBytes": 185000
+    },
+    "fonts": {
+      "extensions": [".woff2"],
+      "perFileBytes": 550000,
+      "totalBytes": 1200000
+    },
+    "images": {
+      "extensions": [".png", ".jpg", ".jpeg", ".webp", ".avif"],
+      "perFileBytes": 1100000,
+      "totalBytes": 2200000
+    },
+    "audio": {
+      "extensions": [".ogg", ".mp3", ".m4a", ".wav"],
+      "perFileBytes": 800000,
+      "totalBytes": 4000000
+    }
+  },
+  "tiers": {
+    "desktop": {
+      "viewport": { "width": 1440, "height": 900 },
+      "deviceScaleFactor": 1,
+      "isMobile": false,
+      "hasTouch": false,
+      "cpuThrottlingRate": 1,
+      "javascriptBytes": 320000,
+      "cssBytes": 185000,
+      "fontBytes": 500000,
+      "imageBytes": 1200000,
+      "audioBytes": 500000,
+      "jsHeapPeakBytes": 67108864,
+      "cpuTaskMilliseconds": 4000,
+      "longTaskMilliseconds": 500,
+      "frameP95Milliseconds": 34,
+      "webSocketBytes": 75000
+    },
+    "mobile": {
+      "viewport": { "width": 412, "height": 915 },
+      "deviceScaleFactor": 2.625,
+      "isMobile": true,
+      "hasTouch": true,
+      "cpuThrottlingRate": 3,
+      "javascriptBytes": 320000,
+      "cssBytes": 185000,
+      "fontBytes": 500000,
+      "imageBytes": 1200000,
+      "audioBytes": 500000,
+      "jsHeapPeakBytes": 67108864,
+      "cpuTaskMilliseconds": 8000,
+      "longTaskMilliseconds": 1000,
+      "frameP95Milliseconds": 67,
+      "webSocketBytes": 75000
+    },
+    "lowMobile": {
+      "viewport": { "width": 360, "height": 640 },
+      "deviceScaleFactor": 2,
+      "isMobile": true,
+      "hasTouch": true,
+      "cpuThrottlingRate": 6,
+      "javascriptBytes": 320000,
+      "cssBytes": 185000,
+      "fontBytes": 500000,
+      "imageBytes": 1200000,
+      "audioBytes": 500000,
+      "jsHeapPeakBytes": 67108864,
+      "cpuTaskMilliseconds": 12000,
+      "longTaskMilliseconds": 2000,
+      "frameP95Milliseconds": 100,
+      "webSocketBytes": 75000
+    }
+  }
+}

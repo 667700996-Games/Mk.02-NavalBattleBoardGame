@@ -21,7 +21,8 @@
     "format": "cargo fmt --all && npm --workspace @mk01/web run format",
     "test": "npm run contract && cargo test --workspace && npm --workspace @mk01/web run test:unit",
     "test:a11y": "npm --workspace @mk01/web run test:a11y",
-    "test:e2e": "npm --workspace @mk01/web run test:e2e"
+    "test:e2e": "npm --workspace @mk01/web run test:e2e",
+    "test:performance": "npm --workspace @mk01/web run test:performance"
   },
   "devDependencies": {
     "concurrently": "9.2.4"

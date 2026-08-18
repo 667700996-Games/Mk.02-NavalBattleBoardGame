@@ -300,13 +300,16 @@ npm run fonts:check # 정적 한국어 글리프의 WOFF2 서브셋·중복·용
 npx playwright install chromium firefox webkit
 npm run test:a11y   # WCAG 2.2 AA 전체 흐름 + 키보드·라이브 알림 검증
 npm run test:e2e    # Chromium/Firefox/WebKit 전체 경기 + 모바일 2종 + 태블릿 1종
+npm run test:performance # 프로덕션 빌드의 데스크톱·모바일·저사양 모바일 예산 검증
 npm run build       # Rust release + SvelteKit adapter-node
-npm run budget      # JS/CSS/WOFF2 파일·총량 제한과 기존 WOFF 차단
+npm run budget      # JS/CSS/폰트/이미지/오디오 파일·총량 제한과 기존 WOFF 차단
 ```
 
 한국어 제품 문구를 추가한 뒤에는 `npm run fonts:generate`로 소스 기반 서브셋 목록을
 재생성합니다. 사용자 닉네임·방 이름·채팅의 임의 글리프는 시스템 한국어 폰트로
 폴백하며, 전체 Korean 웹폰트를 추가로 내려받지 않습니다.
+기기 등급별 전송량·메모리·CPU·프레임·WebSocket 기준과 측정 방법은
+[성능 예산 계약](docs/PERFORMANCE_BUDGETS.md)에 정의합니다.
 
 운영 백업은 `scripts/backup-postgres.sh`와 `scripts/export-deletion-ledger.sh`를 각각 다른
 수명주기 객체로 저장합니다. 복구 시 `scripts/restore-postgres-drill.sh`는 두 객체의

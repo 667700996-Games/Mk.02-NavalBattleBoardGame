@@ -78,6 +78,9 @@ jobs:
       - run: npm run test:e2e
         env:
           CI: 'true'
+      - run: npm run test:performance
+        env:
+          CI: 'true'
 
   backup-restore-drill:
     runs-on: ubuntu-latest

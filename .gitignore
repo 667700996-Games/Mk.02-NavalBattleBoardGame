@@ -6,7 +6,7 @@ target/
 apps/web/.svelte-kit/
 apps/web/build/
 apps/web/playwright-report/
+apps/web/playwright-performance-report/
 apps/web/test-results/
 coverage/
 *.log
-

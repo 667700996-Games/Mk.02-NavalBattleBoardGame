@@ -75,12 +75,14 @@ Ticket alerts cover a single-instance readiness failure, sustained rate-limit gr
 version conflicts, funnel threshold violations, bundle-budget regression attempts, and backup age
 above 12 hours.
 
-The current complete code-split client artifact gates are 320 KB raw JavaScript, 185 KB raw CSS,
-and 1.2 MB WOFF2, with no individual JS/CSS chunk above 100/90 KB. The August 2026 increase from
-300/180 KB allocates the authenticated privacy export/deletion controls; it does not relax the
-largest-route or font limits. The generated Korean subsets currently reduce the complete WOFF2
-artifact from 1,091,828 to 483,304 bytes; `npm run fonts:check` enforces source-glyph coverage and a
-450 KB Korean-slice cap. `npm run budget` remains a release-blocking check.
+The complete code-split artifact and the production gameplay journey share the versioned limits in
+`config/performance-budgets.json`. `npm run budget` gates JavaScript, CSS, WOFF2 fonts, images, and
+audio; `npm run test:performance` gates decoded route transfer, heap, CPU tasks, long tasks, frame
+p95, and WebSocket bytes on desktop, 3× CPU mobile, and 6× CPU low-mobile tiers. Both are
+release-blocking checks. The generated Korean subsets currently reduce the complete WOFF2 artifact
+from 1,091,828 to 483,304 bytes; `npm run fonts:check` enforces source-glyph coverage and a 450 KB
+Korean-slice cap. Baselines, measurement definitions, and budget review rules are in
+`PERFORMANCE_BUDGETS.md`.
 
 ## Deployment and rollback
 

@@ -202,7 +202,7 @@ The program is complete only when all gates below are satisfied in a production-
 
 ### D4. Performance budgets
 
-- [ ] Route JS/CSS, fonts, images, audio, memory, CPU, animation frame time, and WebSocket bandwidth
+- [x] Route JS/CSS, fonts, images, audio, memory, CPU, animation frame time, and WebSocket bandwidth
       have budgets by device tier.
 - [x] Korean fonts are subsetted and modern formats are preferred without redundant transfer.
 - [ ] Core Web Vitals and battle interaction latency are captured from real users by release.
@@ -213,7 +213,14 @@ The program is complete only when all gates below are satisfied in a production-
   1,091,828 to 483,304 WOFF2 bytes (55.7%) while the unchanged JS/CSS/font budgets pass. The browser
   transfer test rejects full Korean faces, WOFF/TTF, duplicate requests, missing regular/bold faces,
   and a route font transfer above 500 KB. Dynamic player copy uses the documented system fallback.
-  See `FONT_DELIVERY.md` for the generation and review contract.
+  `performance-budgets.json` is the shared artifact/runtime authority for JavaScript, CSS, fonts,
+  images, audio, heap, CPU tasks, long tasks, frame p95, and WebSocket bytes. A production-adapter
+  Playwright journey exercises placement, target lock, fire/impact, surrender modal, and result at
+  desktop, 3× CPU mobile, and 6× CPU low-mobile tiers. The reference run passed 3/3 with zero long
+  tasks; desktop frame p95 improved from 66.7 to 18.2 ms in the latest run after redundant
+  full-surface backdrop filters were removed. CI reruns this release-blocking gate. See
+  `FONT_DELIVERY.md` and
+  `PERFORMANCE_BUDGETS.md` for generation, measurement, and review contracts.
 
 ## Gate E — Engineering quality and delivery
 

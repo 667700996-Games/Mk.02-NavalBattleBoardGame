@@ -4,7 +4,15 @@ import svelte from 'eslint-plugin-svelte';
 import ts from 'typescript-eslint';
 
 export default ts.config(
-  { ignores: ['.svelte-kit/**', 'build/**', 'playwright-report/**', 'test-results/**'] },
+  {
+    ignores: [
+      '.svelte-kit/**',
+      'build/**',
+      'playwright-report/**',
+      'playwright-performance-report/**',
+      'test-results/**'
+    ]
+  },
   js.configs.recommended,
   ...ts.configs.recommended,
   ...svelte.configs['flat/recommended'],
