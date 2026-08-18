@@ -8,18 +8,18 @@ use uuid::Uuid;
 
 use crate::{
     domain::{
-        AccountSession, ActivePenalty, GameRoom, IntegritySignal, IntegritySignalKind,
-        IntegritySignalPage, ModerationAction, ModerationActionKind, ModerationCase,
-        ModerationCasePage, NewIntegritySignal, NewModerationAction, NewPlayerReport,
-        PlayerAccount, PlayerReport, ReportCategory, ReportStatus, RoomSummary, SocialRelationship,
-        UserSession,
+        AccountSession, ActivePenalty, ChatMessageType, GameRoom, IntegritySignal,
+        IntegritySignalKind, IntegritySignalPage, ModerationAction, ModerationActionKind,
+        ModerationCase, ModerationCasePage, NewIntegritySignal, NewModerationAction,
+        NewPlayerReport, PlayerAccount, PlayerReport, ReportCategory, ReportStatus, RoomStatus,
+        RoomSummary, SocialRelationship, UserSession,
     },
     error::GameError,
 };
 
 use super::{
-    GameHistoryItem, GameStore, MatchmakingClaim, MatchmakingEnqueueResult, MatchmakingQueueStats,
-    MissionReward, RetentionStats, RoomAuthorityLease,
+    AccountDeletionStats, GameHistoryItem, GameStore, MatchmakingClaim, MatchmakingEnqueueResult,
+    MatchmakingQueueStats, MissionReward, RetentionStats, RoomAuthorityLease,
 };
 
 #[derive(Clone)]
@@ -383,6 +383,265 @@ impl GameStore for PostgresRedisStore {
             .execute(&self.pool)
             .await?;
         Ok(deleted.rows_affected() == 1)
+    }
+
+    async fn export_account_data(
+        &self,
+        account_id: Uuid,
+        request_id: Uuid,
+        subject_fingerprint: &str,
+        generated_at: DateTime<Utc>,
+    ) -> Result<serde_json::Value, GameError> {
+        let mut transaction = self.pool.begin().await?;
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+            .execute(&mut *transaction)
+            .await?;
+        let account: serde_json::Value = sqlx::query_scalar(
+            "SELECT jsonb_build_object('id',id,'handle',handle,'createdAt',created_at) FROM player_accounts WHERE id=$1",
+        )
+        .bind(account_id)
+        .fetch_optional(&mut *transaction)
+        .await?
+        .ok_or(GameError::Unauthorized)?;
+        let session_ids: Vec<Uuid> =
+            sqlx::query_scalar("SELECT id FROM user_sessions WHERE account_id=$1")
+                .bind(account_id)
+                .fetch_all(&mut *transaction)
+                .await?;
+        let mut identities = session_ids.clone();
+        identities.push(account_id);
+        let sessions: Vec<serde_json::Value> = sqlx::query_scalar(
+            "SELECT jsonb_build_object('id',id,'nickname',nickname,'createdAt',created_at,'lastSeenAt',last_seen_at,'currentRoomId',current_room_id) FROM user_sessions WHERE account_id=$1 ORDER BY last_seen_at DESC",
+        )
+        .bind(account_id)
+        .fetch_all(&mut *transaction)
+        .await?;
+        let game_history: Vec<serde_json::Value> = sqlx::query_scalar(
+            "SELECT jsonb_build_object('roomId',results.room_id,'roomName',results.room_name,'result',results.result,'finishedAt',results.finished_at) FROM game_results results WHERE EXISTS (SELECT 1 FROM game_result_participants participant WHERE participant.room_id=results.room_id AND (participant.account_id=$1 OR participant.session_id=ANY($2))) ORDER BY results.finished_at DESC",
+        )
+        .bind(account_id)
+        .bind(&session_ids)
+        .fetch_all(&mut *transaction)
+        .await?;
+        let rewards: Vec<serde_json::Value> = sqlx::query_scalar(
+            "SELECT jsonb_build_object('sourceKind',source_kind,'sourceId',source_id,'periodKey',period_key,'xp',xp,'createdAt',created_at,'reversedAt',reversed_at,'reversalReason',reversal_reason) FROM progression_reward_ledger WHERE account_id=$1 ORDER BY created_at",
+        )
+        .bind(account_id)
+        .fetch_all(&mut *transaction)
+        .await?;
+        let relationships: Vec<serde_json::Value> = sqlx::query_scalar(
+            "SELECT jsonb_build_object('targetIdentityId',target_identity_id,'targetNickname',target_nickname,'muted',muted,'blocked',blocked,'updatedAt',updated_at) FROM player_relationships WHERE actor_identity_id=ANY($1) ORDER BY updated_at DESC",
+        )
+        .bind(&identities)
+        .fetch_all(&mut *transaction)
+        .await?;
+        let reports: Vec<serde_json::Value> = sqlx::query_scalar(
+            "SELECT jsonb_build_object('id',id,'direction',CASE WHEN reporter_identity_id=ANY($1) THEN 'SUBMITTED' ELSE 'RECEIVED' END,'targetNickname',target_nickname,'category',category,'details',details,'evidence',evidence,'status',status,'createdAt',created_at,'updatedAt',updated_at) FROM player_reports WHERE reporter_identity_id=ANY($1) OR target_identity_id=ANY($1) ORDER BY created_at DESC",
+        )
+        .bind(&identities)
+        .fetch_all(&mut *transaction)
+        .await?;
+        let moderation_actions: Vec<serde_json::Value> = sqlx::query_scalar(
+            "SELECT jsonb_build_object('id',action.id,'reportId',action.report_id,'action',action.action_type,'reason',action.reason,'expiresAt',action.expires_at,'reversesActionId',action.reverses_action_id,'createdAt',action.created_at) FROM player_moderation_actions action JOIN player_reports report ON report.id=action.report_id WHERE report.reporter_identity_id=ANY($1) OR report.target_identity_id=ANY($1) ORDER BY action.created_at",
+        )
+        .bind(&identities)
+        .fetch_all(&mut *transaction)
+        .await?;
+        let integrity_signals: Vec<serde_json::Value> = sqlx::query_scalar(
+            "SELECT jsonb_build_object('id',id,'roomId',room_id,'kind',kind,'severity',severity,'confidence',confidence,'evidence',evidence,'occurrences',occurrences,'firstObservedAt',first_observed_at,'lastObservedAt',last_observed_at) FROM integrity_signals WHERE subject_identity_id=ANY($1) ORDER BY last_observed_at DESC",
+        )
+        .bind(&identities)
+        .fetch_all(&mut *transaction)
+        .await?;
+        sqlx::query(
+            "INSERT INTO privacy_requests (id,subject_fingerprint,request_type,status,created_at,completed_at) VALUES ($1,$2,'EXPORT','COMPLETED',$3,$3)",
+        )
+        .bind(request_id)
+        .bind(subject_fingerprint)
+        .bind(generated_at)
+        .execute(&mut *transaction)
+        .await?;
+        transaction.commit().await?;
+        Ok(serde_json::json!({
+            "formatVersion": 1,
+            "requestId": request_id,
+            "generatedAt": generated_at,
+            "account": account,
+            "sessions": sessions,
+            "gameHistory": game_history,
+            "progressionRewards": rewards,
+            "socialRelationships": relationships,
+            "moderationReports": reports,
+            "moderationActions": moderation_actions,
+            "integritySignals": integrity_signals,
+            "cacheCopies": "No independent data; Redis room cache follows the authoritative room lifecycle.",
+            "credentialsExcluded": true,
+        }))
+    }
+
+    async fn delete_account_data(
+        &self,
+        account_id: Uuid,
+        request_id: Uuid,
+        subject_fingerprint: &str,
+        known_room_ids: &[Uuid],
+        deleted_at: DateTime<Utc>,
+    ) -> Result<AccountDeletionStats, GameError> {
+        let mut transaction = self.pool.begin().await?;
+        let account_handle: String =
+            sqlx::query_scalar("SELECT handle FROM player_accounts WHERE id=$1 FOR UPDATE")
+                .bind(account_id)
+                .fetch_optional(&mut *transaction)
+                .await?
+                .ok_or(GameError::Unauthorized)?;
+        let sessions: Vec<(Uuid, String)> =
+            sqlx::query_as("SELECT id,nickname FROM user_sessions WHERE account_id=$1 FOR UPDATE")
+                .bind(account_id)
+                .fetch_all(&mut *transaction)
+                .await?;
+        let session_ids: Vec<_> = sessions.iter().map(|(id, _)| *id).collect();
+        let deleted_names: Vec<_> = std::iter::once(account_handle.clone())
+            .chain(sessions.iter().map(|(_, nickname)| nickname.clone()))
+            .collect();
+        let mut identities = session_ids.clone();
+        identities.push(account_id);
+        let room_rows: Vec<(Uuid, serde_json::Value)> = sqlx::query_as(
+            "SELECT id,snapshot FROM game_rooms room WHERE id=ANY($2) OR EXISTS (SELECT 1 FROM jsonb_array_elements(room.snapshot->'players') player WHERE (player->>'sessionId')::uuid=ANY($1)) FOR UPDATE",
+        )
+        .bind(&session_ids)
+        .bind(known_room_ids)
+        .fetch_all(&mut *transaction)
+        .await?;
+        let mut replacement_session_ids = Vec::new();
+        for old_session_id in &session_ids {
+            replacement_session_ids.push((*old_session_id, Uuid::new_v4()));
+        }
+        let mut affected_room_ids = Vec::with_capacity(room_rows.len());
+        for (room_id, snapshot) in room_rows {
+            let mut room: GameRoom =
+                serde_json::from_value(snapshot).map_err(|_| GameError::Internal)?;
+            if !matches!(room.status, RoomStatus::Finished | RoomStatus::Cancelled) {
+                return Err(GameError::InvalidState);
+            }
+            let mut deleted_player_ids = Vec::new();
+            for player in &mut room.players {
+                if let Some((_, replacement)) = replacement_session_ids
+                    .iter()
+                    .find(|(session_id, _)| *session_id == player.session_id)
+                {
+                    deleted_player_ids.push(player.id);
+                    player.session_id = *replacement;
+                    player.nickname = "Deleted Commander".to_string();
+                }
+            }
+            for message in &mut room.chat_messages {
+                for name in &deleted_names {
+                    message.content = message.content.replace(name, "Deleted Commander");
+                }
+                if message
+                    .player_id
+                    .is_some_and(|player_id| deleted_player_ids.contains(&player_id))
+                {
+                    message.nickname = "Deleted Commander".to_string();
+                    if message.message_type == ChatMessageType::Text {
+                        message.content = "[deleted]".to_string();
+                    }
+                }
+            }
+            room.name = "Archived Operation".to_string();
+            room.updated_at = deleted_at;
+            room.version = room.version.saturating_add(1);
+            room.persistence_revision = room.persistence_revision.saturating_add(1);
+            let anonymized = serde_json::to_value(&room).map_err(|_| GameError::Internal)?;
+            sqlx::query("UPDATE game_rooms SET name=$2,snapshot=$3,updated_at=$4,persistence_revision=persistence_revision+1 WHERE id=$1")
+                .bind(room_id)
+                .bind(&room.name)
+                .bind(anonymized)
+                .bind(deleted_at)
+                .execute(&mut *transaction)
+                .await?;
+            sqlx::query("UPDATE game_results SET room_name='Archived Operation' WHERE room_id=$1")
+                .bind(room_id)
+                .execute(&mut *transaction)
+                .await?;
+            affected_room_ids.push(room_id);
+        }
+        for (old_session_id, replacement_session_id) in &replacement_session_ids {
+            sqlx::query("UPDATE game_result_participants SET session_id=$2,account_id=NULL WHERE session_id=$1")
+                .bind(old_session_id)
+                .bind(replacement_session_id)
+                .execute(&mut *transaction)
+                .await?;
+            sqlx::query("UPDATE game_results SET participant_session_ids=array_replace(participant_session_ids,$1,$2),participant_account_ids=array_remove(participant_account_ids,$3) WHERE $1=ANY(participant_session_ids) OR $3=ANY(participant_account_ids)")
+                .bind(old_session_id)
+                .bind(replacement_session_id)
+                .bind(account_id)
+                .execute(&mut *transaction)
+                .await?;
+        }
+        let rewards_deleted =
+            sqlx::query("DELETE FROM progression_reward_ledger WHERE account_id=$1")
+                .bind(account_id)
+                .execute(&mut *transaction)
+                .await?
+                .rows_affected();
+        let relationships_deleted = sqlx::query(
+            "DELETE FROM player_relationships WHERE actor_identity_id=ANY($1) OR target_identity_id=ANY($1)",
+        )
+        .bind(&identities)
+        .execute(&mut *transaction)
+        .await?
+        .rows_affected();
+        let reports_deleted = sqlx::query(
+            "DELETE FROM player_reports WHERE reporter_identity_id=ANY($1) OR target_identity_id=ANY($1)",
+        )
+        .bind(&identities)
+        .execute(&mut *transaction)
+        .await?
+        .rows_affected();
+        let integrity_signals_deleted =
+            sqlx::query("DELETE FROM integrity_signals WHERE subject_identity_id=ANY($1)")
+                .bind(&identities)
+                .execute(&mut *transaction)
+                .await?
+                .rows_affected();
+        sqlx::query("DELETE FROM matchmaking_queue WHERE session_id=ANY($1)")
+            .bind(&session_ids)
+            .execute(&mut *transaction)
+            .await?;
+        let sessions_deleted = sqlx::query("DELETE FROM user_sessions WHERE account_id=$1")
+            .bind(account_id)
+            .execute(&mut *transaction)
+            .await?
+            .rows_affected();
+        sqlx::query("DELETE FROM player_accounts WHERE id=$1")
+            .bind(account_id)
+            .execute(&mut *transaction)
+            .await?;
+        sqlx::query(
+            "INSERT INTO privacy_requests (id,subject_fingerprint,request_type,status,created_at,completed_at) VALUES ($1,$2,'DELETE','COMPLETED',$3,$3)",
+        )
+        .bind(request_id)
+        .bind(subject_fingerprint)
+        .bind(deleted_at)
+        .execute(&mut *transaction)
+        .await?;
+        transaction.commit().await?;
+        if let Some(mut cache) = self.cache.clone() {
+            for room_id in &affected_room_ids {
+                if let Err(error) = cache.del::<_, ()>(Self::room_cache_key(*room_id)).await {
+                    tracing::warn!(%error, %room_id, "account deletion cache eviction failed");
+                }
+            }
+        }
+        Ok(AccountDeletionStats {
+            sessions_deleted,
+            rewards_deleted,
+            relationships_deleted,
+            reports_deleted,
+            integrity_signals_deleted,
+            rooms_anonymized: affected_room_ids.len() as u64,
+        })
     }
 
     async fn save_room(&self, room: &mut GameRoom) -> Result<(), GameError> {

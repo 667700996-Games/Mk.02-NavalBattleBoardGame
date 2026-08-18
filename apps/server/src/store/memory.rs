@@ -247,7 +247,11 @@ impl GameStore for MemoryStore {
             .collect();
         let report_ids: Vec<Uuid> = reports
             .iter()
-            .filter_map(|report| report["id"].as_str().and_then(|id| Uuid::parse_str(id).ok()))
+            .filter_map(|report| {
+                report["id"]
+                    .as_str()
+                    .and_then(|id| Uuid::parse_str(id).ok())
+            })
             .collect();
         let moderation_actions: Vec<_> = self
             .moderation_actions
@@ -294,6 +298,7 @@ impl GameStore for MemoryStore {
         account_id: Uuid,
         request_id: Uuid,
         subject_fingerprint: &str,
+        known_room_ids: &[Uuid],
         deleted_at: DateTime<Utc>,
     ) -> Result<AccountDeletionStats, GameError> {
         let _account_guard = self.account_mutations.lock().await;
@@ -315,9 +320,11 @@ impl GameStore for MemoryStore {
             .rooms
             .iter()
             .filter(|room| {
-                room.players
-                    .iter()
-                    .any(|player| session_ids.contains(&player.session_id))
+                known_room_ids.contains(&room.id)
+                    || room
+                        .players
+                        .iter()
+                        .any(|player| session_ids.contains(&player.session_id))
             })
             .map(|room| room.id)
             .collect();
@@ -335,9 +342,30 @@ impl GameStore for MemoryStore {
                 }
             }
             for message in &mut room.chat_messages {
-                if message
+                let belongs_to_deleted_player = message
                     .player_id
                     .is_some_and(|player_id| deleted_player_ids.contains(&player_id))
+                    || message.nickname == account.handle
+                    || sessions
+                        .iter()
+                        .filter_map(|(session_id, _)| {
+                            self.session_hash_by_id
+                                .get(session_id)
+                                .and_then(|hash| self.sessions_by_hash.get(hash.value()))
+                                .map(|session| session.nickname == message.nickname)
+                        })
+                        .any(|matches| matches);
+                for deleted_name in std::iter::once(&account.handle).chain(sessions.iter().filter_map(
+                    |(session_id, _)| {
+                        self.session_hash_by_id
+                            .get(session_id)
+                            .and_then(|hash| self.sessions_by_hash.get(hash.value()))
+                            .map(|session| session.nickname.clone())
+                    },
+                )) {
+                    message.content = message.content.replace(deleted_name, "Deleted Commander");
+                }
+                if belongs_to_deleted_player
                 {
                     message.nickname = "Deleted Commander".to_string();
                     if message.message_type == ChatMessageType::Text {
@@ -345,8 +373,10 @@ impl GameStore for MemoryStore {
                     }
                 }
             }
+            room.name = "Archived Operation".to_string();
             room.updated_at = deleted_at;
             room.version = room.version.saturating_add(1);
+            room.persistence_revision = room.persistence_revision.saturating_add(1);
         }
 
         let reward_keys: Vec<_> = self

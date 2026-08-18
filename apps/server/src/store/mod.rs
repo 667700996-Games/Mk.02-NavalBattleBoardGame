@@ -67,7 +67,8 @@ pub struct AccountDeletionStats {
     pub rooms_anonymized: u64,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct MissionReward {
     pub mission_id: String,
     pub period_key: String,
@@ -128,6 +129,7 @@ pub trait GameStore: Send + Sync {
         account_id: Uuid,
         request_id: Uuid,
         subject_fingerprint: &str,
+        known_room_ids: &[Uuid],
         deleted_at: DateTime<Utc>,
     ) -> Result<AccountDeletionStats, GameError>;
     async fn mission_rewards(&self, account_id: Uuid) -> Result<Vec<MissionReward>, GameError>;
