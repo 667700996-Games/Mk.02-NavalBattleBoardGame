@@ -1,0 +1,67 @@
+{
+  "schemaVersion": 1,
+  "reviewId": "ARCH-REVIEW-2026-08-18-BASELINE",
+  "reviewedAt": "2026-08-18T20:10:00+09:00",
+  "baseCommit": "74c3390",
+  "reviewer": {
+    "role": "architecture",
+    "account": "@667700996"
+  },
+  "reviewedBoundaries": [
+    "authoritative-gameplay",
+    "service-orchestration",
+    "persistence-and-coordination",
+    "web-client",
+    "public-contracts",
+    "architecture-governance",
+    "quality-and-delivery"
+  ],
+  "reviewedDecisions": ["ADR-0001", "ADR-0002", "ADR-0003"],
+  "checks": [
+    {
+      "id": "authority",
+      "result": "pass",
+      "evidence": "ADR-0001 and domain/API/browser/distributed tests keep shared gameplay and hidden state server-authoritative"
+    },
+    {
+      "id": "dependency-direction",
+      "result": "pass",
+      "evidence": "Automated forbidden-import checks protect domain, store, and pure browser game modules"
+    },
+    {
+      "id": "durability",
+      "result": "pass",
+      "evidence": "ADR-0002, revision CAS, fencing, service-backed tests, and restore drills establish PostgreSQL authority"
+    },
+    {
+      "id": "compatibility",
+      "result": "pass",
+      "evidence": "ADR-0003 plus immutable protocol, migration, balance, replay, and mixed-release gates"
+    },
+    {
+      "id": "ownership",
+      "result": "pass",
+      "evidence": "Every critical repository file maps to exactly one boundary, role, CODEOWNERS account, and review rule"
+    }
+  ],
+  "findings": [
+    {
+      "id": "ARCH-001",
+      "status": "open",
+      "severity": "high",
+      "ownerRole": "architecture",
+      "title": "Large application, store, domain room, and route modules need responsibility-based decomposition",
+      "acceptance": "Room/state-machine, timer/recovery, matchmaking, presentation, chat, moderation/live-content, metrics, and orchestration boundaries are independently testable and the separate AAA decomposition gate passes"
+    },
+    {
+      "id": "ARCH-002",
+      "status": "open",
+      "severity": "medium",
+      "ownerRole": "service-platform",
+      "title": "Public account-deletion response currently exposes a store-owned statistics DTO",
+      "acceptance": "Transport response DTO owns its public shape and maps from a storage result without making protocol code depend on store implementation types"
+    }
+  ],
+  "outcome": "accepted-with-tracked-debt",
+  "nextReviewDue": "2026-11-18"
+}

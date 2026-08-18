@@ -27,6 +27,7 @@ jobs:
       - run: npm ci
       - run: npm run check
       - run: npm run contract
+      - run: npm run architecture:check
       - run: npm run lint
       - run: npm run test
       - run: npm run build

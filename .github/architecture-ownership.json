@@ -1,0 +1,164 @@
+{
+  "schemaVersion": 1,
+  "defaultReviewerAccount": "@667700996",
+  "reviewPolicy": {
+    "minimumApprovals": 1,
+    "crossBoundaryMinimumApprovals": 2,
+    "independentApprovalRequiredFor": [
+      "authentication-or-authorization",
+      "hidden-state-visibility",
+      "migration-or-retention",
+      "protocol-version-window",
+      "production-security-or-slo"
+    ],
+    "adrRequiredFor": [
+      "dependency-direction",
+      "authoritative-state-owner",
+      "public-contract-compatibility",
+      "durability-or-consistency-model",
+      "production-slo-or-security-tradeoff"
+    ]
+  },
+  "roles": [
+    {
+      "id": "architecture",
+      "account": "@667700996",
+      "responsibility": "Cross-boundary dependency direction, ADR quality, and debt disposition"
+    },
+    {
+      "id": "game-integrity",
+      "account": "@667700996",
+      "responsibility": "Authoritative rules, hidden information, replay interpretation, and anti-cheat invariants"
+    },
+    {
+      "id": "service-platform",
+      "account": "@667700996",
+      "responsibility": "HTTP/WebSocket orchestration, sessions, limits, timers, and distributed delivery"
+    },
+    {
+      "id": "data-reliability",
+      "account": "@667700996",
+      "responsibility": "PostgreSQL/Redis adapters, migrations, privacy deletion, backup, and restore correctness"
+    },
+    {
+      "id": "web-experience",
+      "account": "@667700996",
+      "responsibility": "Svelte routes, client state, accessibility, responsive interaction, and presentation"
+    },
+    {
+      "id": "release-engineering",
+      "account": "@667700996",
+      "responsibility": "CI, deployment artifacts, observability configuration, and executable policy gates"
+    }
+  ],
+  "boundaries": [
+    {
+      "id": "authoritative-gameplay",
+      "ownerRole": "game-integrity",
+      "reviewerRoles": ["service-platform"],
+      "pathPrefixes": ["apps/server/src/domain/"],
+      "summary": "Pure authoritative game, room, matchmaking, ranking, safety, and progression rules"
+    },
+    {
+      "id": "service-orchestration",
+      "ownerRole": "service-platform",
+      "reviewerRoles": ["game-integrity"],
+      "pathPrefixes": [
+        "apps/server/src/api.rs",
+        "apps/server/src/app.rs",
+        "apps/server/src/config.rs",
+        "apps/server/src/error.rs",
+        "apps/server/src/lib.rs",
+        "apps/server/src/main.rs",
+        "apps/server/src/protocol.rs",
+        "apps/server/src/rate_limit.rs",
+        "apps/server/src/ws.rs",
+        "apps/server/tests/api_flow.rs"
+      ],
+      "summary": "Transport adapters, use-case orchestration, runtime configuration, and process lifecycle"
+    },
+    {
+      "id": "persistence-and-coordination",
+      "ownerRole": "data-reliability",
+      "reviewerRoles": ["service-platform", "game-integrity"],
+      "pathPrefixes": [
+        "apps/server/src/store/",
+        "apps/server/migrations/",
+        "apps/server/tests/distributed_postgres.rs",
+        "apps/server/tests/fixtures/"
+      ],
+      "summary": "Durable repositories, cache/coordination adapters, schema history, and service-backed verification"
+    },
+    {
+      "id": "web-client",
+      "ownerRole": "web-experience",
+      "reviewerRoles": ["game-integrity", "service-platform"],
+      "pathPrefixes": ["apps/web/"],
+      "summary": "Player-facing routes, UI components, browser state/adapters, assets, and browser tests"
+    },
+    {
+      "id": "public-contracts",
+      "ownerRole": "service-platform",
+      "reviewerRoles": ["web-experience", "game-integrity"],
+      "pathPrefixes": ["contracts/"],
+      "summary": "Frozen HTTP/WebSocket release contracts, fixtures, and immutable checksums"
+    },
+    {
+      "id": "architecture-governance",
+      "ownerRole": "architecture",
+      "reviewerRoles": [
+        "game-integrity",
+        "service-platform",
+        "data-reliability",
+        "web-experience"
+      ],
+      "pathPrefixes": ["docs/"],
+      "summary": "Architecture map, accepted decisions, operating policy, reviews, and readiness evidence"
+    },
+    {
+      "id": "quality-and-delivery",
+      "ownerRole": "release-engineering",
+      "reviewerRoles": ["architecture", "service-platform"],
+      "pathPrefixes": [
+        ".dockerignore",
+        ".editorconfig",
+        ".env.example",
+        ".github/",
+        ".gitignore",
+        "config/",
+        "deploy/",
+        "ops/",
+        "scripts/",
+        "tools/",
+        "apps/server/Cargo.toml",
+        "apps/server/Dockerfile",
+        "apps/server/build.rs",
+        "Cargo.lock",
+        "Cargo.toml",
+        "LICENSE",
+        "README.md",
+        "SECURITY.md",
+        "compose.yaml",
+        "deny.toml",
+        "package-lock.json",
+        "package.json"
+      ],
+      "summary": "Build graph, CI, deploy configuration, operational assets, and policy automation"
+    }
+  ],
+  "decisionRecords": [
+    {
+      "id": "ADR-0001",
+      "path": "docs/adr/0001-server-authoritative-gameplay.md"
+    },
+    {
+      "id": "ADR-0002",
+      "path": "docs/adr/0002-postgres-authority-and-redis-coordination.md"
+    },
+    {
+      "id": "ADR-0003",
+      "path": "docs/adr/0003-versioned-contracts-and-immutable-history.md"
+    }
+  ],
+  "baselineReview": "docs/architecture-reviews/2026-08-18-baseline.json"
+}

@@ -312,7 +312,7 @@ The program is complete only when all gates below are satisfied in a production-
       and orchestration responsibility.
 - [x] HTTP/WebSocket schemas generate or validate Rust and TypeScript contracts at runtime.
 - [x] Protocol compatibility and migration policy supports mixed client/server release windows.
-- [ ] Architecture decisions and ownership boundaries are documented and reviewed.
+- [x] Architecture decisions and ownership boundaries are documented and reviewed.
 - Evidence: `PROTOCOL_COMPATIBILITY.md` fixes explicit HTTP/WebSocket negotiation, the frozen
   headerless V2 fallback, current-plus-one-prior support, server-first rollout, rollback, a minimum
   30-day window, seven zero-traffic days, and active-match drain before retirement. Every API
@@ -327,6 +327,19 @@ The program is complete only when all gates below are satisfied in a production-
   complete Rust/web checks, lint, 99 Rust tests, 25 web unit tests, production build, and 33 executed
   multi-browser/mobile E2E cases passed; all six full-game profiles completed and recovered after
   refresh with the negotiated V2 socket.
+- Evidence: `ARCHITECTURE.md` records the authority/dependency map, runtime flows, seven path
+  boundaries, review classes, and the responsibility-based decomposition sequence. Three accepted
+  ADRs fix server authority, PostgreSQL authority with Redis coordination, and independent immutable
+  protocol/schema/balance/content history. The dated baseline review covers every decision and
+  boundary, passes authority/dependency/durability/compatibility/ownership review, and keeps
+  `ARCH-001`/`ARCH-002` open with owners and measurable acceptance instead of hiding decomposition
+  debt. The machine-readable ownership policy maps 208 critical files to exactly one boundary and
+  six roles; CODEOWNERS uses a verified GitHub account, while the PR template requires boundary,
+  owner, ADR, compatibility, rollback, and independent high-risk review evidence. The executable
+  gate rejects uncovered/overlapping ownership, missing ADR/review/CODEOWNERS data, and forbidden
+  domain→transport/store, store→transport, or pure browser-game→network/global-state dependencies.
+  CI runs it explicitly and through lint; architecture, full check/lint, 99 Rust tests, and 25 web
+  unit tests passed.
 
 ### E2. Automated quality gates
 
