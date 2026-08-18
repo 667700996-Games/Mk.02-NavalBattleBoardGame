@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { autoPlaceFleet, cellsForPlacement, validateFleet, validatePlacement } from './placement';
+import {
+  autoPlaceFleet,
+  cellsForPlacement,
+  placementAt,
+  rotatePlacement,
+  validateFleet,
+  validatePlacement
+} from './placement';
 import type { BalanceManifest, ShipPlacement } from '$lib/types';
 
 const compactBalance: BalanceManifest = {
@@ -98,5 +105,29 @@ describe('fleet placement', () => {
         true
       );
     }
+  });
+
+  it('reports incomplete and duplicate fleets before per-ship validation', () => {
+    const fleet = autoPlaceFleet();
+    expect(validateFleet(fleet.slice(0, 4))).toMatchObject({
+      valid: false,
+      reason: 'INCOMPLETE'
+    });
+    expect(validateFleet([...fleet.slice(0, 4), fleet[0]])).toMatchObject({
+      valid: false,
+      reason: 'DUPLICATE'
+    });
+  });
+
+  it('rotates in both directions and resolves occupied coordinates without disclosure ambiguity', () => {
+    const destroyer: ShipPlacement = {
+      kind: 'DESTROYER',
+      origin: { row: 4, col: 5 },
+      orientation: 'HORIZONTAL'
+    };
+    expect(rotatePlacement(destroyer).orientation).toBe('VERTICAL');
+    expect(rotatePlacement(rotatePlacement(destroyer))).toEqual(destroyer);
+    expect(placementAt([destroyer], { row: 4, col: 6 })).toBe('DESTROYER');
+    expect(placementAt([destroyer], { row: 3, col: 6 })).toBeNull();
   });
 });

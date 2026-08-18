@@ -1,0 +1,1 @@
+{"type":"attack:fire","payload":{"requestId":"00000000-0000-4000-8000-000000000001","roomId":"00000000-0000-4000-8000-000000000002","playerId":"00000000-0000-4000-8000-000000000003","coordinate":{"row":9,"col":9},"expectedVersion":42,"turnNumber":7}}

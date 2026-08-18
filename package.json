@@ -18,15 +18,26 @@
     "migrations:check": "node tools/check-migrations.mjs",
     "security:drill": "node tools/check-security-drills.mjs",
     "observability:check": "node tools/check-observability.mjs",
+    "quality-gates:check": "node tools/check-quality-gates.mjs",
     "content:ops": "node tools/manage-live-content.mjs",
     "check": "cargo check --workspace && npm --workspace @mk01/web run check",
-    "lint": "cargo fmt --all -- --check && cargo clippy --workspace --all-targets -- -D warnings && npm run architecture:check && npm run migrations:check && npm run security:drill && npm run observability:check && npm run fonts:check && npm --workspace @mk01/web run lint",
+    "lint": "cargo fmt --all -- --check && cargo clippy --workspace --all-targets -- -D warnings && npm run architecture:check && npm run migrations:check && npm run security:drill && npm run observability:check && npm run quality-gates:check && npm run fonts:check && npm --workspace @mk01/web run lint",
     "format": "cargo fmt --all && npm --workspace @mk01/web run format",
     "test": "npm run contract && cargo test --workspace && npm --workspace @mk01/web run test:unit",
+    "test:component": "npm --workspace @mk01/web run test:unit -- src/lib/components/lobby/lobby-components.test.ts",
+    "test:property": "cargo test -p mk01-server --test property_invariants",
+    "test:fuzz": "scripts/run-protocol-fuzz.sh",
+    "test:coverage:web": "npm --workspace @mk01/web run test:coverage",
+    "test:coverage:rust": "scripts/run-rust-coverage.sh",
+    "test:coverage": "npm run test:coverage:web && npm run test:coverage:rust && node tools/check-quality-gates.mjs --coverage",
     "test:distributed": "cargo test -p mk01-server --test distributed_postgres -- --test-threads=1",
     "test:a11y": "npm --workspace @mk01/web run test:a11y",
+    "test:visual": "npm --workspace @mk01/web run test:visual",
     "test:e2e": "npm --workspace @mk01/web run test:e2e",
-    "test:performance": "npm --workspace @mk01/web run test:performance"
+    "test:performance": "npm --workspace @mk01/web run test:performance",
+    "test:load": "scripts/run-k6-drill.sh load",
+    "test:soak": "scripts/run-k6-drill.sh soak",
+    "test:chaos": "scripts/chaos-dependency-drill.sh"
   },
   "devDependencies": {
     "concurrently": "9.2.4"

@@ -13,12 +13,14 @@
 /apps/server/src/rate_limit.rs @667700996
 /apps/server/src/ws.rs @667700996
 /apps/server/tests/api_flow.rs @667700996
+/apps/server/tests/property_invariants.rs @667700996
 /apps/server/src/store/** @667700996
 /apps/server/migrations/** @667700996
 /apps/server/tests/distributed_postgres.rs @667700996
 /apps/server/tests/fixtures/** @667700996
 /apps/web/** @667700996
 /contracts/** @667700996
+/fuzz/** @667700996
 /docs/** @667700996
 /.github/** @667700996
 /.dockerignore @667700996
@@ -29,6 +31,7 @@
 /deploy/** @667700996
 /ops/** @667700996
 /scripts/** @667700996
+/tests/** @667700996
 /tools/** @667700996
 /apps/server/Cargo.toml @667700996
 /apps/server/Dockerfile @667700996

@@ -28,11 +28,91 @@ jobs:
       - run: npm run check
       - run: npm run contract
       - run: npm run architecture:check
+      - run: npm run quality-gates:check
       - run: npm run lint
       - run: npm run test
       - run: npm run build
       - run: npm run budget
       - run: npm audit --audit-level=moderate
+
+  risk-coverage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: mk01
+          POSTGRES_PASSWORD: mk01
+          POSTGRES_DB: mk01_coverage
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U mk01 -d mk01_coverage"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      TEST_DATABASE_URL: postgres://mk01:mk01@127.0.0.1:5432/mk01_coverage
+      TEST_REDIS_URL: redis://127.0.0.1:6379/
+      REQUIRE_DISTRIBUTED_INTEGRATION: "true"
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.87"
+          components: llvm-tools-preview
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - run: cargo install cargo-llvm-cov --version 0.9.0 --locked
+      - run: npm run test:coverage:web
+      - run: npm run test:coverage:rust
+      - run: node tools/check-quality-gates.mjs --coverage
+      - uses: actions/upload-artifact@v6
+        with:
+          name: risk-coverage-${{ github.sha }}
+          path: |
+            .artifacts/rust-coverage.json
+            apps/web/coverage/coverage-summary.json
+            apps/web/coverage/lcov.info
+          retention-days: 30
+          if-no-files-found: error
+
+  protocol-fuzz:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-08-18
+      - run: cargo install cargo-fuzz --version 0.12.0 --locked
+      - run: npm run test:fuzz
+        env:
+          FUZZ_TOOLCHAIN: nightly-2026-08-18
+      - uses: actions/upload-artifact@v6
+        if: failure()
+        with:
+          name: protocol-fuzz-failures-${{ github.sha }}
+          path: fuzz/artifacts/
+          retention-days: 30
+          if-no-files-found: ignore
 
   postgres-redis-integration:
     runs-on: ubuntu-latest
@@ -114,6 +194,118 @@ jobs:
       - run: npm run test:performance
         env:
           CI: "true"
+      - run: npm run test:visual
+        env:
+          CI: "true"
+
+  reliability-load:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.87"
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+      - run: npm run test:load
+      - uses: actions/upload-artifact@v6
+        with:
+          name: load-evidence-${{ github.sha }}
+          path: |
+            .artifacts/load-summary.json
+            .artifacts/load-server.log
+          retention-days: 30
+          if-no-files-found: error
+
+  dependency-chaos:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: mk01
+          POSTGRES_PASSWORD: mk01
+          POSTGRES_DB: mk01_chaos
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U mk01 -d mk01_chaos"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+      toxiproxy:
+        image: shopify/toxiproxy:2.9.0
+        ports:
+          - 8474:8474
+          - 15432:15432
+          - 16379:16379
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.87"
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+      - name: Configure dependency proxies
+        run: |
+          curl --fail --retry 20 --retry-delay 1 --silent --show-error \
+            --header 'Content-Type: application/json' \
+            --data '{"name":"postgres","listen":"0.0.0.0:15432","upstream":"postgres:5432"}' \
+            http://127.0.0.1:8474/proxies
+          curl --fail --silent --show-error \
+            --header 'Content-Type: application/json' \
+            --data '{"name":"redis","listen":"0.0.0.0:16379","upstream":"redis:6379"}' \
+            http://127.0.0.1:8474/proxies
+      - name: Start distributed server through proxies
+        env:
+          STORAGE_MODE: postgres
+          DATABASE_URL: postgres://mk01:mk01@127.0.0.1:15432/mk01_chaos
+          REDIS_URL: redis://127.0.0.1:16379/
+          DISTRIBUTED_COORDINATION_REQUIRED: "true"
+          SERVER_PORT: "18084"
+          HTTP_REQUESTS_PER_MINUTE_PER_IP: "0"
+          API_REQUESTS_PER_MINUTE: "0"
+          SESSION_CREATIONS_PER_MINUTE: "0"
+          RUST_LOG: warn
+        run: |
+          mkdir -p .artifacts
+          cargo run -p mk01-server >.artifacts/chaos-server.log 2>&1 &
+          echo "$!" >.artifacts/chaos-server.pid
+          for attempt in {1..120}; do
+            if curl --fail --silent http://127.0.0.1:18084/api/ready >/dev/null; then exit 0; fi
+            sleep 1
+          done
+          exit 1
+      - run: npm run test:chaos
+      - name: Stop chaos server
+        if: always()
+        run: kill "$(cat .artifacts/chaos-server.pid)" 2>/dev/null || true
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: chaos-evidence-${{ github.sha }}
+          path: |
+            .artifacts/chaos-evidence.json
+            .artifacts/chaos-server.log
+          retention-days: 90
+          if-no-files-found: error
 
   observability-config:
     runs-on: ubuntu-latest

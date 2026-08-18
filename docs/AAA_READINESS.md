@@ -323,7 +323,7 @@ The program is complete only when all gates below are satisfied in a production-
   realtime, or global-state modules. The room route continues to delegate waiting, placement,
   battle, result, and chat responsibilities. `architecture:check` now requires all of these modules,
   enforces server/room/route/component limits and presentation dependency direction, and assigns all
-  227 critical files to exactly one owner boundary. Full Rust/web checks, lint, 99 Rust tests, 25 web
+  271 critical files to exactly one owner boundary. Full Rust/web checks, lint, 102 Rust tests, 36 web
   unit tests, a warning-free production build, and the multi-browser/mobile E2E release matrix pass.
 - Evidence: `PROTOCOL_COMPATIBILITY.md` fixes explicit HTTP/WebSocket negotiation, the frozen
   headerless V2 fallback, current-plus-one-prior support, server-first rollout, rollback, a minimum
@@ -336,7 +336,7 @@ The program is complete only when all gates below are satisfied in a production-
   deserializes every frozen command. API and real loopback WebSocket integration tests prove old
   headerless V2, explicit V2 selection, unsupported/malformed rejection, and bounded version
   metrics. A 13th Grafana panel plus a volume-gated rejection alert enforce the canary gate. The
-  complete Rust/web checks, lint, 99 Rust tests, 25 web unit tests, production build, and 33 executed
+  complete Rust/web checks, lint, 102 Rust tests, 36 web unit tests, production build, and 33 executed
   multi-browser/mobile E2E cases passed; all six full-game profiles completed and recovered after
   refresh with the negotiated V2 socket.
 - Evidence: `ARCHITECTURE.md` records the authority/dependency map, runtime flows, seven path
@@ -345,12 +345,12 @@ The program is complete only when all gates below are satisfied in a production-
   protocol/schema/balance/content history. The dated baseline review covers every decision and
   boundary, passes authority/dependency/durability/compatibility/ownership review, and keeps
   `ARCH-001`/`ARCH-002` open with owners and measurable acceptance instead of hiding decomposition
-  debt. The machine-readable ownership policy maps 208 critical files to exactly one boundary and
+  debt. The machine-readable ownership policy maps 271 critical files to exactly one boundary and
   six roles; CODEOWNERS uses a verified GitHub account, while the PR template requires boundary,
   owner, ADR, compatibility, rollback, and independent high-risk review evidence. The executable
   gate rejects uncovered/overlapping ownership, missing ADR/review/CODEOWNERS data, and forbidden
   domain→transport/store, store→transport, or pure browser-game→network/global-state dependencies.
-  CI runs it explicitly and through lint; architecture, full check/lint, 99 Rust tests, and 25 web
+  CI runs it explicitly and through lint; architecture, full check/lint, 102 Rust tests, and 36 web
   unit tests passed.
 
 ### E2. Automated quality gates
@@ -360,9 +360,9 @@ The program is complete only when all gates below are satisfied in a production-
 - [x] PostgreSQL and Redis integration tests exercise migrations, recovery, cache failure, and
       concurrent writes.
 - [x] Full matches run on Chromium, Firefox, WebKit, and supported mobile profiles.
-- [ ] Component, accessibility, visual-regression, property, fuzz, load, soak, and chaos suites have
+- [x] Component, accessibility, visual-regression, property, fuzz, load, soak, and chaos suites have
       owned thresholds.
-- [ ] Coverage reports identify untested behavior; targets are risk-based rather than cosmetic.
+- [x] Coverage reports identify untested behavior; targets are risk-based rather than cosmetic.
 - Evidence: the service-backed integration suite applies embedded migrations, races revision-CAS
   writes, fences stale owners, completes distributed matchmaking atomically, fans events between
   two Redis-backed instances, recovers an active match through instance replacement, and proves
@@ -372,6 +372,27 @@ The program is complete only when all gates below are satisfied in a production-
   Its post-suite restore verifier checks all 19 migrations and retained snapshots, then uploads a
   90-day JSON evidence artifact. `DISTRIBUTED_INTEGRATION.md` fixes the local reproduction, covered
   boundaries, acceptance rules, and failure triage.
+- Evidence: `config/quality-gates.json` assigns component, WCAG 2.2 AA, desktop/mobile golden,
+  deterministic property, seeded libFuzzer, authenticated HTTP/WebSocket load, weekly 30-minute
+  soak, and PostgreSQL-reset chaos suites to five registered roles with executable failure
+  thresholds. The policy checker verifies all eight sources, commands, owners, goldens, corpus
+  seeds, CI schedules, and values. Four state-focused Svelte component tests, 4,096 generated
+  placement cases, 256 complete attack permutations, and four fixed-time visual goldens execute in
+  the normal portfolio. PR CI adds a 20-second sanitizer fuzz run, eight-VU p95/p99 load gate, and
+  Toxiproxy drill that requires readiness failure, live liveness, exact snapshot recovery, and a
+  15-second RTO; the scheduled workflow adds a ten-minute fuzz campaign and 30-minute soak. Local
+  references completed 1,000 fuzz inputs, 797 authenticated load journeys with 3,993/3,993 checks,
+  and an exact-snapshot PostgreSQL recovery in 2.107 seconds.
+- Evidence: Vitest instruments six behavior-bearing protocol, RUM, placement, replay, and extracted
+  lobby files and enforces both aggregate and file-specific floors; the measured reference is
+  94.93% statements, 90.88% branches, 91.76% functions, and 97.19% lines. Rust source coverage
+  enforces 60% aggregate line/function floors plus eleven
+  higher-risk file targets, with the service-backed CI job refusing to skip PostgreSQL/Redis cases.
+  The first baseline measured 65.34% lines and 65.49% functions without those services, while core
+  protocol, balance, board, game, matchmaking, room, rate-limit, API/router/safety, and memory-store
+  floors all passed. PostgreSQL projection and WebSocket lifetime gaps remain explicitly listed
+  with owners, compensating distributed/browser/load/fuzz suites, and review dates. See
+  `QUALITY_GATES.md` for the exact policy and triage contract.
 
 ### E3. Release and service operations
 

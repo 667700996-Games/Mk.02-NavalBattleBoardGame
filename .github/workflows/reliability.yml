@@ -1,0 +1,63 @@
+name: Scheduled Reliability
+
+on:
+  schedule:
+    - cron: "17 18 * * 1"
+  workflow_dispatch:
+
+concurrency:
+  group: scheduled-reliability-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  soak:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.87"
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+      - name: Run 30-minute authenticated HTTP and WebSocket soak
+        env:
+          RELIABILITY_DURATION: 30m
+          RELIABILITY_VUS: "4"
+        run: npm run test:soak
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: soak-evidence-${{ github.run_id }}
+          path: |
+            .artifacts/soak-summary.json
+            .artifacts/soak-server.log
+          retention-days: 90
+          if-no-files-found: error
+
+  extended-protocol-fuzz:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-08-18
+      - run: cargo install cargo-fuzz --version 0.12.0 --locked
+      - name: Run the protocol boundary for ten minutes
+        env:
+          FUZZ_TOOLCHAIN: nightly-2026-08-18
+          FUZZ_SECONDS: "600"
+        run: npm run test:fuzz
+      - uses: actions/upload-artifact@v6
+        if: failure()
+        with:
+          name: scheduled-fuzz-failures-${{ github.run_id }}
+          path: fuzz/artifacts/
+          retention-days: 90
+          if-no-files-found: ignore

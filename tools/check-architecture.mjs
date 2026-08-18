@@ -167,8 +167,10 @@ const criticalDirectories = [
   "contracts",
   "deploy",
   "docs",
+  "fuzz",
   "ops",
   "scripts",
+  "tests",
   "tools",
 ];
 const criticalRootFiles = [

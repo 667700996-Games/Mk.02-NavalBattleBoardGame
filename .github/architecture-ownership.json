@@ -56,7 +56,10 @@
       "id": "authoritative-gameplay",
       "ownerRole": "game-integrity",
       "reviewerRoles": ["service-platform"],
-      "pathPrefixes": ["apps/server/src/domain/"],
+      "pathPrefixes": [
+        "apps/server/src/domain/",
+        "apps/server/tests/property_invariants.rs"
+      ],
       "summary": "Pure authoritative game, room, matchmaking, ranking, safety, and progression rules"
     },
     {
@@ -74,7 +77,8 @@
         "apps/server/src/protocol.rs",
         "apps/server/src/rate_limit.rs",
         "apps/server/src/ws.rs",
-        "apps/server/tests/api_flow.rs"
+        "apps/server/tests/api_flow.rs",
+        "fuzz/"
       ],
       "summary": "Transport adapters, use-case orchestration, runtime configuration, and process lifecycle"
     },
@@ -130,6 +134,7 @@
         "deploy/",
         "ops/",
         "scripts/",
+        "tests/",
         "tools/",
         "apps/server/Cargo.toml",
         "apps/server/Dockerfile",

@@ -8,8 +8,10 @@ export default ts.config(
     ignores: [
       '.svelte-kit/**',
       'build/**',
+      'coverage/**',
       'playwright-report/**',
       'playwright-performance-report/**',
+      'playwright-visual-report/**',
       'test-results/**'
     ]
   },

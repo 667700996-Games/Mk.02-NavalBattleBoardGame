@@ -1,5 +1,6 @@
 [workspace]
 members = ["apps/server"]
+exclude = ["fuzz"]
 resolver = "2"
 
 [workspace.package]
@@ -11,4 +12,3 @@ rust-version = "1.87"
 lto = "thin"
 codegen-units = 1
 strip = true
-

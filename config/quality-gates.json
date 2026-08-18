@@ -1,0 +1,183 @@
+{
+  "schemaVersion": 1,
+  "policyOwner": "release-engineering",
+  "reviewCadenceDays": 30,
+  "suites": {
+    "component": {
+      "owner": "web-experience",
+      "command": "npm run test:component",
+      "source": "apps/web/src/lib/components/lobby/lobby-components.test.ts",
+      "threshold": { "minimumBehaviorTests": 4 }
+    },
+    "accessibility": {
+      "owner": "web-experience",
+      "command": "npm run test:a11y",
+      "source": "apps/web/e2e/accessibility.spec.ts",
+      "threshold": {
+        "wcagLevel": "2.2 AA",
+        "maximumViolations": 0,
+        "minimumAuditedStates": 12
+      }
+    },
+    "visualRegression": {
+      "owner": "web-experience",
+      "command": "npm run test:visual",
+      "source": "apps/web/e2e/visual-regression.spec.ts",
+      "threshold": {
+        "approvedBaselines": 4,
+        "maximumDiffPixelRatio": 0.01,
+        "viewports": 2
+      }
+    },
+    "property": {
+      "owner": "game-integrity",
+      "command": "npm run test:property",
+      "source": "apps/server/tests/property_invariants.rs",
+      "threshold": {
+        "generatedPlacementCases": 4096,
+        "attackPermutations": 256,
+        "fixedSeed": "0x4d4b303141414102"
+      }
+    },
+    "fuzz": {
+      "owner": "service-platform",
+      "command": "npm run test:fuzz",
+      "source": "fuzz/fuzz_targets/protocol_json.rs",
+      "threshold": {
+        "pullRequestSeconds": 20,
+        "scheduledSeconds": 600,
+        "timeoutSeconds": 2,
+        "maximumCrashes": 0,
+        "minimumCorpusSeeds": 3
+      }
+    },
+    "load": {
+      "owner": "service-platform",
+      "command": "npm run test:load",
+      "source": "tests/reliability/k6/game-api.js",
+      "threshold": {
+        "virtualUsers": 8,
+        "steadySeconds": 20,
+        "p95Milliseconds": 250,
+        "p99Milliseconds": 600,
+        "maximumFailureRate": 0.01
+      }
+    },
+    "soak": {
+      "owner": "release-engineering",
+      "command": "npm run test:soak",
+      "source": "tests/reliability/k6/game-api.js",
+      "threshold": {
+        "virtualUsers": 4,
+        "minimumMinutes": 30,
+        "p95Milliseconds": 250,
+        "maximumFailureRate": 0.01
+      }
+    },
+    "chaos": {
+      "owner": "data-reliability",
+      "command": "npm run test:chaos",
+      "source": "scripts/chaos-dependency-drill.sh",
+      "threshold": {
+        "readinessFailsClosed": true,
+        "livenessStatus": 200,
+        "maximumRecoveryMilliseconds": 15000,
+        "maximumLostSnapshots": 0
+      }
+    }
+  },
+  "coverage": {
+    "web": {
+      "owner": "web-experience",
+      "command": "npm run test:coverage:web",
+      "report": "apps/web/coverage/coverage-summary.json",
+      "total": {
+        "statements": 85,
+        "branches": 78,
+        "functions": 75,
+        "lines": 87
+      },
+      "files": {
+        "apps/web/src/lib/performance.ts": {
+          "statements": 85,
+          "branches": 70,
+          "functions": 85,
+          "lines": 90
+        },
+        "apps/web/src/lib/protocol.ts": {
+          "statements": 90,
+          "branches": 88,
+          "functions": 85,
+          "lines": 92
+        },
+        "apps/web/src/lib/game/placement.ts": {
+          "statements": 90,
+          "branches": 80,
+          "functions": 85,
+          "lines": 92
+        },
+        "apps/web/src/lib/game/replay-analysis.ts": {
+          "statements": 95,
+          "branches": 85,
+          "functions": 95,
+          "lines": 95
+        },
+        "apps/web/src/lib/components/lobby/LobbyCommandDashboard.svelte": {
+          "statements": 85,
+          "branches": 80,
+          "functions": 60,
+          "lines": 85
+        },
+        "apps/web/src/lib/components/lobby/LobbyRoomOperations.svelte": {
+          "statements": 85,
+          "branches": 80,
+          "functions": 60,
+          "lines": 85
+        }
+      }
+    },
+    "rust": {
+      "owner": "game-integrity",
+      "command": "npm run test:coverage:rust",
+      "report": ".artifacts/rust-coverage.json",
+      "total": { "lines": 60, "functions": 60 },
+      "files": {
+        "apps/server/src/api.rs": { "lines": 90, "functions": 90 },
+        "apps/server/src/app/router.rs": { "lines": 95, "functions": 95 },
+        "apps/server/src/app/safety.rs": { "lines": 88, "functions": 88 },
+        "apps/server/src/domain/balance.rs": { "lines": 95, "functions": 95 },
+        "apps/server/src/domain/board.rs": { "lines": 90, "functions": 85 },
+        "apps/server/src/domain/game.rs": { "lines": 85, "functions": 80 },
+        "apps/server/src/domain/matchmaking.rs": {
+          "lines": 85,
+          "functions": 75
+        },
+        "apps/server/src/domain/room.rs": { "lines": 80, "functions": 75 },
+        "apps/server/src/protocol.rs": { "lines": 95, "functions": 95 },
+        "apps/server/src/rate_limit.rs": { "lines": 80, "functions": 80 },
+        "apps/server/src/store/memory.rs": { "lines": 90, "functions": 75 }
+      }
+    },
+    "knownRiskGaps": [
+      {
+        "path": "apps/server/src/store/postgres.rs",
+        "behavior": "service-backed SQL and recovery paths are skipped without PostgreSQL/Redis",
+        "compensatingSuite": "postgres-redis-integration plus the service-backed coverage job",
+        "owner": "service-platform",
+        "reviewBy": "2026-09-17"
+      },
+      {
+        "path": "apps/server/src/ws.rs",
+        "behavior": "socket lifetime and browser reconnection execute outside unit-process source coverage",
+        "compensatingSuite": "six-profile full-match E2E, load heartbeat, and protocol fuzz suites",
+        "owner": "service-platform",
+        "reviewBy": "2026-09-17"
+      }
+    ]
+  },
+  "toolchain": {
+    "cargoLlvmCov": "0.9.0",
+    "cargoFuzz": "0.12.0",
+    "k6": "0.54.0"
+  }
+}

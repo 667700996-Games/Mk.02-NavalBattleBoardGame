@@ -2,5 +2,6 @@
 build/
 playwright-report/
 playwright-performance-report/
+playwright-visual-report/
 test-results/
 coverage/

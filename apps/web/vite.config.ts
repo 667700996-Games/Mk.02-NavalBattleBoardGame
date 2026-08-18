@@ -29,6 +29,55 @@ export default defineConfig({
   },
   test: {
     include: ['src/**/*.test.ts'],
-    environment: 'node'
+    environment: 'node',
+    coverage: {
+      provider: 'v8',
+      include: [
+        'src/lib/performance.ts',
+        'src/lib/protocol.ts',
+        'src/lib/game/placement.ts',
+        'src/lib/game/replay-analysis.ts',
+        'src/lib/components/lobby/LobbyCommandDashboard.svelte',
+        'src/lib/components/lobby/LobbyRoomOperations.svelte'
+      ],
+      reporter: ['text', 'json-summary', 'lcov'],
+      reportsDirectory: 'coverage',
+      thresholds: {
+        statements: 85,
+        branches: 78,
+        functions: 75,
+        lines: 87,
+        'src/lib/performance.ts': {
+          statements: 85,
+          branches: 70,
+          functions: 85,
+          lines: 90
+        },
+        'src/lib/protocol.ts': {
+          statements: 90,
+          branches: 88,
+          functions: 85,
+          lines: 92
+        },
+        'src/lib/game/placement.ts': {
+          statements: 90,
+          branches: 80,
+          functions: 85,
+          lines: 92
+        },
+        'src/lib/game/replay-analysis.ts': {
+          statements: 95,
+          branches: 85,
+          functions: 95,
+          lines: 95
+        },
+        'src/lib/components/lobby/*.svelte': {
+          statements: 85,
+          branches: 80,
+          functions: 60,
+          lines: 85
+        }
+      }
+    }
   }
 });

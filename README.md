@@ -134,73 +134,73 @@ POSTGRES_PASSWORD='replace-this-local-password' docker compose up --build
 
 ## 환경 변수
 
-| 변수                                | 기본값                    | 설명                                               |
-| ----------------------------------- | ------------------------- | -------------------------------------------------- |
-| `SERVER_HOST`                       | `0.0.0.0`                 | Rust 서버 바인드 주소                              |
-| `SERVER_PORT`                       | `8080`                    | Rust 서버 포트                                     |
-| `DEPLOYMENT_ENV`                    | `development`             | `production`이면 보안 설정을 fail-closed 검증        |
-| `STORAGE_MODE`                      | `memory`                  | `memory` 또는 `postgres`                           |
-| `DATABASE_URL`                      | 예제 참조                 | PostgreSQL 접속 URL                                |
-| `REDIS_URL`                         | `redis://localhost:6379/` | Redis 접속 URL                                     |
-| `DATABASE_URL_FILE` / `REDIS_URL_FILE` | 없음                  | 관리형 비밀을 마운트한 파일 경로(직접 변수보다 우선) |
-| `ADMIN_TOKEN` / `ADMIN_TOKEN_FILE`   | 없음                      | 32자 이상 운영자 API 비밀; 운영에서는 관리형 파일 필수 |
-| `PUBLIC_BASE_URL`                   | `http://localhost:5173`   | 초대 URL에 쓰이는 공개 주소                        |
-| `ALLOWED_ORIGINS`                   | localhost 2개             | 쉼표로 구분한 CORS/WebSocket Origin 허용 목록      |
-| `SECURE_COOKIES`                    | `false`                   | HTTPS 운영에서는 반드시 `true`                     |
-| `SESSION_TTL_SECONDS`               | `2592000`                 | 게스트 세션 유효 기간                              |
-| `RECONNECT_GRACE_SECONDS`           | `90`                      | 재접속 유예 시간                                   |
-| `TURN_DURATION_SECONDS`             | `60`                      | 턴 제한(초), `0`이면 제한 없음                     |
-| `API_REQUESTS_PER_MINUTE`           | `240`                     | 인증 세션별 HTTP/연결 요청 한도                    |
-| `HTTP_REQUESTS_PER_MINUTE_PER_IP`   | `600`                     | 신뢰된 클라이언트 IP별 전체 HTTP 요청 한도         |
-| `SESSION_CREATIONS_PER_MINUTE`      | `20`                      | 클라이언트 IP별 게스트 세션 생성 한도              |
-| `WEBSOCKET_EVENTS_PER_SECOND`       | `60`                      | 세션별 수신 WebSocket 이벤트 한도                  |
-| `WEBSOCKET_SEND_QUEUE_CAPACITY`     | `256`                     | 연결별 송신 큐 한도; 초과 시 느린 연결 종료        |
-| `MAX_WEBSOCKET_CONNECTIONS`         | `10000`                   | 서버 인스턴스별 동시 WebSocket 연결 한도           |
-| `MAX_ACTIVE_ROOMS`                  | `25000`                   | 전체 활성 방 입장 제어 상한                         |
-| `MAX_MATCHMAKING_QUEUE`             | `10000`                   | 빠른 매칭 대기열 입장 제어 상한                    |
-| `COMPLETED_ROOM_RETENTION_SECONDS`  | `7776000`                 | 종료·취소 방과 채팅·리플레이 보존 기간(90일)       |
-| `MATCHMAKING_ENTRY_TTL_SECONDS`     | `600`                     | 방치된 영속 매칭 대기열 보존 기간                |
-| `RETENTION_SWEEP_INTERVAL_SECONDS`  | `3600`                    | 만료 세션·방·대기열 정리 주기(최소 60초)        |
-| `MODERATION_RETENTION_SECONDS`      | `31536000`                | 종결된 신고·조치 증거 보존 기간(365일)          |
-| `INTEGRITY_SIGNAL_RETENTION_SECONDS` | `15552000`               | 부정행위 탐지 신호 보존 기간(180일)              |
-| `TRUST_PROXY_HEADERS`               | `false`                   | 신뢰 프록시 뒤에서만 전달 IP 헤더 사용             |
-| `DISTRIBUTED_COORDINATION_REQUIRED` | `false`                   | 운영 Redis 팬아웃·공유 제한을 필수 의존성으로 판정 |
-| `RUST_LOG`                          | info                      | `tracing` 로그 필터                                |
+| 변수                                   | 기본값                    | 설명                                                   |
+| -------------------------------------- | ------------------------- | ------------------------------------------------------ |
+| `SERVER_HOST`                          | `0.0.0.0`                 | Rust 서버 바인드 주소                                  |
+| `SERVER_PORT`                          | `8080`                    | Rust 서버 포트                                         |
+| `DEPLOYMENT_ENV`                       | `development`             | `production`이면 보안 설정을 fail-closed 검증          |
+| `STORAGE_MODE`                         | `memory`                  | `memory` 또는 `postgres`                               |
+| `DATABASE_URL`                         | 예제 참조                 | PostgreSQL 접속 URL                                    |
+| `REDIS_URL`                            | `redis://localhost:6379/` | Redis 접속 URL                                         |
+| `DATABASE_URL_FILE` / `REDIS_URL_FILE` | 없음                      | 관리형 비밀을 마운트한 파일 경로(직접 변수보다 우선)   |
+| `ADMIN_TOKEN` / `ADMIN_TOKEN_FILE`     | 없음                      | 32자 이상 운영자 API 비밀; 운영에서는 관리형 파일 필수 |
+| `PUBLIC_BASE_URL`                      | `http://localhost:5173`   | 초대 URL에 쓰이는 공개 주소                            |
+| `ALLOWED_ORIGINS`                      | localhost 2개             | 쉼표로 구분한 CORS/WebSocket Origin 허용 목록          |
+| `SECURE_COOKIES`                       | `false`                   | HTTPS 운영에서는 반드시 `true`                         |
+| `SESSION_TTL_SECONDS`                  | `2592000`                 | 게스트 세션 유효 기간                                  |
+| `RECONNECT_GRACE_SECONDS`              | `90`                      | 재접속 유예 시간                                       |
+| `TURN_DURATION_SECONDS`                | `60`                      | 턴 제한(초), `0`이면 제한 없음                         |
+| `API_REQUESTS_PER_MINUTE`              | `240`                     | 인증 세션별 HTTP/연결 요청 한도                        |
+| `HTTP_REQUESTS_PER_MINUTE_PER_IP`      | `600`                     | 신뢰된 클라이언트 IP별 전체 HTTP 요청 한도             |
+| `SESSION_CREATIONS_PER_MINUTE`         | `20`                      | 클라이언트 IP별 게스트 세션 생성 한도                  |
+| `WEBSOCKET_EVENTS_PER_SECOND`          | `60`                      | 세션별 수신 WebSocket 이벤트 한도                      |
+| `WEBSOCKET_SEND_QUEUE_CAPACITY`        | `256`                     | 연결별 송신 큐 한도; 초과 시 느린 연결 종료            |
+| `MAX_WEBSOCKET_CONNECTIONS`            | `10000`                   | 서버 인스턴스별 동시 WebSocket 연결 한도               |
+| `MAX_ACTIVE_ROOMS`                     | `25000`                   | 전체 활성 방 입장 제어 상한                            |
+| `MAX_MATCHMAKING_QUEUE`                | `10000`                   | 빠른 매칭 대기열 입장 제어 상한                        |
+| `COMPLETED_ROOM_RETENTION_SECONDS`     | `7776000`                 | 종료·취소 방과 채팅·리플레이 보존 기간(90일)           |
+| `MATCHMAKING_ENTRY_TTL_SECONDS`        | `600`                     | 방치된 영속 매칭 대기열 보존 기간                      |
+| `RETENTION_SWEEP_INTERVAL_SECONDS`     | `3600`                    | 만료 세션·방·대기열 정리 주기(최소 60초)               |
+| `MODERATION_RETENTION_SECONDS`         | `31536000`                | 종결된 신고·조치 증거 보존 기간(365일)                 |
+| `INTEGRITY_SIGNAL_RETENTION_SECONDS`   | `15552000`                | 부정행위 탐지 신호 보존 기간(180일)                    |
+| `TRUST_PROXY_HEADERS`                  | `false`                   | 신뢰 프록시 뒤에서만 전달 IP 헤더 사용                 |
+| `DISTRIBUTED_COORDINATION_REQUIRED`    | `false`                   | 운영 Redis 팬아웃·공유 제한을 필수 의존성으로 판정     |
+| `RUST_LOG`                             | info                      | `tracing` 로그 필터                                    |
 
 ## REST API
 
 모든 경로의 prefix는 `/api`입니다. 세션 생성 후 발급된 `mk01_session` HttpOnly 쿠키를 사용하며 JSON에 토큰을 반환하지 않습니다. 게스트를 계정으로 전환할 때 기존 게임 기록과 플레이어 정체성을 유지하고 현재 세션 토큰을 원자적으로 회전합니다. 서버가 한 번만 보여 주는 256-bit 복구 키로 다른 기기에서 로그인할 수 있습니다.
 
-| Method        | 경로                    | 기능                                     |
-| ------------- | ----------------------- | ---------------------------------------- |
-| `GET`         | `/health`               | 프로세스 liveness                        |
-| `GET`         | `/ready`                | 주 저장소 연결을 포함한 readiness        |
-| `GET`         | `/metrics`              | Prometheus 형식 운영 메트릭              |
-| `POST`        | `/sessions`             | 닉네임 검증 후 게스트 세션 생성          |
-| `GET/DELETE`  | `/sessions/current`     | 현재 세션 복구 / 서버 세션 폐기          |
-| `POST`        | `/accounts/upgrade`     | 게스트 기록을 보존해 계정으로 전환       |
-| `GET/POST`    | `/social/relationships` | 음소거·차단 목록/변경                     |
-| `POST`        | `/reports`              | 서버 증거를 첨부한 플레이어 신고         |
-| `GET`         | `/admin/moderation/reports` | 토큰 보호 운영자 신고 검색 큐          |
-| `POST`        | `/admin/moderation/reports/{id}/actions` | 감사 가능한 경고·정지·차단·기각·취소 |
-| `GET`         | `/admin/integrity/signals` | 권위 명령·자동화·담합·지연 탐지 신호 검색 |
-| `POST`        | `/accounts/login`       | 계정 ID·복구 키 검증 후 새 세션 발급    |
-| `GET`         | `/accounts/sessions`    | 계정에 연결된 세션 목록                  |
-| `DELETE`      | `/accounts/sessions/{sessionId}` | 다른 기기의 세션 원격 해제       |
-| `GET`         | `/accounts/export`      | 자격 증명을 제외한 계정 자료 JSON 내보내기 |
-| `DELETE`      | `/accounts`             | 복구 키와 명시적 확인 후 계정 자료 삭제·익명화 |
-| `GET`         | `/profile`              | XP·업적·임무·현재 시즌 랭크 프로필     |
-| `POST`        | `/profile/missions/{missionId}/claim` | 완료 임무 XP 멱등 지급     |
-| `POST`        | `/practice`             | 난이도별 서버 권위 AI 연습전 생성         |
-| `GET/POST`    | `/rooms`                | 공개 방 목록 / 방 생성                   |
-| `POST`        | `/rooms/join`           | 방 코드로 참가                           |
-| `GET`         | `/rooms/{roomId}`       | 본인 기준 비공개 필터 스냅샷             |
-| `POST`        | `/rooms/{roomId}/leave` | 전투 전 방 나가기 또는 전투 중 이탈 처리 |
-| `GET`         | `/games/recover`        | 진행 중 게임 복구                        |
-| `GET`         | `/games/history`        | 최근 50개 경기 결과                      |
-| `GET`         | `/games/{roomId}/replay` | 종료 경기의 참가자 전용 버전형 복기      |
-| `POST/DELETE` | `/matchmaking`          | 일반 매칭 대기/상태 갱신/취소            |
-| `POST`        | `/matchmaking/ranked`   | 활성 시즌·계정 기반 랭크 매칭/상태 갱신 |
+| Method        | 경로                                     | 기능                                           |
+| ------------- | ---------------------------------------- | ---------------------------------------------- |
+| `GET`         | `/health`                                | 프로세스 liveness                              |
+| `GET`         | `/ready`                                 | 주 저장소 연결을 포함한 readiness              |
+| `GET`         | `/metrics`                               | Prometheus 형식 운영 메트릭                    |
+| `POST`        | `/sessions`                              | 닉네임 검증 후 게스트 세션 생성                |
+| `GET/DELETE`  | `/sessions/current`                      | 현재 세션 복구 / 서버 세션 폐기                |
+| `POST`        | `/accounts/upgrade`                      | 게스트 기록을 보존해 계정으로 전환             |
+| `GET/POST`    | `/social/relationships`                  | 음소거·차단 목록/변경                          |
+| `POST`        | `/reports`                               | 서버 증거를 첨부한 플레이어 신고               |
+| `GET`         | `/admin/moderation/reports`              | 토큰 보호 운영자 신고 검색 큐                  |
+| `POST`        | `/admin/moderation/reports/{id}/actions` | 감사 가능한 경고·정지·차단·기각·취소           |
+| `GET`         | `/admin/integrity/signals`               | 권위 명령·자동화·담합·지연 탐지 신호 검색      |
+| `POST`        | `/accounts/login`                        | 계정 ID·복구 키 검증 후 새 세션 발급           |
+| `GET`         | `/accounts/sessions`                     | 계정에 연결된 세션 목록                        |
+| `DELETE`      | `/accounts/sessions/{sessionId}`         | 다른 기기의 세션 원격 해제                     |
+| `GET`         | `/accounts/export`                       | 자격 증명을 제외한 계정 자료 JSON 내보내기     |
+| `DELETE`      | `/accounts`                              | 복구 키와 명시적 확인 후 계정 자료 삭제·익명화 |
+| `GET`         | `/profile`                               | XP·업적·임무·현재 시즌 랭크 프로필             |
+| `POST`        | `/profile/missions/{missionId}/claim`    | 완료 임무 XP 멱등 지급                         |
+| `POST`        | `/practice`                              | 난이도별 서버 권위 AI 연습전 생성              |
+| `GET/POST`    | `/rooms`                                 | 공개 방 목록 / 방 생성                         |
+| `POST`        | `/rooms/join`                            | 방 코드로 참가                                 |
+| `GET`         | `/rooms/{roomId}`                        | 본인 기준 비공개 필터 스냅샷                   |
+| `POST`        | `/rooms/{roomId}/leave`                  | 전투 전 방 나가기 또는 전투 중 이탈 처리       |
+| `GET`         | `/games/recover`                         | 진행 중 게임 복구                              |
+| `GET`         | `/games/history`                         | 최근 50개 경기 결과                            |
+| `GET`         | `/games/{roomId}/replay`                 | 종료 경기의 참가자 전용 버전형 복기            |
+| `POST/DELETE` | `/matchmaking`                           | 일반 매칭 대기/상태 갱신/취소                  |
+| `POST`        | `/matchmaking/ranked`                    | 활성 시즌·계정 기반 랭크 매칭/상태 갱신        |
 
 오류는 `{ code, message, requestId }` 형태의 안전한 JSON으로 반환됩니다. 잘못된 JSON·UUID도 내부 파서 정보 대신 `INVALID_REQUEST`로 일관되게 처리합니다.
 
@@ -309,9 +309,15 @@ npm run test:distributed # TEST_DATABASE_URL/TEST_REDIS_URL의 실제 서비스 
 npm run contract    # Rust/TypeScript 버전·이벤트·생성 매니페스트 일치
 npm run security:drill # 취약점 대응 역할·타임라인·패치 SLO·증거 검증
 npm run observability:check # 대시보드·경보·라우팅·사고 대응 계약 교차 검증
+npm run quality-gates:check # 8개 품질 스위트의 소유자·임계값·CI·골든·코퍼스 검증
 npm run fonts:check # 정적 한국어 글리프의 WOFF2 서브셋·중복·용량 검증
 npx playwright install chromium firefox webkit
 npm run test:a11y   # WCAG 2.2 AA 전체 흐름 + 키보드·라이브 알림 검증
+npm run test:visual # 고정 상태의 데스크톱·모바일 승인 골든 비교
+npm run test:property # 4,096개 배치·256개 공격 순열 속성 불변식
+npm run test:coverage:web # 위험 파일별 Vitest 커버리지 하한
+npm run test:fuzz   # 프로토콜 JSON 경계의 20초 libFuzzer 실행
+npm run test:load   # 인증 HTTP/WebSocket 8-VU k6 부하 기준
 npm run test:e2e    # Chromium/Firefox/WebKit 전체 경기 + 모바일 2종 + 태블릿 1종
 npm run test:performance # 프로덕션 빌드의 데스크톱·모바일·저사양 모바일 예산 검증
 npm run build       # Rust release + SvelteKit adapter-node
@@ -325,6 +331,8 @@ npm run budget      # JS/CSS/폰트/이미지/오디오 파일·총량 제한과
 [성능 예산 계약](docs/PERFORMANCE_BUDGETS.md)에 정의합니다. 실제 사용자 LCP·CLS·INP와
 발사 판정 지연은 식별자 없이 고정 경로·기기 등급 Prometheus 히스토그램으로 집계하며,
 표본 수·p75/p95·카나리 중단 기준은 [운영 런북](docs/OPERATIONS.md)을 따릅니다.
+컴포넌트·접근성·비주얼·속성·퍼즈·부하·소크·카오스의 소유 임계값, 위험 기반
+커버리지와 재현 절차는 [자동화 품질 포트폴리오](docs/QUALITY_GATES.md)에 정의합니다.
 
 운영 백업은 `scripts/backup-postgres.sh`와 `scripts/export-deletion-ledger.sh`를 각각 다른
 수명주기 객체로 저장합니다. 복구 시 `scripts/restore-postgres-drill.sh`는 두 객체의

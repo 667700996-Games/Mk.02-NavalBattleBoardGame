@@ -11,7 +11,9 @@
     "lint": "prettier --check . && eslint .",
     "format": "prettier --write .",
     "test:unit": "vitest run",
+    "test:coverage": "vitest run --coverage",
     "test:a11y": "playwright test e2e/accessibility.spec.ts e2e/color-vision.spec.ts e2e/input-prompts.spec.ts --project=chromium",
+    "test:visual": "playwright test --config=playwright.visual.config.ts",
     "test:e2e": "playwright test",
     "test:performance": "npm run build && playwright test --config=playwright.performance.config.ts"
   },
@@ -29,6 +31,7 @@
     "@sveltejs/kit": "2.70.2",
     "@sveltejs/vite-plugin-svelte": "7.2.0",
     "@types/node": "^24.0.0",
+    "@vitest/coverage-v8": "^4.1.10",
     "eslint": "10.8.0",
     "eslint-plugin-svelte": "3.22.0",
     "globals": "^17.0.0",

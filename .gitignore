@@ -7,6 +7,10 @@ apps/web/.svelte-kit/
 apps/web/build/
 apps/web/playwright-report/
 apps/web/playwright-performance-report/
+apps/web/playwright-visual-report/
 apps/web/test-results/
 coverage/
+fuzz/artifacts/
+fuzz/target/
+.artifacts/
 *.log
