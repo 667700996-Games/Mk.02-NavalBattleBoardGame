@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
   import { AlertTriangle, CheckCircle2, Info, X } from '@lucide/svelte';
+  import { t } from '$lib/i18n';
   interface Props {
     title: string;
     message: string;
@@ -22,7 +23,9 @@
     <p>{message}</p>
     {#if action}{@render action()}{/if}
   </div>
-  {#if onclose}<button class="ui-icon-button" onclick={onclose} aria-label="알림 닫기"
-      ><X size={15} /></button
+  {#if onclose}<button
+      class="ui-icon-button"
+      onclick={onclose}
+      aria-label={$t('common.dismissNotification')}><X size={15} /></button
     >{/if}
 </article>

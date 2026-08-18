@@ -2,27 +2,34 @@
   import { page } from '$app/state';
   import { resolve } from '$app/paths';
   import { ArrowLeft, Radio } from '@lucide/svelte';
+  import { t } from '$lib/i18n';
 </script>
 
-<svelte:head><title>{page.status === 404 ? '좌표 없음' : '시스템 오류'} · Mk.01</title></svelte:head
+<svelte:head
+  ><title>{page.status === 404 ? $t('error.notFoundTitle') : $t('error.systemTitle')} · Mk.01</title
+  ></svelte:head
 >
 <div class="error-page shell">
   <div class="error-radar" aria-hidden="true"><i></i></div>
   <section class="panel">
     <div class="error-code">{page.status}</div>
-    <div class="diagnostic"><span></span> NAVIGATION DIAGNOSTIC <em>FAULT {page.status}</em></div>
+    <div class="diagnostic">
+      <span></span>
+      {$t('error.diagnostic')}
+      <em>{$t('error.fault', { status: page.status })}</em>
+    </div>
     <Radio size={35} />
-    <h1>{page.status === 404 ? '지정한 좌표를 찾을 수 없습니다' : '작전 시스템 오류'}</h1>
+    <h1>
+      {page.status === 404 ? $t('error.notFoundHeading') : $t('error.systemHeading')}
+    </h1>
     <p>
-      {page.status === 404
-        ? '요청한 작전 채널이 존재하지 않거나 이동되었습니다.'
-        : '요청을 처리하지 못했습니다. 잠시 후 로비에서 다시 시도해 주세요.'}
+      {page.status === 404 ? $t('error.notFoundDescription') : $t('error.systemDescription')}
     </p>
     <a class="button button--primary" href={resolve('/lobby')}
-      ><ArrowLeft size={16} /> 작전 로비로 복귀</a
+      ><ArrowLeft size={16} /> {$t('error.returnLobby')}</a
     >
     <footer>
-      <span>MK01-NCS</span><span>SECURE FALLBACK CHANNEL</span><span>SEOUL / KR</span>
+      <span>MK01-NCS</span><span>{$t('error.secureFallback')}</span><span>SEOUL / KR</span>
     </footer>
   </section>
 </div>

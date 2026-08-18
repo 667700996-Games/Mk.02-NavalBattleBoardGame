@@ -1,5 +1,6 @@
 <script lang="ts">
   import { Radio, RefreshCw } from '@lucide/svelte';
+  import { t } from '$lib/i18n';
   interface Props {
     deadline: string | null;
   }
@@ -24,14 +25,14 @@
 >
   <section class="disconnect-card panel">
     <div class="disconnect-icon"><Radio size={27} /></div>
-    <p class="eyebrow">SIGNAL INTERRUPTED</p>
-    <h2 id="disconnect-title">지휘관 재접속 대기</h2>
-    <p>방 상태와 준비·배치·전투 정보는 서버에 안전하게 보존되어 있습니다.</p>
-    <strong class="countdown">{remaining}<small>SEC</small></strong>
+    <p class="eyebrow">{$t('disconnect.eyebrow')}</p>
+    <h2 id="disconnect-title">{$t('disconnect.title')}</h2>
+    <p>{$t('disconnect.description')}</p>
+    <strong class="countdown">{remaining}<small>{$t('disconnect.seconds')}</small></strong>
     <div class="reconnect-track" aria-hidden="true">
       <i style={`width:${Math.min(100, (remaining / 90) * 100)}%`}></i>
     </div>
-    <span><RefreshCw size={13} /> 연결 상태를 자동으로 확인하고 있습니다.</span>
+    <span><RefreshCw size={13} /> {$t('disconnect.checking')}</span>
   </section>
 </div>
 

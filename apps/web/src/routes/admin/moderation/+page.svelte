@@ -8,7 +8,8 @@
     ShieldAlert
   } from '@lucide/svelte';
   import { resolve } from '$app/paths';
-  import { api, ApiError } from '$lib/api';
+  import { api } from '$lib/api';
+  import { formatDateTime, localizeError, t, type MessageKey } from '$lib/i18n';
   import type {
     IntegritySignal,
     IntegritySignalKind,
@@ -44,8 +45,8 @@
     ) ?? []
   );
 
-  function message(error: unknown, fallback: string) {
-    return error instanceof ApiError ? `${error.message} (${error.code})` : fallback;
+  function message(error: unknown, fallback: MessageKey) {
+    return localizeError(error, fallback, true);
   }
 
   async function load(reset = true) {
@@ -66,7 +67,7 @@
       if (reset) await loadSignals();
     } catch (caught) {
       authenticated = false;
-      notice = message(caught, '운영 큐를 불러오지 못했습니다.');
+      notice = message(caught, 'moderation.queueError');
     } finally {
       loading = false;
     }
@@ -82,7 +83,7 @@
         })
       ).signals;
     } catch (caught) {
-      notice = message(caught, '무결성 신호를 불러오지 못했습니다.');
+      notice = message(caught, 'moderation.signalsError');
     }
   }
 
@@ -102,32 +103,35 @@
       );
       reason = '';
       reversesActionId = '';
-      notice = `${selectedCase.report.targetNickname} 사건에 ${action} 조치를 기록했습니다.`;
+      notice = $t('moderation.actionRecorded', {
+        player: selectedCase.report.targetNickname,
+        action: $t(`moderationAction.${action}`)
+      });
       await load(true);
     } catch (caught) {
-      notice = message(caught, '운영 조치를 기록하지 못했습니다.');
+      notice = message(caught, 'moderation.actionError');
     } finally {
       acting = false;
     }
   }
 
-  const formatTime = (value: string) => new Date(value).toLocaleString('ko-KR');
+  const formatTime = (value: string) => formatDateTime(value);
 </script>
 
-<svelte:head><title>신뢰 및 안전 운영 · Mk.01</title></svelte:head>
+<svelte:head><title>{$t('moderation.metaTitle')}</title></svelte:head>
 
 <main class="moderation-page shell">
   <header class="page-head">
     <div>
-      <p class="eyebrow">TRUST & SAFETY OPERATIONS</p>
-      <h1 class="page-title">신고 검토 센터</h1>
-      <p>플레이어 신고 증거를 검색하고 모든 운영 조치를 감사 이력으로 남깁니다.</p>
+      <p class="eyebrow">{$t('moderation.eyebrow')}</p>
+      <h1 class="page-title">{$t('moderation.title')}</h1>
+      <p>{$t('moderation.description')}</p>
     </div>
     <ShieldAlert size={34} aria-hidden="true" />
   </header>
-  <nav class="admin-nav" aria-label="운영 도구">
-    <a href={resolve('/admin/support')}>고객지원</a>
-    <a aria-current="page" href={resolve('/admin/moderation')}>신뢰 및 안전</a>
+  <nav class="admin-nav" aria-label={$t('admin.tools')}>
+    <a href={resolve('/admin/support')}>{$t('admin.support')}</a>
+    <a aria-current="page" href={resolve('/admin/moderation')}>{$t('admin.trustSafety')}</a>
   </nav>
 
   {#if !authenticated}
@@ -140,14 +144,16 @@
     >
       <LockKeyhole size={28} />
       <div>
-        <h2>운영자 인증</h2>
-        <p>토큰은 브라우저 저장소에 보관되지 않으며 이 화면의 메모리에서만 유지됩니다.</p>
+        <h2>{$t('moderation.operatorAuth')}</h2>
+        <p>{$t('moderation.operatorAuthDescription')}</p>
       </div>
       <label
-        >운영자 ID <input bind:value={operatorId} minlength="2" maxlength="64" required /></label
+        >{$t('support.operatorId')}
+        <input bind:value={operatorId} minlength="2" maxlength="64" required /></label
       >
       <label
-        >관리 토큰 <input
+        >{$t('support.adminToken')}
+        <input
           bind:value={token}
           type="password"
           minlength="32"
@@ -156,60 +162,75 @@
         /></label
       >
       <button class="primary-button" type="submit" disabled={loading}
-        >{loading ? '검증 중…' : '안전 운영 큐 열기'}</button
+        >{loading ? $t('moderation.verifying') : $t('moderation.openQueue')}</button
       >
       {#if notice}<p class="notice" role="alert">{notice}</p>{/if}
     </form>
   {:else}
-    <section class="queue-tools panel" aria-label="신고 검색">
+    <section class="queue-tools panel" aria-label={$t('moderation.reportSearch')}>
       <label>
-        상태
+        {$t('moderation.status')}
         <select bind:value={status}>
-          <option value="">전체</option>
-          <option value="OPEN">미검토</option>
-          <option value="REVIEWING">재검토</option>
-          <option value="ACTIONED">조치 완료</option>
-          <option value="DISMISSED">기각</option>
+          <option value="">{$t('common.all')}</option>
+          <option value="OPEN">{$t('reportStatus.OPEN')}</option>
+          <option value="REVIEWING">{$t('reportStatus.REVIEWING')}</option>
+          <option value="ACTIONED">{$t('reportStatus.ACTIONED')}</option>
+          <option value="DISMISSED">{$t('reportStatus.DISMISSED')}</option>
         </select>
       </label>
       <label>
-        증거 검색
-        <input bind:value={search} maxlength="128" placeholder="닉네임, 설명, 채팅 증거" />
+        {$t('moderation.evidenceSearch')}
+        <input
+          bind:value={search}
+          maxlength="128"
+          placeholder={$t('moderation.searchPlaceholder')}
+        />
       </label>
       <button type="button" onclick={() => load(true)} disabled={loading}
-        ><FileSearch size={15} /> 검색</button
+        ><FileSearch size={15} /> {$t('common.search')}</button
       >
     </section>
 
     <details class="integrity-panel panel">
       <summary
-        ><ShieldAlert size={15} /> 게임 무결성 탐지 신호 <strong>{signals.length}</strong></summary
+        ><ShieldAlert size={15} />
+        {$t('moderation.integritySignals')}
+        <strong>{signals.length}</strong></summary
       >
       <div class="integrity-tools">
         <label
-          >탐지 종류
+          >{$t('moderation.signalKind')}
           <select bind:value={signalKind} onchange={loadSignals}>
-            <option value="">전체</option>
-            <option value="IMPOSSIBLE_ORDER">불가능한 명령 순서</option>
-            <option value="AUTOMATION">자동화 이벤트 폭주</option>
-            <option value="COLLUSION">담합 의심</option>
-            <option value="INTENTIONAL_STALLING">고의 지연</option>
+            <option value="">{$t('common.all')}</option>
+            <option value="IMPOSSIBLE_ORDER">{$t('integritySignal.IMPOSSIBLE_ORDER')}</option>
+            <option value="AUTOMATION">{$t('integritySignal.AUTOMATION')}</option>
+            <option value="COLLUSION">{$t('integritySignal.COLLUSION')}</option>
+            <option value="INTENTIONAL_STALLING"
+              >{$t('integritySignal.INTENTIONAL_STALLING')}</option
+            >
           </select></label
         >
-        <p>신호는 자동 제재가 아니라 운영자 검토를 위한 위험 근거입니다.</p>
+        <p>{$t('moderation.signalDisclaimer')}</p>
       </div>
       <div class="integrity-list">
         {#if signals.length === 0}
-          <p class="empty">검색 조건에 해당하는 무결성 신호가 없습니다.</p>
+          <p class="empty">{$t('moderation.noSignals')}</p>
         {:else}
           {#each signals as signal (signal.id)}
             <article>
-              <span class="signal-severity">SEV {signal.severity}</span>
-              <strong>{signal.kind}</strong>
+              <span class="signal-severity"
+                >{$t('moderation.severity', { severity: signal.severity })}</span
+              >
+              <strong>{$t(`integritySignal.${signal.kind}`)}</strong>
               <small>{signal.subjectIdentityId} · {formatTime(signal.lastObservedAt)}</small>
-              <p>신뢰도 {Math.round(signal.confidence * 100)}% · {signal.occurrences}회 관측</p>
+              <p>
+                {$t('moderation.confidenceOccurrences', {
+                  confidence: Math.round(signal.confidence * 100),
+                  occurrences: signal.occurrences
+                })}
+              </p>
               <details>
-                <summary>탐지 근거</summary>
+                <summary>{$t('moderation.detectionEvidence')}</summary>
                 <pre>{JSON.stringify(signal.evidence, null, 2)}</pre>
               </details>
             </article>
@@ -219,12 +240,16 @@
     </details>
 
     <div class="operations-grid">
-      <section class="case-list panel" aria-label="신고 사건 목록">
-        <header><strong>사건 큐</strong><small>{cases.length}건 표시</small></header>
+      <section class="case-list panel" aria-label={$t('moderation.caseList')}>
+        <header>
+          <strong>{$t('moderation.caseQueue')}</strong><small
+            >{$t('moderation.caseCount', { count: cases.length })}</small
+          >
+        </header>
         {#if loading && cases.length === 0}
-          <p class="empty">운영 큐 동기화 중…</p>
+          <p class="empty">{$t('moderation.syncingQueue')}</p>
         {:else if cases.length === 0}
-          <p class="empty">조건에 해당하는 신고가 없습니다.</p>
+          <p class="empty">{$t('moderation.noReports')}</p>
         {:else}
           {#each cases as item (item.report.id)}
             <button
@@ -233,16 +258,19 @@
               onclick={() => (selectedId = item.report.id)}
             >
               <span class={`status status--${item.report.status.toLowerCase()}`}
-                >{item.report.status}</span
+                >{$t(`reportStatus.${item.report.status}`)}</span
               >
               <strong>{item.report.targetNickname}</strong>
-              <small>{item.report.category} · {formatTime(item.report.createdAt)}</small>
+              <small
+                >{$t(`reportCategory.${item.report.category}`)} ·
+                {formatTime(item.report.createdAt)}</small
+              >
               <p>{item.report.details}</p>
             </button>
           {/each}
           {#if nextBefore}
             <button class="load-more" type="button" onclick={() => load(false)} disabled={loading}
-              ><ChevronDown size={14} /> 이전 사건 더 보기</button
+              ><ChevronDown size={14} /> {$t('moderation.loadEarlier')}</button
             >
           {/if}
         {/if}
@@ -252,52 +280,60 @@
         {#if selectedCase}
           <header>
             <div>
-              <p class="eyebrow">CASE {selectedCase.report.id.slice(0, 8)}</p>
+              <p class="eyebrow">
+                {$t('moderation.caseId', { id: selectedCase.report.id.slice(0, 8) })}
+              </p>
               <h2>{selectedCase.report.targetNickname}</h2>
             </div>
             <span class={`status status--${selectedCase.report.status.toLowerCase()}`}
-              >{selectedCase.report.status}</span
+              >{$t(`reportStatus.${selectedCase.report.status}`)}</span
             >
           </header>
           <dl>
             <div>
-              <dt>분류</dt>
-              <dd>{selectedCase.report.category}</dd>
+              <dt>{$t('moderation.category')}</dt>
+              <dd>{$t(`reportCategory.${selectedCase.report.category}`)}</dd>
             </div>
             <div>
-              <dt>신고 시각</dt>
+              <dt>{$t('moderation.reportedAt')}</dt>
               <dd>{formatTime(selectedCase.report.createdAt)}</dd>
             </div>
             <div>
-              <dt>방 ID</dt>
+              <dt>{$t('moderation.roomId')}</dt>
               <dd>{selectedCase.report.roomId}</dd>
             </div>
             <div>
-              <dt>대상 신원</dt>
+              <dt>{$t('moderation.targetIdentity')}</dt>
               <dd>{selectedCase.report.targetIdentityId}</dd>
             </div>
           </dl>
           <article class="report-copy">
-            <strong>신고 내용</strong>
+            <strong>{$t('moderation.reportDetails')}</strong>
             <p>{selectedCase.report.details}</p>
           </article>
           <details class="evidence" open>
-            <summary>서버 보존 증거</summary>
+            <summary>{$t('moderation.serverEvidence')}</summary>
             <pre>{JSON.stringify(selectedCase.report.evidence, null, 2)}</pre>
           </details>
 
           <section class="audit-log">
-            <h3>감사 이력</h3>
+            <h3>{$t('moderation.auditHistory')}</h3>
             {#if selectedCase.actions.length === 0}
-              <p class="empty">아직 기록된 조치가 없습니다.</p>
+              <p class="empty">{$t('moderation.noActions')}</p>
             {:else}
               {#each selectedCase.actions as item (item.id)}
                 <article>
-                  <strong>{item.action}</strong>
+                  <strong>{$t(`moderationAction.${item.action}`)}</strong>
                   <span>{item.operatorId} · {formatTime(item.createdAt)}</span>
                   <p>{item.reason}</p>
-                  {#if item.expiresAt}<small>만료 {formatTime(item.expiresAt)}</small>{/if}
-                  {#if item.reversesActionId}<small>취소 대상 {item.reversesActionId}</small>{/if}
+                  {#if item.expiresAt}<small
+                      >{$t('moderation.expiresAt', { time: formatTime(item.expiresAt) })}</small
+                    >{/if}
+                  {#if item.reversesActionId}<small
+                      >{$t('moderation.reversesAction', {
+                        id: item.reversesActionId
+                      })}</small
+                    >{/if}
                 </article>
               {/each}
             {/if}
@@ -310,37 +346,40 @@
               submitAction();
             }}
           >
-            <h3><Ban size={15} /> 운영 조치 기록</h3>
+            <h3><Ban size={15} /> {$t('moderation.recordAction')}</h3>
             <div class="action-fields">
               <label
-                >조치
+                >{$t('moderation.action')}
                 <select bind:value={action}>
-                  <option value="WARN">경고</option>
-                  <option value="SUSPEND">기간 정지</option>
-                  <option value="BAN">영구 제한</option>
-                  <option value="DISMISS">신고 기각</option>
-                  <option value="REVERSE">기존 조치 취소</option>
+                  <option value="WARN">{$t('moderationAction.WARN')}</option>
+                  <option value="SUSPEND">{$t('moderationAction.SUSPEND')}</option>
+                  <option value="BAN">{$t('moderationAction.BAN')}</option>
+                  <option value="DISMISS">{$t('moderationAction.DISMISS')}</option>
+                  <option value="REVERSE">{$t('moderationAction.REVERSE')}</option>
                 </select></label
               >
               {#if action === 'SUSPEND'}
                 <label
-                  >정지 시간
+                  >{$t('moderation.suspensionHours')}
                   <input bind:value={durationHours} type="number" min="1" max="8760" /></label
                 >
               {:else if action === 'REVERSE'}
                 <label
-                  >취소할 조치
+                  >{$t('moderation.actionToReverse')}
                   <select bind:value={reversesActionId} required>
-                    <option value="" disabled>조치 선택</option>
+                    <option value="" disabled>{$t('moderation.selectAction')}</option>
                     {#each reversibleActions as item (item.id)}
-                      <option value={item.id}>{item.action} · {formatTime(item.createdAt)}</option>
+                      <option value={item.id}
+                        >{$t(`moderationAction.${item.action}`)} ·
+                        {formatTime(item.createdAt)}</option
+                      >
                     {/each}
                   </select></label
                 >
               {/if}
             </div>
             <label
-              >판단 근거
+              >{$t('moderation.reason')}
               <textarea bind:value={reason} minlength="4" maxlength="1000" rows="3" required
               ></textarea>
             </label>
@@ -351,11 +390,11 @@
               >{#if action === 'REVERSE'}<RotateCcw size={14} />{:else}<ShieldAlert
                   size={14}
                 />{/if}
-              {acting ? '기록 중…' : '감사 이력에 조치 확정'}</button
+              {acting ? $t('moderation.recording') : $t('moderation.confirmAction')}</button
             >
           </form>
         {:else}
-          <p class="empty">검토할 사건을 선택하십시오.</p>
+          <p class="empty">{$t('moderation.selectCase')}</p>
         {/if}
       </section>
     </div>

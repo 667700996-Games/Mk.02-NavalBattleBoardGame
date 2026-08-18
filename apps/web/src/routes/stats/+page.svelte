@@ -18,6 +18,7 @@
     Trophy
   } from '@lucide/svelte';
   import { api } from '$lib/api';
+  import { formatDateTime, formatNumber, localizeError, t } from '$lib/i18n';
   import { session } from '$lib/stores';
   import type { HistoryItem, PlayerProgression, RankedLeaderboardResponse } from '$lib/types';
 
@@ -50,15 +51,10 @@
   const won = (game: HistoryItem) => game.result.winnerId === game.selfPlayerId;
   const duration = (seconds: number) =>
     `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
-  const contentDate = (value: string) =>
-    new Intl.DateTimeFormat('ko-KR', { month: 'short', day: 'numeric' }).format(new Date(value));
-  const contentStatus = (value: 'UPCOMING' | 'ACTIVE' | 'ENDED') =>
-    value === 'ACTIVE' ? '진행 중' : value === 'UPCOMING' ? '예정' : '종료';
+  const contentDate = (value: string) => formatDateTime(value, { month: 'short', day: 'numeric' });
+  const contentStatus = (value: 'UPCOMING' | 'ACTIVE' | 'ENDED') => $t(`contentStatus.${value}`);
   const winTypeLabel = (game: HistoryItem) => {
-    if (game.result.winType === 'SURRENDER') return 'SURRENDER';
-    if (game.result.winType === 'DISCONNECT') return 'DISCONNECT';
-    if (game.result.winType === 'TIMEOUT') return 'TIMEOUT';
-    return 'NORMAL VICTORY';
+    return $t(`winType.${game.result.winType}`);
   };
   async function claimMission(missionId: string) {
     claimingMission = missionId;
@@ -66,8 +62,7 @@
     try {
       progression = await api.claimMission(missionId);
     } catch (caught) {
-      progressionError =
-        caught instanceof Error ? caught.message : '임무 보상을 지급하지 못했습니다.';
+      progressionError = localizeError(caught, 'stats.claimError');
     } finally {
       claimingMission = null;
     }
@@ -87,8 +82,7 @@
           ? { ...next, entries: [...leaderboard.entries, ...next.entries] }
           : next;
     } catch (caught) {
-      leaderboardError =
-        caught instanceof Error ? caught.message : '시즌 순위표를 불러오지 못했습니다.';
+      leaderboardError = localizeError(caught, 'stats.leaderboardError');
     } finally {
       leaderboardLoading = false;
       leaderboardLoadingMore = false;
@@ -103,8 +97,7 @@
       leaderboard = { ...leaderboard, viewerVisible: preference.visible };
       await loadLeaderboard(leaderboard.seasonId);
     } catch (caught) {
-      leaderboardError =
-        caught instanceof Error ? caught.message : '순위표 공개 설정을 저장하지 못했습니다.';
+      leaderboardError = localizeError(caught, 'stats.visibilityError');
     } finally {
       leaderboardVisibilitySaving = false;
     }
@@ -136,22 +129,24 @@
   );
 </script>
 
-<svelte:head><title>전투 기록 · Mk.01</title></svelte:head>
+<svelte:head><title>{$t('stats.metaTitle')}</title></svelte:head>
 <div class="stats-page shell">
   <header>
     <div>
-      <p class="eyebrow">OPERATION ARCHIVE / AFTER ACTION DATABASE</p>
-      <h1 class="page-title">전투 기록</h1>
-      <p>완료된 교전 결과와 명중 통계를 확인합니다.</p>
+      <p class="eyebrow">{$t('stats.eyebrow')}</p>
+      <h1 class="page-title">{$t('stats.title')}</h1>
+      <p>{$t('stats.description')}</p>
     </div>
-    <span><Activity size={14} /> ARCHIVE SYNCHRONIZED</span>
+    <span><Activity size={14} /> {$t('stats.synchronized')}</span>
   </header>
   {#if progression}
     {@const ranked = progression.ranked}
-    <section class="season-brief panel" aria-label="현재 시즌 및 이벤트">
+    <section class="season-brief panel" aria-label={$t('stats.currentSeasonEvents')}>
       <div class="season-emblem"><Flag size={24} /></div>
       <div class="season-copy">
-        <small>LIVE CONTENT · REVISION {progression.liveContent.revision}</small>
+        <small
+          >{$t('stats.liveContentRevision', { revision: progression.liveContent.revision })}</small
+        >
         <h2>
           {ranked ? `${ranked.tier} ${ranked.rating} RP` : progression.liveContent.season.title}
         </h2>
@@ -165,12 +160,14 @@
         >
       </div>
       {#if progression.liveContent.events.length}
-        <ul class="event-list" aria-label="진행 및 예정 이벤트">
+        <ul class="event-list" aria-label={$t('stats.activeUpcomingEvents')}>
           {#each progression.liveContent.events as event (event.id)}
             <li>
               <span>{contentStatus(event.status)}</span>
               <div><strong>{event.title}</strong><small>{event.description}</small></div>
-              <time datetime={event.endsAt}>{contentDate(event.endsAt)}까지</time>
+              <time datetime={event.endsAt}
+                >{$t('stats.untilDate', { date: contentDate(event.endsAt) })}</time
+              >
             </li>
           {/each}
         </ul>
@@ -182,22 +179,24 @@
           <div class="leaderboard-title">
             <span><Trophy size={17} /></span>
             <div>
-              <small>SERVER-AUTHORITATIVE RANKING</small>
-              <h2 id="ranked-leaderboard-title">시즌 지휘관 순위</h2>
+              <small>{$t('stats.authoritativeRanking')}</small>
+              <h2 id="ranked-leaderboard-title">{$t('stats.seasonRanking')}</h2>
             </div>
           </div>
           {#if leaderboard}
             <div class="leaderboard-controls">
               <label>
-                <span class="sr-only">조회할 랭크 시즌</span>
+                <span class="sr-only">{$t('stats.selectSeason')}</span>
                 <select
                   value={leaderboard.seasonId}
-                  aria-label="조회할 랭크 시즌"
+                  aria-label={$t('stats.selectSeason')}
                   onchange={(event) => loadLeaderboard(event.currentTarget.value)}
                 >
                   {#each leaderboard.availableSeasons as season (season.seasonId)}
                     <option value={season.seasonId}
-                      >{season.seasonId}{season.archived ? ' · ARCHIVE' : ' · LIVE'}</option
+                      >{season.seasonId}{season.archived
+                        ? $t('stats.archiveSuffix')
+                        : $t('stats.liveSuffix')}</option
                     >
                   {/each}
                 </select>
@@ -210,7 +209,7 @@
                 disabled={leaderboardVisibilitySaving}
                 onclick={updateLeaderboardVisibility}
               >
-                {leaderboard.viewerVisible ? '공개 중' : '비공개'}
+                {leaderboard.viewerVisible ? $t('stats.public') : $t('stats.private')}
               </button>
             </div>
           {/if}
@@ -220,29 +219,39 @@
         {:else if leaderboard}
           <div class="leaderboard-meta">
             <span class:archive={leaderboard.archived}
-              >{leaderboard.archived ? 'FINAL ARCHIVE' : '5 MIN SNAPSHOT'}</span
+              >{leaderboard.archived
+                ? $t('stats.finalArchive')
+                : $t('stats.fiveMinuteSnapshot')}</span
             >
             <time datetime={leaderboard.generatedAt}
-              >{new Date(leaderboard.generatedAt).toLocaleString('ko-KR')} 생성</time
+              >{$t('stats.generatedAt', {
+                time: formatDateTime(leaderboard.generatedAt)
+              })}</time
             >
-            <p>
-              완료된 배치 경기만 반영하며, 제재 중인 계정과 공개를 거부한 지휘관은 즉시 제외됩니다.
-            </p>
+            <p>{$t('stats.leaderboardPolicy')}</p>
           </div>
           {#if leaderboard.entries.length}
-            <div class="leaderboard-table" role="table" aria-label={`${leaderboard.seasonId} 순위`}>
+            <div
+              class="leaderboard-table"
+              role="table"
+              aria-label={$t('stats.seasonRankLabel', { season: leaderboard.seasonId })}
+            >
               <div class="leaderboard-row leaderboard-row--head" role="row">
-                <span role="columnheader">순위</span><span role="columnheader">지휘관</span><span
-                  role="columnheader">티어</span
-                ><span role="columnheader">RP</span><span role="columnheader">전적</span>
+                <span role="columnheader">{$t('stats.rank')}</span><span role="columnheader"
+                  >{$t('common.commander')}</span
+                ><span role="columnheader">{$t('stats.tier')}</span><span role="columnheader"
+                  >{$t('stats.rp')}</span
+                ><span role="columnheader">{$t('stats.record')}</span>
               </div>
               {#each leaderboard.entries as entry (entry.rank)}
                 <div class:podium={entry.rank <= 3} class="leaderboard-row" role="row">
                   <div role="cell"><strong>#{entry.rank}</strong></div>
                   <span class="leaderboard-handle" role="cell">{entry.handle}</span>
                   <span role="cell">{entry.tier}</span>
-                  <div role="cell"><strong>{entry.rating.toLocaleString('ko-KR')}</strong></div>
-                  <span role="cell">{entry.wins}승 {entry.losses}패</span>
+                  <div role="cell"><strong>{formatNumber(entry.rating)}</strong></div>
+                  <span role="cell"
+                    >{$t('stats.winLoss', { wins: entry.wins, losses: entry.losses })}</span
+                  >
                 </div>
               {/each}
             </div>
@@ -252,29 +261,33 @@
                 type="button"
                 disabled={leaderboardLoadingMore}
                 onclick={() => loadLeaderboard(leaderboard?.seasonId, true)}
-                >{leaderboardLoadingMore ? '스냅샷 확인 중…' : '다음 순위 불러오기'}</button
+                >{leaderboardLoadingMore
+                  ? $t('stats.checkingSnapshot')
+                  : $t('stats.loadMore')}</button
               >
             {/if}
           {:else}
             <div class="leaderboard-state">
               <Medal size={26} />
-              <strong>공개 가능한 배치 완료 지휘관이 없습니다</strong>
-              <span>5회의 배치 경기를 완료하면 시즌 순위에 참여할 수 있습니다.</span>
+              <strong>{$t('stats.noRankedCommanders')}</strong>
+              <span>{$t('stats.placementRequirement')}</span>
             </div>
           {/if}
         {/if}
         {#if leaderboardError}<p class="leaderboard-error" role="alert">{leaderboardError}</p>{/if}
       </section>
     {/if}
-    <section class="progression panel" aria-label="지휘관 진행도">
+    <section class="progression panel" aria-label={$t('stats.commanderProgression')}>
       <div class="rank-seal"><Star size={26} /><strong>{progression.level}</strong></div>
       <div class="rank-copy">
-        <small>COMMANDER PROGRESSION</small>
-        <h2>LV.{progression.level} · {progression.rankTitle}</h2>
+        <small>{$t('stats.commanderProgression')}</small>
+        <h2>
+          {$t('stats.levelTitle', { level: progression.level, title: progression.rankTitle })}
+        </h2>
         <div
           class="xp-track"
           role="progressbar"
-          aria-label="다음 레벨 진행도"
+          aria-label={$t('stats.nextLevelProgress')}
           aria-valuenow={progression.levelXp}
           aria-valuemin="0"
           aria-valuemax="500"
@@ -282,26 +295,27 @@
           <span style={`width: ${Math.min(100, (progression.levelXp / 500) * 100)}%`}></span>
         </div>
         <p>
-          총 {progression.totalXp.toLocaleString('ko-KR')} XP · {progression.xpToNextLevel > 0
-            ? `다음 레벨까지 ${progression.xpToNextLevel} XP`
-            : '최고 계급 달성'}
+          {$t('stats.totalXp', { xp: formatNumber(progression.totalXp) })} ·
+          {progression.xpToNextLevel > 0
+            ? $t('stats.xpToNext', { xp: formatNumber(progression.xpToNextLevel) })
+            : $t('stats.maxRank')}
         </p>
       </div>
       <div class="progression-metric">
         <Award size={18} /><strong
           >{progression.achievements.filter((item) => item.unlocked).length}/{progression
             .achievements.length}</strong
-        ><span>업적 해제</span>
+        ><span>{$t('stats.achievementsUnlocked')}</span>
       </div>
       <div class="progression-metric">
         <CalendarCheck size={18} /><strong
           >{progression.missions.filter((item) => item.completed).length}/{progression.missions
             .length}</strong
-        ><span>현재 임무</span>
+        ><span>{$t('stats.currentMissions')}</span>
       </div>
     </section>
     {#if progression.missions.length}
-      <section class="mission-grid" aria-label="현재 임무">
+      <section class="mission-grid" aria-label={$t('stats.currentMissions')}>
         {#each progression.missions as mission (mission.id)}
           <article class:complete={mission.completed} class="panel mission-card">
             <div><small>{mission.cadence}</small><strong>{mission.title}</strong></div>
@@ -311,43 +325,50 @@
               <i style={`width: ${Math.min(100, (mission.progress / mission.target) * 100)}%`}></i>
             </div>
             {#if mission.claimed}
-              <em class="reward-claimed">지급 완료 · +{mission.rewardXp} XP</em>
+              <em class="reward-claimed">{$t('stats.rewardClaimed', { xp: mission.rewardXp })}</em>
             {:else if mission.claimable}
               <button
                 class="claim-button"
                 disabled={claimingMission === mission.id}
                 onclick={() => claimMission(mission.id)}
                 >{claimingMission === mission.id
-                  ? '지급 중…'
-                  : `+${mission.rewardXp} XP 받기`}</button
+                  ? $t('stats.claiming')
+                  : $t('stats.claimXp', { xp: mission.rewardXp })}</button
               >
             {:else}
-              <em>완료 보상 · +{mission.rewardXp} XP</em>
+              <em>{$t('stats.completionReward', { xp: mission.rewardXp })}</em>
             {/if}
           </article>
         {/each}
       </section>
     {:else}
       <p class="content-paused panel" role="status">
-        현재 임무 운영이 일시 중지되었습니다. 완료 기록과 지급된 보상은 그대로 보존됩니다.
+        {$t('stats.missionsPaused')}
       </p>
     {/if}
     {#if progressionError}<p class="progression-error" role="alert">{progressionError}</p>{/if}
   {/if}
   {#if !loading && games.length > 0}
-    <section class="archive-overview" aria-label="전투 기록 요약">
+    <section class="archive-overview" aria-label={$t('stats.archiveSummary')}>
       <article class="panel">
-        <small>TOTAL OPERATIONS</small><strong>{games.length}</strong><span>누적 작전</span>
+        <small>{$t('stats.totalOperations')}</small><strong>{games.length}</strong><span
+          >{$t('stats.accumulatedOperations')}</span
+        >
       </article>
       <article class="panel">
-        <small>MISSION SUCCESS</small><strong>{Math.round((wins / games.length) * 100)}%</strong
-        ><span>{wins}회 승리</span>
+        <small>{$t('stats.missionSuccess')}</small><strong
+          >{Math.round((wins / games.length) * 100)}%</strong
+        ><span>{$t('stats.wins', { count: wins })}</span>
       </article>
       <article class="panel">
-        <small>AVERAGE ACCURACY</small><strong>{averageAccuracy}%</strong><span>평균 명중률</span>
+        <small>{$t('stats.averageAccuracy')}</small><strong>{averageAccuracy}%</strong><span
+          >{$t('stats.averageAccuracy')}</span
+        >
       </article>
       <article class="panel">
-        <small>HOSTILES NEUTRALIZED</small><strong>{totalSunk}</strong><span>누적 격침</span>
+        <small>{$t('stats.hostilesNeutralized')}</small><strong>{totalSunk}</strong><span
+          >{$t('stats.accumulatedSinks')}</span
+        >
       </article>
     </section>
   {/if}
@@ -356,9 +377,9 @@
     </div>{:else if games.length === 0}<section class="empty-state panel">
       <div>
         <History size={34} class="muted" />
-        <h2>아직 완료된 전투가 없습니다</h2>
-        <p class="muted">첫 작전을 완료하면 기록이 이곳에 보존됩니다.</p>
-        <a class="button button--primary" href={resolve('/lobby')}>작전 로비로 이동</a>
+        <h2>{$t('stats.noBattles')}</h2>
+        <p class="muted">{$t('stats.noBattlesDescription')}</p>
+        <a class="button button--primary" href={resolve('/lobby')}>{$t('stats.goLobby')}</a>
       </div>
     </section>{:else}<div class="history-list">
       {#each games as game (game.roomId)}<article class="history-row panel">
@@ -367,14 +388,16 @@
           >
           <div class="history-name">
             <small
-              >{new Date(game.result.finishedAt).toLocaleDateString('ko-KR')} · RULESET V{game
-                .balance.rulesetVersion}</small
-            ><strong>{game.roomName}</strong><em>{won(game) ? '승리' : '패배'}</em><span
-              class="win-type">{winTypeLabel(game)}</span
-            >
+              >{$t('stats.battleMeta', {
+                date: formatDateTime(game.result.finishedAt, { dateStyle: 'medium' }),
+                version: game.balance.rulesetVersion
+              })}</small
+            ><strong>{game.roomName}</strong><em
+              >{won(game) ? $t('stats.victory') : $t('stats.defeat')}</em
+            ><span class="win-type">{winTypeLabel(game)}</span>
           </div>
           <div>
-            <Target size={14} /><span>명중률</span><strong
+            <Target size={14} /><span>{$t('stats.accuracy')}</span><strong
               >{Math.round(
                 (game.result.players.find((p) => p.playerId === game.selfPlayerId)?.accuracy ?? 0) *
                   100
@@ -382,17 +405,20 @@
             >
           </div>
           <div>
-            <Crosshair size={14} /><span>총 턴</span><strong>{game.result.totalTurns}</strong>
+            <Crosshair size={14} /><span>{$t('stats.totalTurns')}</span><strong
+              >{game.result.totalTurns}</strong
+            >
           </div>
           <div>
-            <Timer size={14} /><span>시간</span><strong
+            <Timer size={14} /><span>{$t('stats.duration')}</span><strong
               >{duration(game.result.durationSeconds)}</strong
             >
           </div>
           <a
             class="replay-link"
-            aria-label={`${game.roomName} 전투 복기`}
-            href={resolve('/replay/[roomId]', { roomId: game.roomId })}><Play size={14} /> 복기</a
+            aria-label={$t('stats.replayLabel', { room: game.roomName })}
+            href={resolve('/replay/[roomId]', { roomId: game.roomId })}
+            ><Play size={14} /> {$t('stats.replay')}</a
           >
         </article>{/each}
     </div>{/if}

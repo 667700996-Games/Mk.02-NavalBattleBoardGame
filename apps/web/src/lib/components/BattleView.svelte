@@ -6,12 +6,12 @@
   import { sounds } from '$lib/sound';
   import { chatMessages, gameError, lastAttack } from '$lib/stores';
   import { Button, Modal } from '$lib/ui';
+  import { formatNumber, gameModeMessageKey, shipName, shipMessageKey, t } from '$lib/i18n';
   import Vessel from './Vessel.svelte';
   import {
     coordinateKey,
     coordinateLabel,
     fleetForBalance,
-    shipName,
     type AttackOutcome,
     type Coordinate,
     type GameSnapshot
@@ -218,8 +218,8 @@
     if (myTurn && seconds > 0) sounds.countdown(seconds);
     timerAnnouncement =
       seconds === 0
-        ? '턴 제한 시간이 만료되었습니다. 서버 판정을 기다립니다.'
-        : `턴 제한 시간 ${seconds}초 남았습니다.`;
+        ? $t('battle.timerExpiredAnnouncement')
+        : $t('battle.timerAnnouncement', { seconds: formatNumber(seconds) });
   });
 
   onMount(() => {
@@ -245,18 +245,23 @@
     </div>
     <div class="turn-banner__copy">
       <span class="turn-banner__eyebrow"
-        >TURN {String(snapshot.turnNumber ?? 0).padStart(2, '0')} · {myTurn
-          ? 'TACTICAL CONTROL'
-          : 'SIGNAL MONITOR'}</span
+        >{$t('battle.turn', {
+          turn: String(snapshot.turnNumber ?? 0).padStart(2, '0'),
+          control: myTurn ? $t('battle.tacticalControl') : $t('battle.signalMonitor')
+        })}</span
       >
       <h1 id="battle-status">
         {disabled
-          ? '통신 복구 대기'
+          ? $t('battle.reconnectWait')
           : myTurn
             ? snapshot.rules.mode === 'SALVO'
-              ? `일제사격 좌표를 지정하십시오 · ${snapshot.shotsRemainingInTurn ?? 1}발 남음`
-              : '공격 좌표를 지정하십시오'
-            : `${opponent?.nickname ?? '상대'} 지휘관의 응답 대기`}
+              ? $t('battle.salvoPrompt', {
+                  shots: formatNumber(snapshot.shotsRemainingInTurn ?? 1)
+                })
+              : $t('battle.attackPrompt')
+            : $t('battle.opponentWait', {
+                opponent: opponent?.nickname ?? $t('battle.opponentFallback')
+              })}
       </h1>
     </div>
     <div
@@ -268,31 +273,40 @@
       <div class="turn-clock" style={`--timer-progress:${timerProgress * 360}deg`}>
         <span><Clock3 size={13} /></span>
         <strong>{remainingSeconds === null ? '∞' : formatClock(remainingSeconds)}</strong>
-        <small>{timerTone === 'expired' ? 'EXPIRED' : myTurn ? 'TURN LIMIT' : 'ENEMY TIME'}</small>
+        <small
+          >{timerTone === 'expired'
+            ? $t('battle.expired')
+            : myTurn
+              ? $t('battle.turnLimit')
+              : $t('battle.enemyTime')}</small
+        >
       </div>
       <div class="elapsed-clock">
-        <small>ELAPSED</small><strong>{formatClock(elapsedSeconds)}</strong><span
-          >TIMEOUT {me?.consecutiveTimeoutCount ?? 0}/{snapshot.balance.manifest
-            .consecutiveTimeoutForfeit}</span
+        <small>{$t('battle.elapsed')}</small><strong>{formatClock(elapsedSeconds)}</strong><span
+          >{$t('battle.timeoutCounter', {
+            current: formatNumber(me?.consecutiveTimeoutCount ?? 0),
+            limit: formatNumber(snapshot.balance.manifest.consecutiveTimeoutForfeit)
+          })}</span
         >
       </div>
     </div>
     <div class="turn-banner__side">
-      <small>CURRENT COMMAND</small>
-      <strong class:cyan={myTurn}>{myTurn ? 'YOUR TURN' : 'OPPONENT'}</strong>
+      <small>{$t('battle.currentCommand')}</small>
+      <strong class:cyan={myTurn}>{myTurn ? $t('battle.yourTurn') : $t('battle.opponent')}</strong>
       <button
         class="surrender-trigger"
         type="button"
         disabled={surrenderPending}
         onclick={() => (showSurrender = true)}
       >
-        <Flag size={12} /> 작전 포기
+        <Flag size={12} />
+        {$t('battle.surrender')}
       </button>
     </div>
     <button
       class="mobile-surrender"
       type="button"
-      aria-label="작전 포기"
+      aria-label={$t('battle.surrender')}
       disabled={surrenderPending}
       onclick={() => (showSurrender = true)}
     >
@@ -301,18 +315,23 @@
   </header>
   <span class="sr-only" aria-live="assertive">{timerAnnouncement}</span>
 
-  <div class="combat-strip" aria-label="전투 상태 요약">
+  <div class="combat-strip" aria-label={$t('battle.summary')}>
     <span
-      ><i></i> BATTLESPACE / SECTOR {snapshot.balance.manifest.boardSize}×{snapshot.balance.manifest
-        .boardSize}</span
+      ><i></i>
+      {$t('battle.battlespace', {
+        size: formatNumber(snapshot.balance.manifest.boardSize)
+      })}</span
     >
-    <span>ROUND {String(snapshot.turnNumber ?? 0).padStart(2, '0')}</span>
+    <span>{$t('battle.round', { round: String(snapshot.turnNumber ?? 0).padStart(2, '0') })}</span>
     <span
-      >{snapshot.rules.mode}{snapshot.rules.mode === 'SALVO'
-        ? ` / ${snapshot.shotsRemainingInTurn ?? 1} SHOTS`
-        : ''}</span
+      >{snapshot.rules.mode === 'SALVO'
+        ? $t('battle.modeShots', {
+            mode: $t(gameModeMessageKey(snapshot.rules.mode)),
+            shots: formatNumber(snapshot.shotsRemainingInTurn ?? 1)
+          })
+        : $t(gameModeMessageKey(snapshot.rules.mode))}</span
     >
-    <span>LINK V{String(snapshot.version).padStart(3, '0')}</span>
+    <span>{$t('battle.linkVersion', { version: String(snapshot.version).padStart(3, '0') })}</span>
   </div>
   <InputPrompt context="targeting" />
 
@@ -327,12 +346,16 @@
     >
       <span class="combat-event__signal"><Crosshair size={15} /></span>
       <div>
-        <small>LAST ACTION / {coordinateLabel(combatEvent.coordinate)}</small><strong
+        <small
+          >{$t('battle.lastAction', {
+            coordinate: coordinateLabel(combatEvent.coordinate)
+          })}</small
+        ><strong
           >{combatEvent.outcome === 'MISS'
-            ? 'NO CONTACT · MISS'
+            ? $t('battle.noContact')
             : combatEvent.outcome === 'HIT'
-              ? 'HIT CONFIRMED'
-              : 'VESSEL DESTROYED'}</strong
+              ? $t('battle.hitConfirmed')
+              : $t('battle.vesselDestroyed')}</strong
         >
       </div>
     </div>
@@ -348,13 +371,15 @@
     >
       <span class="fire-sequence__reticle"><Crosshair size={22} /></span>
       <div>
-        <small>SECTOR {coordinateLabel(fireSequence.coordinate)}</small>
+        <small
+          >{$t('battle.sector', { coordinate: coordinateLabel(fireSequence.coordinate) })}</small
+        >
         <strong
           >{fireSequence.stage === 'LOCK'
-            ? 'TARGET LOCK'
+            ? $t('battle.targetLock')
             : fireSequence.stage === 'FIRE'
-              ? 'FIRE CONTROL'
-              : 'IMPACT CONFIRMED'}</strong
+              ? $t('battle.fireControl')
+              : $t('battle.impactConfirmed')}</strong
         >
       </div>
       <span class="fire-sequence__ticks"><i></i><i></i><i></i></span>
@@ -368,46 +393,53 @@
     >
       <div class="board-panel__heading">
         <div>
-          <span>FRIENDLY WATERS / DEFENSIVE PICTURE</span>
-          <h2 id="friendly-waters-title">아군 함선 보드</h2>
+          <span>{$t('battle.friendlyWaters')}</span>
+          <h2 id="friendly-waters-title">{$t('battle.friendlyBoard')}</h2>
         </div>
-        <em>{snapshot.ownBoard?.attacksReceived.length ?? 0}회 피격</em>
+        <em
+          >{$t('battle.attacksReceived', {
+            count: formatNumber(snapshot.ownBoard?.attacksReceived.length ?? 0)
+          })}</em
+        >
       </div>
       <div class="board-readout">
-        <span><i class="signal-dot signal-dot--safe"></i>OWN FLEET VISIBLE</span><strong
-          >SHIELD ARRAY</strong
-        >
+        <span><i class="signal-dot signal-dot--safe"></i>{$t('battle.ownFleetVisible')}</span
+        ><strong>{$t('battle.shieldArray')}</strong>
       </div>
       <GridBoard
         balance={snapshot.balance.manifest}
         mode="own"
-        label="아군 함선 방어 보드"
+        label={$t('battle.friendlyBoardLabel')}
         ownBoard={snapshot.ownBoard}
         disabled={true}
       />
       <div class="board-legend">
-        <span><i class="legend-ship"></i> 함선</span><span><i class="legend-hit"></i> 피격</span
-        ><span><i class="legend-sunk"></i> 침몰</span>
+        <span><i class="legend-ship"></i> {$t('battle.ship')}</span><span
+          ><i class="legend-hit"></i> {$t('battle.damaged')}</span
+        ><span><i class="legend-sunk"></i> {$t('battle.sunk')}</span>
       </div>
     </section>
 
     <section class="board-panel board-panel--hostile panel" aria-labelledby="hostile-waters-title">
       <div class="board-panel__heading">
         <div>
-          <span>HOSTILE WATERS / FOG OF WAR</span>
-          <h2 id="hostile-waters-title">상대 공격 보드</h2>
+          <span>{$t('battle.hostileWaters')}</span>
+          <h2 id="hostile-waters-title">{$t('battle.targetBoard')}</h2>
         </div>
-        <em>{snapshot.targetBoard?.attacks.length ?? 0}회 탐색</em>
+        <em
+          >{$t('battle.searched', {
+            count: formatNumber(snapshot.targetBoard?.attacks.length ?? 0)
+          })}</em
+        >
       </div>
       <div class="board-readout">
-        <span><i class="signal-dot signal-dot--active"></i>UNKNOWN CONTACTS</span><strong
-          >{myTurn ? 'TARGETING ENABLED' : 'SONAR LISTENING'}</strong
-        >
+        <span><i class="signal-dot signal-dot--active"></i>{$t('battle.unknownContacts')}</span
+        ><strong>{myTurn ? $t('battle.targetingEnabled') : $t('battle.sonarListening')}</strong>
       </div>
       <GridBoard
         balance={snapshot.balance.manifest}
         mode="target"
-        label="상대 해역 공격 보드"
+        label={$t('battle.targetBoardLabel')}
         targetBoard={snapshot.targetBoard}
         {selected}
         interactive={myTurn && !pending && !fireSequence}
@@ -415,49 +447,60 @@
         oncell={choose}
       />
       <div class="board-legend">
-        <span><i class="legend-miss"></i> MISS</span><span><i class="legend-hit"></i> HIT</span
-        ><span><i class="legend-sunk"></i> SUNK</span>
+        <span><i class="legend-miss"></i> {$t('board.miss')}</span><span
+          ><i class="legend-hit"></i> {$t('board.hit')}</span
+        ><span><i class="legend-sunk"></i> {$t('board.sunk')}</span>
       </div>
     </section>
 
-    <aside class="fire-control panel" aria-label="사격 통제">
+    <aside class="fire-control panel" aria-label={$t('battle.fireControlAria')}>
       <div class="fire-control__title">
         <Crosshair size={17} />
-        <div><small>FIRE CONTROL / TGT-04</small><strong>사격 통제</strong></div>
+        <div>
+          <small>{$t('battle.fireControlCode')}</small><strong>{$t('battle.fireControl')}</strong>
+        </div>
       </div>
       <div class:coordinate-lock--active={selected} class="coordinate-lock">
-        <small>TARGET LOCK</small><strong>{selected ? coordinateLabel(selected) : '— —'}</strong
-        ><span>{selected ? 'RETICLE READY' : '공격 보드에서 좌표 선택'}</span>
+        <small>{$t('battle.targetLock')}</small><strong
+          >{selected ? coordinateLabel(selected) : '— —'}</strong
+        ><span>{selected ? $t('battle.reticleReady') : $t('battle.selectCoordinate')}</span>
       </div>
       <button
         class="button button--primary button--wide fire-button"
         disabled={!canFire}
         onclick={fire}
       >
-        {#if pending}<span class="mini-spinner"></span> 판정 대기{:else}<Crosshair size={17} /> 공격 실행{/if}
+        {#if pending}<span class="mini-spinner"></span>
+          {$t('battle.awaitingResult')}{:else}<Crosshair size={17} />
+          {$t('battle.executeAttack')}{/if}
       </button>
       {#if selected}<button class="clear-selection" onclick={() => (selected = null)}
-          ><X size={13} /> 선택 취소</button
+          ><X size={13} /> {$t('battle.clearSelection')}</button
         >{/if}
 
       <div class="enemy-fleet">
-        <small>ENEMY FLEET / INTEL STATUS</small>
+        <small>{$t('battle.enemyFleetStatus')}</small>
         {#each balanceFleet as ship (ship.kind)}
           <div class:sunk={sunkShips.has(ship.kind)}>
-            <span>{ship.name}</span><span class="mini-ship"
+            <span>{$t(shipMessageKey(ship.kind))}</span><span class="mini-ship"
               ><Vessel
                 kind={ship.kind}
                 state={sunkShips.has(ship.kind) ? 'sunk' : 'docked'}
               /></span
-            >{#if sunkShips.has(ship.kind)}<Check size={13} />{:else}<em>UNKNOWN</em>{/if}
+            >{#if sunkShips.has(ship.kind)}<Check size={13} />{:else}<em>{$t('battle.unknown')}</em
+              >{/if}
           </div>
         {/each}
       </div>
       <div class="commanders">
-        <div><span class="online-dot"></span><small>YOU</small><strong>{me?.nickname}</strong></div>
+        <div>
+          <span class="online-dot"></span><small>{$t('battle.you')}</small><strong
+            >{me?.nickname}</strong
+          >
+        </div>
         <div>
           <span class:offline-dot={opponent?.connectionState !== 'ONLINE'} class="online-dot"
-          ></span><small>OPPONENT</small><strong>{opponent?.nickname}</strong>
+          ></span><small>{$t('battle.opponent')}</small><strong>{opponent?.nickname}</strong>
         </div>
       </div>
     </aside>
@@ -466,15 +509,17 @@
       <header>
         <div class="battle-log__signal"><Activity size={16} /></div>
         <div>
-          <small>TACTICAL EVENT STREAM</small>
-          <h2 id="battle-log-title">Battle Log</h2>
+          <small>{$t('battle.tacticalEventStream')}</small>
+          <h2 id="battle-log-title">{$t('battle.log')}</h2>
         </div>
-        <span>LIVE / {String(snapshot.version).padStart(3, '0')}</span>
+        <span
+          >{$t('battle.liveVersion', { version: String(snapshot.version).padStart(3, '0') })}</span
+        >
       </header>
       {#if battleLog.length || systemLog.length}
         <ol>
           {#each systemLog as entry (entry.messageId)}<li class="log-system">
-              <span>SYS</span><Activity size={14} /><strong>SYSTEM EVENT</strong><em
+              <span>SYS</span><Activity size={14} /><strong>{$t('battle.systemEvent')}</strong><em
                 >{entry.content}</em
               >
             </li>{/each}
@@ -485,36 +530,42 @@
               <span>{String(entry.sequence).padStart(2, '0')}</span
               >{#if entry.outcome === 'MISS'}<Waves size={14} />{:else}<Crosshair
                   size={14}
-                />{/if}<strong>SECTOR {coordinateLabel(entry.coordinate)}</strong><em
+                />{/if}<strong
+                >{$t('battle.sector', { coordinate: coordinateLabel(entry.coordinate) })}</strong
+              ><em
                 >{entry.outcome === 'MISS'
-                  ? '빗나감'
+                  ? $t('board.miss')
                   : entry.outcome === 'HIT'
-                    ? '명중'
-                    : `${entry.sunkShip ? shipName(entry.sunkShip) : '함선'} 격침`}</em
+                    ? $t('board.hit')
+                    : $t('battle.shipSunk', {
+                        ship: entry.sunkShip ? shipName(entry.sunkShip) : $t('battle.ship')
+                      })}</em
               >
             </li>{/each}
         </ol>
-      {:else}<p>사격 명령을 기다리고 있습니다. 첫 공격 이후 전술 이벤트가 기록됩니다.</p>{/if}
+      {:else}<p>{$t('battle.awaitingFire')}</p>{/if}
     </section>
   </div>
 </section>
 
 <Modal
   open={showSurrender}
-  eyebrow="IRREVERSIBLE COMMAND"
-  title="작전을 종료하시겠습니까?"
-  description="기권하면 즉시 패배 처리되며 되돌릴 수 없습니다."
+  eyebrow={$t('battle.irreversible')}
+  title={$t('battle.surrenderTitle')}
+  description={$t('battle.surrenderDescription')}
   onclose={() => (showSurrender = false)}
 >
   <div class="surrender-modal-actions">
-    <Button variant="ghost" full onclick={() => (showSurrender = false)}>취소</Button><Button
+    <Button variant="ghost" full onclick={() => (showSurrender = false)}
+      >{$t('battle.cancel')}</Button
+    ><Button
       variant="danger"
       full
       loading={surrenderPending}
       onclick={() => {
         showSurrender = false;
         onsurrender();
-      }}><Flag size={15} /> 기권</Button
+      }}><Flag size={15} /> {$t('battle.confirmSurrender')}</Button
     >
   </div>
 </Modal>

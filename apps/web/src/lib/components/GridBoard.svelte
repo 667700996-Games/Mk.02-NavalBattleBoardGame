@@ -1,11 +1,11 @@
 <script lang="ts">
   import { Crosshair, Flame, Waves } from '@lucide/svelte';
   import { cellsForPlacement } from '$lib/game/placement';
+  import { shipName, t } from '$lib/i18n';
   import Vessel from './Vessel.svelte';
   import {
     coordinateKey,
     coordinateLabel,
-    shipName,
     type AttackOutcome,
     type BalanceManifest,
     type Coordinate,
@@ -181,8 +181,11 @@
     const kind = mode === 'placement' ? placementKind(coordinate) : ownShipKind(coordinate);
     const parts = [coordinateLabel(coordinate)];
     if (kind) parts.push(shipName(kind));
-    if (attack) parts.push(attack === 'MISS' ? '빗나감' : attack === 'HIT' ? '명중' : '격침');
-    if (mode === 'target' && !attack) parts.push('미공격 좌표');
+    if (attack)
+      parts.push(
+        attack === 'MISS' ? $t('board.miss') : attack === 'HIT' ? $t('board.hit') : $t('board.sunk')
+      );
+    if (mode === 'target' && !attack) parts.push($t('board.unattacked'));
     return parts.join(', ');
   }
 

@@ -762,35 +762,34 @@ export type ServerEvent =
     }
   | { type: 'heartbeat'; payload: { serverTime: string } };
 
-export const QUICK_COMMANDS: ReadonlyArray<{ id: QuickCommandId; label: string }> = [
-  { id: 'GOOD_GAME', label: '굿게임' },
-  { id: 'WAIT_A_MOMENT', label: '잠시만요' },
-  { id: 'READY', label: '교전 준비 완료' },
-  { id: 'NICE_SHOT', label: '나이스 샷' },
-  { id: 'LUCKY', label: '운이 좋았군요' },
-  { id: 'GO_FIRST', label: '제가 먼저 가겠습니다' },
-  { id: 'REMATCH', label: '다시 한 판?' },
-  { id: 'THANK_YOU', label: '감사합니다' }
+export const QUICK_COMMANDS: ReadonlyArray<{ id: QuickCommandId }> = [
+  { id: 'GOOD_GAME' },
+  { id: 'WAIT_A_MOMENT' },
+  { id: 'READY' },
+  { id: 'NICE_SHOT' },
+  { id: 'LUCKY' },
+  { id: 'GO_FIRST' },
+  { id: 'REMATCH' },
+  { id: 'THANK_YOU' }
 ] as const;
 
 export const CHAT_EMOJIS = ['👍', '👏', '😅', '😮', '🔥', '🎯', '🚢', '💥', '🫡', '🤝'] as const;
 
-export const FLEET: ReadonlyArray<{ kind: ShipKind; size: number; name: string }> = [
-  { kind: 'CARRIER', size: 5, name: '항공모함' },
-  { kind: 'BATTLESHIP', size: 4, name: '전함' },
-  { kind: 'CRUISER', size: 3, name: '순양함' },
-  { kind: 'SUBMARINE', size: 3, name: '잠수함' },
-  { kind: 'DESTROYER', size: 2, name: '구축함' }
+export const FLEET: ReadonlyArray<{ kind: ShipKind; size: number }> = [
+  { kind: 'CARRIER', size: 5 },
+  { kind: 'BATTLESHIP', size: 4 },
+  { kind: 'CRUISER', size: 3 },
+  { kind: 'SUBMARINE', size: 3 },
+  { kind: 'DESTROYER', size: 2 }
 ] as const;
 
 export function fleetForBalance(
   balance?: BalanceManifest | null
-): ReadonlyArray<{ kind: ShipKind; size: number; name: string }> {
+): ReadonlyArray<{ kind: ShipKind; size: number }> {
   if (!balance) return FLEET;
   return balance.fleet.map((ship) => ({
     kind: ship.kind,
-    size: ship.cells,
-    name: shipName(ship.kind)
+    size: ship.cells
   }));
 }
 
@@ -807,8 +806,4 @@ export function coordinateLabel(coordinate: Coordinate): string {
       ? String.fromCharCode('A'.charCodeAt(0) + coordinate.row)
       : '?');
   return `${row}${coordinate.col + 1}`;
-}
-
-export function shipName(kind: ShipKind): string {
-  return FLEET.find((ship) => ship.kind === kind)?.name ?? kind;
 }

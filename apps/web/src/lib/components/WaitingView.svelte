@@ -14,6 +14,7 @@
   } from '@lucide/svelte';
   import { Badge, Button } from '$lib/ui';
   import { sounds } from '$lib/sound';
+  import { formatDateTime, formatNumber, t, type MessageKey } from '$lib/i18n';
   import type { GameSnapshot, PlayerPublic } from '$lib/types';
 
   interface Props {
@@ -53,25 +54,25 @@
   let readyPlayerCount = $derived(
     snapshot.players.filter((player) => player.readyState === 'READY').length
   );
-  let startDisabledReason = $derived.by(() => {
-    if (snapshot.gameId || snapshot.roomState === 'PLACEMENT') return '게임이 이미 시작되었습니다.';
-    if (snapshot.players.length !== 2) return '상대 지휘관이 아직 입장하지 않았습니다.';
+  let startDisabledReason = $derived.by<MessageKey | null>(() => {
+    if (snapshot.gameId || snapshot.roomState === 'PLACEMENT') return 'waiting.alreadyStarted';
+    if (snapshot.players.length !== 2) return 'waiting.opponentMissing';
     if (snapshot.players.some((player) => player.connectionState !== 'ONLINE')) {
-      return '연결이 끊긴 플레이어가 있습니다.';
+      return 'waiting.playerOffline';
     }
-    if (!allReady) return '상대 지휘관의 준비를 기다리고 있습니다.';
-    if (snapshot.roomState !== 'READY_TO_START') return '최신 방 상태를 동기화하고 있습니다.';
-    if (!online) return '실시간 연결이 복구될 때까지 기다려 주세요.';
-    return '';
+    if (!allReady) return 'waiting.opponentNotReady';
+    if (snapshot.roomState !== 'READY_TO_START') return 'waiting.syncing';
+    if (!online) return 'waiting.connectionRequired';
+    return null;
   });
-  let heading = $derived(
+  let headingKey = $derived<MessageKey>(
     snapshot.roomState === 'WAITING_FOR_OPPONENT'
-      ? '상대 지휘관의 입장을 기다리고 있습니다.'
+      ? 'waiting.headingOpponent'
       : snapshot.roomState === 'READY_TO_START'
         ? isHost
-          ? '모든 지휘관의 준비가 완료되었습니다. 작전을 시작하십시오.'
-          : '준비가 완료되었습니다. 방장의 작전 개시를 기다리고 있습니다.'
-        : '모든 지휘관이 준비를 완료해야 합니다.'
+          ? 'waiting.headingHostReady'
+          : 'waiting.headingGuestReady'
+        : 'waiting.headingReadiness'
   );
 
   $effect(() => {
@@ -94,17 +95,18 @@
     if (navigator.share) {
       await navigator.share({
         title: `${snapshot.room.name} · Mk.01`,
-        text: '온라인 해전 작전실에 참가하세요.',
+        text: $t('waiting.shareText'),
         url: inviteUrl
       });
     } else await copyInvite();
   }
 
   function readyTime(player: PlayerPublic): string {
-    if (!player.readyAt) return '승인 대기';
-    return new Date(player.readyAt).toLocaleTimeString('ko-KR', {
+    if (!player.readyAt) return $t('waiting.approvalPending');
+    return formatDateTime(player.readyAt, {
       hour: '2-digit',
-      minute: '2-digit'
+      minute: '2-digit',
+      hour12: false
     });
   }
 </script>
@@ -122,11 +124,9 @@
         />{/if}
     </div>
     <div>
-      <p class="eyebrow">PRE-OPERATION COMMAND ROOM</p>
-      <h1 id="waiting-title">{heading}</h1>
-      <p class="muted">
-        양쪽 지휘관이 준비를 완료한 뒤 방장이 작전 시작을 승인해야 함선 배치 채널이 열립니다.
-      </p>
+      <p class="eyebrow">{$t('waiting.eyebrow')}</p>
+      <h1 id="waiting-title">{$t(headingKey)}</h1>
+      <p class="muted">{$t('waiting.description')}</p>
     </div>
     <Badge tone={snapshot.roomState === 'READY_TO_START' ? 'success' : 'cyan'} pulse>
       {snapshot.roomState}
@@ -134,40 +134,56 @@
   </header>
 
   <div class="room-identity">
-    <div><small>OPERATION</small><strong>{snapshot.room.name}</strong></div>
-    <div><small>SECURE CODE</small><strong class="code">{snapshot.room.code}</strong></div>
-    <div><small>ROOM VERSION</small><strong>V{snapshot.roomVersion}</strong></div>
+    <div><small>{$t('waiting.operation')}</small><strong>{snapshot.room.name}</strong></div>
+    <div>
+      <small>{$t('waiting.secureCode')}</small><strong class="code">{snapshot.room.code}</strong>
+    </div>
+    <div><small>{$t('waiting.roomVersion')}</small><strong>V{snapshot.roomVersion}</strong></div>
   </div>
 
   <div class="invite-bar">
     <span>{inviteUrl}</span>
-    <button class="icon-button" onclick={copyInvite} aria-label="초대 링크 복사" title="링크 복사">
+    <button
+      class="icon-button"
+      onclick={copyInvite}
+      aria-label={$t('waiting.copyInvite')}
+      title={$t('waiting.copyLink')}
+    >
       {#if copied}<Check size={16} />{:else}<Copy size={16} />{/if}
     </button>
-    <button class="icon-button" onclick={shareInvite} aria-label="초대 링크 공유" title="공유">
+    <button
+      class="icon-button"
+      onclick={shareInvite}
+      aria-label={$t('waiting.shareInvite')}
+      title={$t('waiting.share')}
+    >
       <Share2 size={16} />
     </button>
   </div>
 
   <div class:armed={allReady} class="stage-readiness" aria-live="polite">
-    <span class="stage-readiness__signal"><i></i> FLEET LINK STATUS</span>
-    <strong>{allReady ? 'ALL COMMANDERS READY' : `${readyPlayerCount} / 2 COMMANDERS READY`}</strong
+    <span class="stage-readiness__signal"><i></i> {$t('waiting.fleetLinkStatus')}</span>
+    <strong
+      >{allReady
+        ? $t('waiting.allReady')
+        : $t('waiting.readyCount', {
+            ready: formatNumber(readyPlayerCount),
+            total: formatNumber(2)
+          })}</strong
     >
     <small>
-      {allReady
-        ? 'HOST AUTHORIZATION AVAILABLE · DEPLOYMENT CHANNEL STANDING BY'
-        : 'EACH COMMANDER MUST CONFIRM READINESS BEFORE LAUNCH'}
+      {allReady ? $t('waiting.hostCanStart') : $t('waiting.allMustConfirm')}
     </small>
   </div>
 
   <div class="room-command-grid">
-    <div class="player-slots" aria-label="지휘관 준비 상태">
+    <div class="player-slots" aria-label={$t('waiting.readinessLabel')}>
       {#each [hostPlayer, guestPlayer] as player, index (player?.role ?? 'EMPTY_GUEST')}
         {#if index === 1}
           <div class:active={allReady} class="tactical-link" aria-hidden="true">
             <span class="tactical-link__line"></span>
             <strong>VS</strong>
-            <small>{allReady ? 'LINK ESTABLISHED' : 'AWAITING LINK'}</small>
+            <small>{allReady ? $t('waiting.linkEstablished') : $t('waiting.awaitingLink')}</small>
             <span class="tactical-link__line"></span>
           </div>
         {/if}
@@ -179,17 +195,22 @@
           >
             <span class="player-avatar"><UserRound size={21} /></span>
             <div class="player-identity">
-              <small>{player.role === 'HOST' ? 'COMMAND AUTHORITY' : 'SECOND COMMANDER'}</small>
+              <small
+                >{player.role === 'HOST'
+                  ? $t('waiting.commandAuthority')
+                  : $t('waiting.secondCommander')}</small
+              >
               <strong>{player.nickname}</strong>
               <div class="player-badges">
                 <Badge tone={player.role === 'HOST' ? 'cyan' : 'neutral'}>
-                  {player.role === 'HOST' ? 'HOST' : 'GUEST'}
+                  {player.role === 'HOST' ? $t('waiting.host') : $t('waiting.guest')}
                 </Badge>
                 <span class:offline={player.connectionState !== 'ONLINE'} class="connection-state">
-                  {#if player.connectionState === 'ONLINE'}<Wifi size={11} /> 연결됨{:else}<WifiOff
-                      size={11}
-                    />
-                    {player.connectionState === 'RECONNECTING' ? '재접속 중' : '오프라인'}{/if}
+                  {#if player.connectionState === 'ONLINE'}<Wifi size={11} />
+                    {$t('waiting.connected')}{:else}<WifiOff size={11} />
+                    {player.connectionState === 'RECONNECTING'
+                      ? $t('waiting.reconnecting')
+                      : $t('waiting.offline')}{/if}
                 </span>
               </div>
             </div>
@@ -198,7 +219,11 @@
                   size={15}
                 />{/if}
               <span>
-                <strong>{player.readyState === 'READY' ? '준비 완료' : '준비 대기'}</strong>
+                <strong
+                  >{player.readyState === 'READY'
+                    ? $t('waiting.ready')
+                    : $t('waiting.notReady')}</strong
+                >
                 <small>{readyTime(player)}</small>
               </span>
             </div>
@@ -207,26 +232,33 @@
           <article class="player-slot player-slot--pending">
             <span class="player-avatar"><UserRound size={21} /></span>
             <div class="player-identity">
-              <small>SECOND COMMANDER</small>
-              <strong>상대 지휘관을 기다리는 중</strong>
-              <span class="scanning"><i></i> 초대 채널 탐색 중</span>
+              <small>{$t('waiting.secondCommander')}</small>
+              <strong>{$t('waiting.awaitingOpponent')}</strong>
+              <span class="scanning"><i></i> {$t('waiting.scanningInvite')}</span>
             </div>
           </article>
         {/if}
       {/each}
     </div>
 
-    <aside class="command-actions" aria-label="작전 준비 제어">
-      <header><Radio size={14} /><span>AUTHORIZATION CONTROL</span><em>SERVER VERIFIED</em></header>
+    <aside class="command-actions" aria-label={$t('waiting.controls')}>
+      <header>
+        <Radio size={14} /><span>{$t('waiting.authorizationControl')}</span><em
+          >{$t('waiting.serverVerified')}</em
+        >
+      </header>
       <div class="action-body">
         <div class="self-readiness">
-          <small>YOUR READINESS</small>
-          <strong>{selfPlayer?.readyState === 'READY' ? '작전 준비 완료' : '준비 승인 필요'}</strong
+          <small>{$t('waiting.yourReadiness')}</small>
+          <strong
+            >{selfPlayer?.readyState === 'READY'
+              ? $t('waiting.selfReady')
+              : $t('waiting.selfNeedsApproval')}</strong
           >
-          <p>준비 상태는 서버에 저장되며 새로고침하거나 잠시 재접속해도 복구됩니다.</p>
+          <p>{$t('waiting.readinessPersists')}</p>
         </div>
         <div class="ready-control">
-          <small>YOUR READY STATE</small>
+          <small>{$t('waiting.yourReadiness')}</small>
           <Button
             variant={selfPlayer?.readyState === 'READY' ? 'outline' : 'success'}
             size="lg"
@@ -239,12 +271,15 @@
               else onready();
             }}
           >
-            {#if selfPlayer?.readyState === 'READY'}준비 취소{:else}<Check size={17} /> 준비 완료{/if}
+            {#if selfPlayer?.readyState === 'READY'}{$t('waiting.cancelReady')}{:else}<Check
+                size={17}
+              />
+              {$t('waiting.confirmReady')}{/if}
           </Button>
         </div>
 
         <div class="host-control">
-          <div class="start-divider"><span>HOST AUTHORIZATION</span></div>
+          <div class="start-divider"><span>{$t('waiting.hostAuthorization')}</span></div>
           {#if isHost}
             <Button
               variant="primary"
@@ -257,21 +292,21 @@
                 onstart();
               }}
             >
-              <Rocket size={17} /> 작전 시작
+              <Rocket size={17} />
+              {$t('waiting.start')}
             </Button>
             <p class:available={!startDisabledReason} class="start-reason">
-              {startDisabledReason ||
-                '모든 시작 조건이 충족되었습니다. 최종 승인을 진행할 수 있습니다.'}
+              {startDisabledReason ? $t(startDisabledReason) : $t('waiting.canStart')}
             </p>
           {:else}
             <div class:ready={allReady} class="guest-guidance">
               <ShieldCheck size={20} />
               <span>
-                <strong>{allReady ? '방장의 작전 개시 대기' : '모든 지휘관의 준비 대기'}</strong>
+                <strong
+                  >{allReady ? $t('waiting.awaitingHost') : $t('waiting.awaitingEveryone')}</strong
+                >
                 <small>
-                  {allReady
-                    ? '준비가 완료되었습니다. 방장만 작전을 시작할 수 있습니다.'
-                    : '두 플레이어가 준비 완료 상태가 되어야 합니다.'}
+                  {allReady ? $t('waiting.onlyHostStarts') : $t('waiting.twoPlayersRequired')}
                 </small>
               </span>
             </div>
@@ -281,14 +316,15 @@
     </aside>
   </div>
 
-  <div class="system-log" aria-label="대기실 상태 로그">
+  <div class="system-log" aria-label={$t('waiting.statusLog')}>
     <span>SYS</span>
-    <p>{heading}</p>
+    <p>{$t(headingKey)}</p>
     <time>V{snapshot.roomVersion}</time>
   </div>
 
   <Button variant="ghost" size="sm" class="leave-button" onclick={onleave}>
-    <LogOut size={15} /> 작전실 나가기
+    <LogOut size={15} />
+    {$t('waiting.leave')}
   </Button>
 </section>
 

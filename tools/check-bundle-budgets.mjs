@@ -22,6 +22,15 @@ const extensionCategory = new Map(
 const totals = new Map(categories.map(([name]) => [name, 0]));
 const failures = [];
 const routeEntryResults = [];
+const viteManifest = JSON.parse(
+  await readFile(join(root, ".vite/manifest.json"), "utf8"),
+);
+const localeBundles = new Map(
+  Object.values(viteManifest)
+    .filter((entry) => entry.name?.startsWith("locale-"))
+    .map((entry) => [entry.file, entry.name]),
+);
+let localeBundleBytes = 0;
 
 function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -59,7 +68,9 @@ async function checkRouteEntries() {
     );
     const routeMatch = appSource.match(routePattern);
     if (!routeMatch) {
-      failures.push(`${routeId} is not present in the generated route dictionary`);
+      failures.push(
+        `${routeId} is not present in the generated route dictionary`,
+      );
       continue;
     }
 
@@ -99,6 +110,7 @@ async function walk(directory) {
     }
     const extension = extname(entry.name);
     const bytes = (await stat(path)).size;
+    const relativePath = relative(root, path);
     if (extension === ".woff") {
       failures.push(
         `${relative(root, path)} uses legacy WOFF (${bytes} bytes)`,
@@ -107,6 +119,15 @@ async function walk(directory) {
     }
     const category = extensionCategory.get(extension);
     if (!category) continue;
+    if (category.name === "javascript" && localeBundles.has(relativePath)) {
+      localeBundleBytes += bytes;
+      if (bytes > budgetConfig.localeBundles.perFileBytes) {
+        failures.push(
+          `${localeBundles.get(relativePath)} is ${bytes} bytes; locale bundle budget is ${budgetConfig.localeBundles.perFileBytes}`,
+        );
+      }
+      continue;
+    }
     totals.set(category.name, (totals.get(category.name) ?? 0) + bytes);
     if (bytes > category.budget.perFileBytes) {
       failures.push(
@@ -118,6 +139,20 @@ async function walk(directory) {
 
 await walk(root);
 await checkRouteEntries();
+const observedLocaleNames = [...localeBundles.values()].sort();
+const requiredLocaleNames = [...budgetConfig.localeBundles.required].sort();
+if (
+  JSON.stringify(observedLocaleNames) !== JSON.stringify(requiredLocaleNames)
+) {
+  failures.push(
+    `locale bundle set is ${observedLocaleNames.join(", ")}; expected ${requiredLocaleNames.join(", ")}`,
+  );
+}
+if (localeBundleBytes > budgetConfig.localeBundles.totalBytes) {
+  failures.push(
+    `locale bundles total ${localeBundleBytes} bytes; budget is ${budgetConfig.localeBundles.totalBytes}`,
+  );
+}
 for (const [name, bytes] of totals) {
   const budget = budgetConfig.artifact[name];
   if (bytes > budget.totalBytes) {
@@ -132,7 +167,7 @@ if (failures.length) {
   process.exit(1);
 }
 console.log(
-  `Bundle budget passed: ${[...totals].map(([name, bytes]) => `${name}=${bytes}`).join(", ")}`,
+  `Bundle budget passed: ${[...totals].map(([name, bytes]) => `${name}=${bytes}`).join(", ")}, localeBundles=${localeBundleBytes}`,
 );
 for (const result of routeEntryResults) {
   console.log(

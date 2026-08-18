@@ -28,6 +28,7 @@ import type {
   SocialRelationship,
   SupportAccountSnapshot
 } from '$lib/types';
+import { message } from '$lib/i18n';
 import {
   acceptProtocolCompatibility,
   acceptProtocolHeaders,
@@ -38,7 +39,7 @@ import {
   type ProtocolCompatibility,
   PROTOCOL_VERSION_HEADER,
   SERVER_PROTOCOL_MISMATCH_CODE,
-  SERVER_PROTOCOL_MISMATCH_MESSAGE
+  serverProtocolMismatchMessage
 } from '$lib/protocol';
 
 export class ApiError extends Error {
@@ -65,12 +66,12 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     }
   });
   if (!acceptProtocolHeaders(response.headers)) {
-    throw new ApiError(SERVER_PROTOCOL_MISMATCH_CODE, SERVER_PROTOCOL_MISMATCH_MESSAGE, 426);
+    throw new ApiError(SERVER_PROTOCOL_MISMATCH_CODE, serverProtocolMismatchMessage(), 426);
   }
   if (!response.ok) {
     let body: ApiErrorBody = {
       code: 'NETWORK_ERROR',
-      message: '통신 상태를 확인한 뒤 다시 시도해 주세요.'
+      message: message('api.networkError')
     };
     try {
       body = (await response.json()) as ApiErrorBody;
@@ -85,7 +86,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 
 function compatibleSnapshot(value: unknown): GameSnapshot {
   if (!isCompatibleGameSnapshot(value)) {
-    throw new ApiError(SERVER_PROTOCOL_MISMATCH_CODE, SERVER_PROTOCOL_MISMATCH_MESSAGE, 426);
+    throw new ApiError(SERVER_PROTOCOL_MISMATCH_CODE, serverProtocolMismatchMessage(), 426);
   }
   return value;
 }
@@ -97,7 +98,7 @@ async function roomList(): Promise<{ rooms: RoomSummary[]; serverTime: string }>
     protocolVersion?: number;
   }>('/rooms');
   if (!isCompatibleProtocolEnvelope(response)) {
-    throw new ApiError(SERVER_PROTOCOL_MISMATCH_CODE, SERVER_PROTOCOL_MISMATCH_MESSAGE, 426);
+    throw new ApiError(SERVER_PROTOCOL_MISMATCH_CODE, serverProtocolMismatchMessage(), 426);
   }
   return response;
 }
@@ -106,7 +107,7 @@ async function protocolCompatibility(): Promise<ProtocolCompatibility> {
   try {
     const response = await request<unknown>('/protocol');
     if (!acceptProtocolCompatibility(response)) {
-      throw new ApiError(SERVER_PROTOCOL_MISMATCH_CODE, SERVER_PROTOCOL_MISMATCH_MESSAGE, 426);
+      throw new ApiError(SERVER_PROTOCOL_MISMATCH_CODE, serverProtocolMismatchMessage(), 426);
     }
     return response;
   } catch (caught) {

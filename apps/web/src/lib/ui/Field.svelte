@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { HTMLInputAttributes } from 'svelte/elements';
+  import { t } from '$lib/i18n';
 
   interface Props {
     id: string;
@@ -35,7 +36,7 @@
 
 <label class:error class="ui-field" for={id}>
   <span class="ui-field__label"
-    >{label}{#if required}<em>REQUIRED</em>{/if}</span
+    >{label}{#if required}<em>{$t('common.required')}</em>{/if}</span
   >
   <span class="ui-field__control">
     <input

@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "owner": "experience-platform",
+  "defaultLocale": "ko-KR",
+  "launchLocales": ["ko-KR", "en-US"],
+  "pseudoLocale": "en-XA",
+  "catalogDirectory": "apps/web/src/lib/i18n/messages",
+  "minimumPseudoExpansion": 1.25,
+  "pseudoPaddingRatio": 0.35,
+  "localizedSourceRoots": ["apps/web/src"],
+  "requiredIntlFormatters": [
+    "DateTimeFormat",
+    "NumberFormat",
+    "RelativeTimeFormat"
+  ],
+  "requiredFallbackFonts": [
+    "-apple-system",
+    "BlinkMacSystemFont",
+    "Segoe UI",
+    "sans-serif"
+  ]
+}

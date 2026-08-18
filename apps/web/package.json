@@ -13,6 +13,7 @@
     "test:unit": "vitest run",
     "test:coverage": "vitest run --coverage",
     "test:a11y": "playwright test e2e/accessibility.spec.ts e2e/color-vision.spec.ts e2e/input-prompts.spec.ts --project=chromium",
+    "test:localization": "playwright test e2e/localization.spec.ts",
     "test:visual": "playwright test --config=playwright.visual.config.ts",
     "test:e2e": "playwright test",
     "test:performance": "npm run build && playwright test --config=playwright.performance.config.ts"

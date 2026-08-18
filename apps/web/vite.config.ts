@@ -13,6 +13,16 @@ const proxy = {
 
 export default defineConfig({
   plugins: [sveltekit()],
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          const locale = id.match(/\/i18n\/messages\/(ko-KR|en-US)\.json$/)?.[1];
+          return locale ? `locale-${locale}` : undefined;
+        }
+      }
+    }
+  },
   server: {
     host: true,
     allowedHosts: true,

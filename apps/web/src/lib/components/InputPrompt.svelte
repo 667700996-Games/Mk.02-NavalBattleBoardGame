@@ -1,5 +1,6 @@
 <script lang="ts">
   import { Hand, Keyboard, MousePointer2 } from '@lucide/svelte';
+  import { t, type MessageKey } from '$lib/i18n';
   import { inputModality, type InputModality } from '$lib/stores';
 
   interface Props {
@@ -9,37 +10,37 @@
 
   let { context, compact = false }: Props = $props();
 
-  const labels: Record<InputModality, string> = {
-    pointer: '마우스',
-    keyboard: '키보드',
-    touch: '터치'
+  const labels: Record<InputModality, MessageKey> = {
+    pointer: 'input.pointer',
+    keyboard: 'input.keyboard',
+    touch: 'input.touch'
   };
-  const prompts: Record<Props['context'], Record<InputModality, string>> = {
+  const prompts: Record<Props['context'], Record<InputModality, MessageKey>> = {
     placement: {
-      pointer: '함선 선택 → 해역 클릭 · R 회전 · 자동 배치',
-      keyboard: 'Tab 함선 선택 · 방향키 좌표 이동 · Space 배치 · R 회전 · Esc 해제',
-      touch: '함선 탭 → 해역 탭 · 회전 버튼 · 자동 배치'
+      pointer: 'input.placement.pointer',
+      keyboard: 'input.placement.keyboard',
+      touch: 'input.placement.touch'
     },
     targeting: {
-      pointer: '공격 보드 클릭 → 공격 실행',
-      keyboard: 'Tab 보드 진입 · 방향키 이동 · Space 좌표 선택 · 공격 실행',
-      touch: '공격 좌표 탭 → 공격 실행 탭'
+      pointer: 'input.targeting.pointer',
+      keyboard: 'input.targeting.keyboard',
+      touch: 'input.targeting.touch'
     },
     chat: {
-      pointer: '메시지 입력 · Enter 전송 · 아이콘으로 신호 선택',
-      keyboard: 'Enter 전송 · Shift+Enter 줄바꿈 · Escape 닫기',
-      touch: '메시지 입력 → 전송 버튼 · 아이콘으로 빠른 신호'
+      pointer: 'input.chat.pointer',
+      keyboard: 'input.chat.keyboard',
+      touch: 'input.chat.touch'
     }
   };
 
-  let label = $derived(labels[$inputModality]);
-  let prompt = $derived(prompts[context][$inputModality]);
+  let label = $derived($t(labels[$inputModality]));
+  let prompt = $derived($t(prompts[context][$inputModality]));
 </script>
 
 <aside
   class:input-prompt--compact={compact}
   class="input-prompt"
-  aria-label={`${label} 입력 도움말`}
+  aria-label={$t('input.help', { modality: label })}
   aria-live="polite"
   data-testid={`input-prompt-${context}`}
   data-modality={$inputModality}

@@ -17,10 +17,11 @@
     UserRound,
     Volume2
   } from '@lucide/svelte';
-  import { api, ApiError } from '$lib/api';
+  import { api } from '$lib/api';
   import { realtime } from '$lib/realtime';
   import { gameSnapshot, preferences, session, type ColorVisionMode } from '$lib/stores';
   import { sounds } from '$lib/sound';
+  import { formatDateTime, localizeError, t } from '$lib/i18n';
   import type { AccountSession } from '$lib/types';
 
   let signingOut = $state(false);
@@ -72,7 +73,7 @@
       );
       await loadAccountSessions();
     } catch (caught) {
-      accountError = caught instanceof ApiError ? caught.message : '계정을 생성하지 못했습니다.';
+      accountError = localizeError(caught, 'settings.createAccountError');
     } finally {
       upgrading = false;
     }
@@ -81,7 +82,7 @@
   async function copyRecovery() {
     if (!recovery) return;
     await navigator.clipboard.writeText(
-      `MK.01 ACCOUNT\n${recovery.accountId}\n${recovery.recoveryKey}`
+      `${$t('settings.accountCredentialHeader')}\n${recovery.accountId}\n${recovery.recoveryKey}`
     );
     copied = true;
     setTimeout(() => (copied = false), 1_800);
@@ -93,7 +94,7 @@
       await api.revokeAccountSession(sessionId);
       await loadAccountSessions();
     } catch (caught) {
-      accountError = caught instanceof ApiError ? caught.message : '세션을 폐기하지 못했습니다.';
+      accountError = localizeError(caught, 'settings.revokeSessionError');
     }
   }
 
@@ -110,8 +111,7 @@
       anchor.click();
       URL.revokeObjectURL(url);
     } catch (caught) {
-      accountError =
-        caught instanceof ApiError ? caught.message : '계정 자료를 내보내지 못했습니다.';
+      accountError = localizeError(caught, 'settings.exportError');
     } finally {
       exportingAccount = false;
     }
@@ -127,7 +127,7 @@
       session.set(null);
       await goto(resolve('/'));
     } catch (caught) {
-      accountError = caught instanceof ApiError ? caught.message : '계정을 삭제하지 못했습니다.';
+      accountError = localizeError(caught, 'settings.deleteError');
     } finally {
       deletingAccount = false;
     }
@@ -143,41 +143,38 @@
       session.set(null);
       await goto(resolve('/'));
     } catch (caught) {
-      logoutError =
-        caught instanceof ApiError
-          ? caught.message
-          : '세션을 종료하지 못했습니다. 다시 시도해 주세요.';
+      logoutError = localizeError(caught, 'settings.logoutError');
     } finally {
       signingOut = false;
     }
   }
 </script>
 
-<svelte:head><title>환경 설정 · Mk.01</title></svelte:head>
+<svelte:head><title>{$t('settings.metaTitle')}</title></svelte:head>
 <div class="settings-page shell">
   <header>
-    <p class="eyebrow">SYSTEM PREFERENCES</p>
-    <h1 class="page-title">환경 설정</h1>
-    <p>이 장치에만 적용되는 표시와 사운드 옵션입니다.</p>
+    <p class="eyebrow">{$t('settings.eyebrow')}</p>
+    <h1 class="page-title">{$t('settings.title')}</h1>
+    <p>{$t('settings.description')}</p>
   </header>
   <div class="settings-layout">
-    <aside class="system-profile panel" aria-label="시스템 프로필">
+    <aside class="system-profile panel" aria-label={$t('settings.systemProfile')}>
       <div class="profile-radar"><i></i><span></span></div>
-      <p class="eyebrow">LOCAL CONTROL PROFILE</p>
-      <h2>COMMAND DISPLAY</h2>
-      <p>이 장치의 작전 인터페이스를 지휘 환경에 맞게 조정하십시오.</p>
+      <p class="eyebrow">{$t('settings.localProfile')}</p>
+      <h2>{$t('settings.commandDisplay')}</h2>
+      <p>{$t('settings.profileDescription')}</p>
       <dl>
         <div>
-          <dt>RENDER MODE</dt>
-          <dd>TACTICAL / WEB</dd>
+          <dt>{$t('settings.renderMode')}</dt>
+          <dd>{$t('settings.tacticalWeb')}</dd>
         </div>
         <div>
-          <dt>SECURITY</dt>
-          <dd>SERVER AUTHORITATIVE</dd>
+          <dt>{$t('settings.security')}</dt>
+          <dd>{$t('settings.serverAuthoritative')}</dd>
         </div>
         <div>
-          <dt>PROFILE SCOPE</dt>
-          <dd>THIS DEVICE</dd>
+          <dt>{$t('settings.profileScope')}</dt>
+          <dd>{$t('settings.thisDevice')}</dd>
         </div>
       </dl>
     </aside>
@@ -186,59 +183,61 @@
         <div class="setting-row">
           <span class="setting-icon"><Volume2 size={20} /></span>
           <div>
-            <strong>작전 사운드</strong>
-            <p>좌표 선택, 명중, 격침, 승리 신호음을 재생합니다.</p>
+            <strong>{$t('settings.sound')}</strong>
+            <p>{$t('settings.soundDescription')}</p>
           </div>
           <label class="switch"
             ><input
               type="checkbox"
-              aria-label="작전 사운드"
+              aria-label={$t('settings.sound')}
               bind:checked={$preferences.sound}
               onchange={() => $preferences.sound && sounds.select()}
-            /><span></span><em>{$preferences.sound ? '켜짐' : '꺼짐'}</em></label
+            /><span></span><em>{$preferences.sound ? $t('common.on') : $t('common.off')}</em></label
           >
         </div>
         <div class="setting-row">
           <span class="setting-icon"><Gauge size={20} /></span>
           <div>
-            <strong>동작 줄이기</strong>
-            <p>레이더 회전과 전투 효과 등 비필수 애니메이션을 최소화합니다.</p>
+            <strong>{$t('settings.reducedMotion')}</strong>
+            <p>{$t('settings.reducedMotionDescription')}</p>
           </div>
           <label class="switch"
             ><input
               type="checkbox"
-              aria-label="동작 줄이기"
+              aria-label={$t('settings.reducedMotion')}
               bind:checked={$preferences.reducedMotion}
-            /><span></span><em>{$preferences.reducedMotion ? '켜짐' : '꺼짐'}</em></label
+            /><span></span><em>{$preferences.reducedMotion ? $t('common.on') : $t('common.off')}</em
+            ></label
           >
         </div>
         <div class="setting-row">
           <span class="setting-icon"><Contrast size={20} /></span>
           <div>
-            <strong>고대비 모드</strong>
-            <p>격자선과 텍스트의 대비를 높여 전장 정보를 더 명확하게 표시합니다.</p>
+            <strong>{$t('settings.highContrast')}</strong>
+            <p>{$t('settings.highContrastDescription')}</p>
           </div>
           <label class="switch"
             ><input
               type="checkbox"
-              aria-label="고대비 모드"
+              aria-label={$t('settings.highContrast')}
               bind:checked={$preferences.highContrast}
-            /><span></span><em>{$preferences.highContrast ? '켜짐' : '꺼짐'}</em></label
+            /><span></span><em>{$preferences.highContrast ? $t('common.on') : $t('common.off')}</em
+            ></label
           >
         </div>
         <div class="setting-row">
           <span class="setting-icon"><Palette size={20} /></span>
           <div>
-            <strong>색각 표시 프리셋</strong>
-            <p>적록·청황 구분을 보완하는 전술 색상 팔레트를 선택합니다.</p>
+            <strong>{$t('settings.colorVision')}</strong>
+            <p>{$t('settings.colorVisionDescription')}</p>
           </div>
           <label class="vision-select">
-            <span class="sr-only">색각 표시 프리셋</span>
+            <span class="sr-only">{$t('settings.colorVision')}</span>
             <select class="select" value={$preferences.colorVision} onchange={setColorVision}>
-              <option value="standard">표준</option>
-              <option value="protanopia">적색맹 보정</option>
-              <option value="deuteranopia">녹색맹 보정</option>
-              <option value="tritanopia">청황색맹 보정</option>
+              <option value="standard">{$t('settings.colorStandard')}</option>
+              <option value="protanopia">{$t('settings.colorProtanopia')}</option>
+              <option value="deuteranopia">{$t('settings.colorDeuteranopia')}</option>
+              <option value="tritanopia">{$t('settings.colorTritanopia')}</option>
             </select>
           </label>
         </div>
@@ -246,11 +245,8 @@
       <aside class="security-note">
         <ShieldCheck size={18} />
         <div>
-          <strong>공정한 전장을 위한 서버 검증</strong>
-          <p>
-            표시 설정은 게임 판정에 영향을 주지 않습니다. 함선 위치, 공격, 턴, 승패는 서버에서만
-            검증됩니다.
-          </p>
+          <strong>{$t('settings.serverFairness')}</strong>
+          <p>{$t('settings.serverFairnessDescription')}</p>
         </div>
       </aside>
       {#if $session}
@@ -258,14 +254,16 @@
           <header>
             <span><UserRound size={20} /></span>
             <div>
-              <small>COMMAND IDENTITY</small>
+              <small>{$t('settings.commandIdentity')}</small>
               <strong id="account-title"
-                >{$session.accountId ? '지휘 계정' : '게스트 기록 보존'}</strong
+                >{$session.accountId
+                  ? $t('settings.commandAccount')
+                  : $t('settings.preserveGuest')}</strong
               >
               <p>
                 {$session.accountId
-                  ? '복구 키로 다른 장치에서 같은 기록과 신원에 접속할 수 있습니다.'
-                  : '현재 게스트 세션을 계정으로 승격하면 기존 전투 기록이 그대로 유지됩니다.'}
+                  ? $t('settings.accountDescription')
+                  : $t('settings.guestDescription')}
               </p>
             </div>
           </header>
@@ -278,7 +276,7 @@
               }}
             >
               <label for="account-handle"
-                ><span>계정 호출부호</span><input
+                ><span>{$t('settings.accountHandle')}</span><input
                   id="account-handle"
                   bind:value={handle}
                   minlength="2"
@@ -287,44 +285,52 @@
                 /></label
               >
               <button class="button button--primary" disabled={upgrading}
-                ><KeyRound size={15} /> {upgrading ? '승격 중…' : '기록 보존 계정 생성'}</button
+                ><KeyRound size={15} />
+                {upgrading
+                  ? $t('settings.upgrading')
+                  : $t('settings.createPreservedAccount')}</button
               >
             </form>
           {/if}
           {#if recovery}
             <aside class="recovery-card" role="status">
-              <strong>복구 키는 지금 한 번만 표시됩니다</strong>
-              <p>
-                안전한 암호 관리자에 계정 ID와 복구 키를 함께 저장하십시오. 서버는 원문을 보관하지
-                않습니다.
-              </p>
+              <strong>{$t('settings.recoveryOnce')}</strong>
+              <p>{$t('settings.recoveryDescription')}</p>
               <dl>
                 <div>
-                  <dt>ACCOUNT ID</dt>
+                  <dt>{$t('settings.accountId')}</dt>
                   <dd>{recovery.accountId}</dd>
                 </div>
                 <div>
-                  <dt>RECOVERY KEY</dt>
+                  <dt>{$t('settings.recoveryKey')}</dt>
                   <dd>{recovery.recoveryKey}</dd>
                 </div>
               </dl>
               <button class="button" type="button" onclick={copyRecovery}
-                >{#if copied}<Check size={15} /> 복사됨{:else}<Copy size={15} /> 자격 증명 복사{/if}</button
+                >{#if copied}<Check size={15} /> {$t('settings.copied')}{:else}<Copy size={15} />
+                  {$t('settings.copyCredentials')}{/if}</button
               >
             </aside>
           {/if}
           {#if $session.accountId && accountSessions.length}
             <div class="device-list">
-              <h3><Monitor size={15} /> 활성 장치 세션</h3>
+              <h3><Monitor size={15} /> {$t('settings.activeSessions')}</h3>
               {#each accountSessions as device (device.id)}
                 <article>
                   <div>
-                    <strong>{device.id === currentSessionId ? '현재 장치' : '연결된 장치'}</strong
-                    ><span>최근 사용 {new Date(device.lastSeenAt).toLocaleString('ko-KR')}</span>
+                    <strong
+                      >{device.id === currentSessionId
+                        ? $t('settings.currentDevice')
+                        : $t('settings.connectedDevice')}</strong
+                    ><span
+                      >{$t('settings.lastUsed', {
+                        time: formatDateTime(device.lastSeenAt)
+                      })}</span
+                    >
                   </div>
                   {#if device.id !== currentSessionId}<button
                       type="button"
-                      aria-label="이 장치 세션 폐기"
+                      aria-label={$t('settings.revokeDevice')}
                       onclick={() => revokeSession(device.id)}><Trash2 size={15} /></button
                     >{/if}
                 </article>
@@ -334,11 +340,9 @@
           {#if $session.accountId}
             <section class="privacy-controls" aria-labelledby="privacy-controls-title">
               <div>
-                <small>DATA CONTROL</small>
-                <h3 id="privacy-controls-title">계정 자료 관리</h3>
-                <p>
-                  자격 증명을 제외한 계정·전투·보상·소셜·신고 자료를 JSON으로 내려받을 수 있습니다.
-                </p>
+                <small>{$t('settings.dataControl')}</small>
+                <h3 id="privacy-controls-title">{$t('settings.accountData')}</h3>
+                <p>{$t('settings.accountDataDescription')}</p>
               </div>
               <button
                 class="button"
@@ -347,7 +351,7 @@
                 disabled={exportingAccount}
               >
                 <Download size={15} />
-                {exportingAccount ? '자료 준비 중…' : '내 자료 내보내기'}
+                {exportingAccount ? $t('settings.preparingData') : $t('settings.exportData')}
               </button>
               <form
                 class="account-deletion"
@@ -356,13 +360,10 @@
                   deleteAccount();
                 }}
               >
-                <strong>계정 영구 삭제</strong>
-                <p>
-                  모든 장치가 로그아웃되고 개인 자료가 삭제됩니다. 완료된 전투 기록은 통계 무결성을
-                  위해 익명화됩니다. 이 작업은 되돌릴 수 없습니다.
-                </p>
+                <strong>{$t('settings.deleteAccount')}</strong>
+                <p>{$t('settings.deleteDescription')}</p>
                 <label for="deletion-recovery-key"
-                  ><span>복구 키</span><input
+                  ><span>{$t('settings.recoveryKey')}</span><input
                     id="deletion-recovery-key"
                     type="password"
                     autocomplete="off"
@@ -371,7 +372,7 @@
                   /></label
                 >
                 <label for="deletion-confirmation"
-                  ><span>확인을 위해 DELETE 입력</span><input
+                  ><span>{$t('settings.deleteConfirmation')}</span><input
                     id="deletion-confirmation"
                     bind:value={deletionConfirmation}
                     pattern="DELETE"
@@ -384,7 +385,7 @@
                   disabled={deletingAccount || deletionConfirmation !== 'DELETE'}
                 >
                   <Trash2 size={15} />
-                  {deletingAccount ? '계정 삭제 중…' : '계정 영구 삭제'}
+                  {deletingAccount ? $t('settings.deleting') : $t('settings.deleteAccount')}
                 </button>
               </form>
             </section>
@@ -395,9 +396,9 @@
       {#if $session}
         <section class="session-panel panel" aria-labelledby="session-control-title">
           <div>
-            <small>SESSION CONTROL</small>
-            <strong id="session-control-title">이 장치의 지휘 세션</strong>
-            <p>로그아웃하면 서버의 인증 세션도 즉시 폐기되며 다시 사용할 수 없습니다.</p>
+            <small>{$t('settings.sessionControl')}</small>
+            <strong id="session-control-title">{$t('settings.deviceSession')}</strong>
+            <p>{$t('settings.logoutDescription')}</p>
             {#if logoutError}<p class="session-error" role="alert">{logoutError}</p>{/if}
           </div>
           <button
@@ -407,7 +408,7 @@
             disabled={signingOut}
           >
             <LogOut size={16} />
-            {signingOut ? '세션 종료 중…' : '로그아웃 및 세션 폐기'}
+            {signingOut ? $t('settings.signingOut') : $t('settings.logout')}
           </button>
         </section>
       {/if}

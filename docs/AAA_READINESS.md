@@ -259,8 +259,8 @@ The program is complete only when all gates below are satisfied in a production-
       classes.
 - [x] Keyboard focus, dialogs, grids, chat, timers, errors, and live announcements pass WCAG 2.2 AA.
 - [x] Color is never the only carrier of game state; color-vision presets are tested.
-- [ ] All user-facing copy uses localization keys with Korean, English, and the launch locale set.
-- [ ] Pseudolocalization, text expansion, locale dates/numbers, and font fallback are automated gates.
+- [x] All user-facing copy uses localization keys with Korean, English, and the launch locale set.
+- [x] Pseudolocalization, text expansion, locale dates/numbers, and font fallback are automated gates.
 - Evidence: the two-client full-match suite asserts no horizontal document overflow at the lobby,
   waiting room, fleet placement, battle, refresh recovery, and result stages. It completes on
   Desktop Chrome, Desktop Firefox, Desktop Safari, Pixel 7, iPhone 13, and iPad Pro 11 profiles;
@@ -274,6 +274,19 @@ The program is complete only when all gates below are satisfied in a production-
   Combat legends, coordinate labels, outcome-specific Wave/Flame shapes, text, selection, and
   status icons ensure that no state depends on color alone. The full Chromium suite and
   six-profile full-match regression pass.
+- Evidence: `LOCALIZATION.md` owns the `ko-KR` default and `en-US` launch catalogs, the test-only
+  `en-XA` pseudo locale, persistence and fallback behavior, error-code translation, and copy
+  contribution contract. `npm run localization:check`, included in the release lint chain, rejects
+  catalog or placeholder drift, HTML copy, English-catalog Korean, hard-coded Korean in shipped
+  sources, literal user-facing Svelte copy, missing Intl formatters, pseudo-policy drift, and font
+  fallback regression. Unit tests expand every catalog entry by at least 25%, preserve placeholders,
+  prove Korean/English catalog parity, verify locale-specific dates, numbers and relative time, and
+  translate structured server errors without exposing the server-language message. The dedicated
+  Playwright gate switches `en-US` to `en-XA`, proves persisted locale/document metadata, measures
+  at least 25% title expansion, and rejects body or document overflow on Chromium, Firefox, WebKit,
+  Pixel 7, iPhone 13 and iPad Pro 11 profiles. Localized JSON participates in generated Korean font
+  slicing; `npm run fonts:check` proves all glyphs are covered within the strictest 500 KB device
+  font budget.
 
 ### D4. Performance budgets
 

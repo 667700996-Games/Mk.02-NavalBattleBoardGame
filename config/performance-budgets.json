@@ -3,12 +3,12 @@
     "javascript": {
       "extensions": [".js"],
       "perFileBytes": 100000,
-      "totalBytes": 354000
+      "totalBytes": 380000
     },
     "css": {
       "extensions": [".css"],
       "perFileBytes": 90000,
-      "totalBytes": 201500
+      "totalBytes": 201600
     },
     "fonts": {
       "extensions": [".woff2"],
@@ -26,9 +26,14 @@
       "totalBytes": 4000000
     }
   },
+  "localeBundles": {
+    "required": ["locale-ko-KR", "locale-en-US"],
+    "perFileBytes": 65000,
+    "totalBytes": 125000
+  },
   "routeEntries": {
     "/admin/moderation": {
-      "javascriptBytes": 15000,
+      "javascriptBytes": 17000,
       "cssBytes": 8500
     },
     "/admin/support": {
@@ -36,11 +41,11 @@
       "cssBytes": 5000
     },
     "/replay/[roomId]": {
-      "javascriptBytes": 20000,
+      "javascriptBytes": 20500,
       "cssBytes": 10500
     },
     "/stats": {
-      "javascriptBytes": 19000,
+      "javascriptBytes": 20000,
       "cssBytes": 14000
     }
   },

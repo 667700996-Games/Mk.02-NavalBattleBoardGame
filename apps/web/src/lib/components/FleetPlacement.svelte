@@ -12,7 +12,6 @@
   } from '$lib/game/placement';
   import {
     fleetForBalance,
-    shipName,
     type BalanceManifest,
     type Coordinate,
     type Orientation,
@@ -21,6 +20,7 @@
   } from '$lib/types';
   import { sounds } from '$lib/sound';
   import { preferences } from '$lib/stores';
+  import { formatNumber, shipMessageKey, t, type MessageKey } from '$lib/i18n';
 
   interface Props {
     balance: BalanceManifest;
@@ -52,7 +52,8 @@
   );
   let orientation = $state<Orientation>('HORIZONTAL');
   let hover = $state<Coordinate | null>(null);
-  let notice = $state('함선을 선택하고 해역의 시작 좌표를 지정하십시오.');
+  let noticeKey = $state<MessageKey>('placement.initialNotice');
+  let noticeShip = $state<ShipKind | null>(null);
   let autoDeploying = $state(false);
 
   let candidate = $derived<ShipPlacement | null>(
@@ -76,14 +77,13 @@
     const next: ShipPlacement = { kind: selectedKind, origin: coordinate, orientation };
     const validation = validatePlacement(next, placements, balance);
     if (!validation.valid) {
-      notice =
-        validation.reason === 'OVERLAP'
-          ? '다른 함선과 겹치는 위치입니다.'
-          : '보드 경계를 벗어나는 위치입니다.';
+      noticeKey = validation.reason === 'OVERLAP' ? 'placement.overlap' : 'placement.outOfBounds';
+      noticeShip = null;
       return;
     }
     placements = [...placements.filter((placement) => placement.kind !== selectedKind), next];
-    notice = `${shipName(selectedKind)} 배치 완료`;
+    noticeKey = 'placement.placed';
+    noticeShip = selectedKind;
     selectedKind =
       balanceFleet.find((ship) => !placements.some((placement) => placement.kind === ship.kind))
         ?.kind ?? selectedKind;
@@ -103,12 +103,14 @@
     const rotated = rotatePlacement(existing);
     const validation = validatePlacement(rotated, placements, balance);
     if (!validation.valid) {
-      notice = '현재 위치에서는 회전할 공간이 부족합니다.';
+      noticeKey = 'placement.rotationBlocked';
+      noticeShip = null;
       return;
     }
     placements = [...placements.filter((placement) => placement.kind !== selectedKind), rotated];
     orientation = rotated.orientation;
-    notice = `${shipName(selectedKind)} 방향 전환`;
+    noticeKey = 'placement.rotated';
+    noticeShip = selectedKind;
     sounds.rotate();
     sounds.select();
   }
@@ -118,7 +120,8 @@
     const deployed = autoPlaceFleet(Math.random, balance);
     autoDeploying = true;
     placements = [];
-    notice = '자동 배치 순서 실행 중…';
+    noticeKey = 'placement.autoRunning';
+    noticeShip = null;
     if ($preferences.reducedMotion) {
       placements = deployed;
     } else {
@@ -130,7 +133,7 @@
     }
     selectedKind = 'CARRIER';
     orientation = deployed[0]?.orientation ?? 'HORIZONTAL';
-    notice = '함대 자동 배치가 완료되었습니다. 확정 전까지 수정할 수 있습니다.';
+    noticeKey = 'placement.autoComplete';
     autoDeploying = false;
   }
 
@@ -139,7 +142,8 @@
     placements = [];
     selectedKind = 'CARRIER';
     orientation = 'HORIZONTAL';
-    notice = '전체 배치를 초기화했습니다.';
+    noticeKey = 'placement.resetNotice';
+    noticeShip = null;
   }
 
   function handleKeydown(event: KeyboardEvent) {
@@ -156,22 +160,33 @@
 <section class="placement" aria-labelledby="placement-title">
   <header class="placement__heading">
     <div>
-      <p class="eyebrow">FLEET DEPLOYMENT</p>
-      <h2 id="placement-title">함대 배치</h2>
-      <p>상대 지휘관에게 함선 좌표는 공개되지 않습니다.</p>
+      <p class="eyebrow">{$t('placement.eyebrow')}</p>
+      <h2 id="placement-title">{$t('placement.title')}</h2>
+      <p>{$t('placement.description')}</p>
     </div>
     <span class:success={fleet.valid} class="status-pill"
-      ><span class="status-dot"></span>{placements.length}/5 함선 배치</span
+      ><span class="status-dot"></span>{$t('placement.status', {
+        placed: formatNumber(placements.length),
+        total: formatNumber(balanceFleet.length)
+      })}</span
     >
   </header>
 
-  <div class="deployment-steps" aria-label="함대 배치 진행 단계">
-    <span class="active"><i>01</i><strong>함선 선택</strong><small>SELECT VESSEL</small></span>
+  <div class="deployment-steps" aria-label={$t('placement.progress')}>
+    <span class="active"
+      ><i>01</i><strong>{$t('placement.selectShip')}</strong><small
+        >{$t('placement.selectShipCode')}</small
+      ></span
+    >
     <span class:active={placements.length > 0}
-      ><i>02</i><strong>해역 배치</strong><small>MAP SECTOR</small></span
+      ><i>02</i><strong>{$t('placement.mapSector')}</strong><small
+        >{$t('placement.mapSectorCode')}</small
+      ></span
     >
     <span class:active={fleet.valid}
-      ><i>03</i><strong>작전 확정</strong><small>LOCK FORMATION</small></span
+      ><i>03</i><strong>{$t('placement.lockFormation')}</strong><small
+        >{$t('placement.lockFormationCode')}</small
+      ></span
     >
   </div>
 
@@ -179,13 +194,17 @@
     <div class="placement__board panel">
       <div class="board-toolbar">
         <span
-          ><i></i> SECTOR 10 × 10 / {orientation === 'HORIZONTAL' ? '가로 방향' : '세로 방향'}</span
+          ><i></i>{$t('placement.sectorOrientation', {
+            size: formatNumber(balance.boardSize),
+            orientation:
+              orientation === 'HORIZONTAL' ? $t('placement.horizontal') : $t('placement.vertical')
+          })}</span
         ><InputPrompt context="placement" compact />
       </div>
       <GridBoard
         {balance}
         mode="placement"
-        label="내 함대 배치 보드"
+        label={$t('placement.boardLabel')}
         {placements}
         previewCells={preview.cells ?? []}
         previewKind={selectedKind}
@@ -198,12 +217,18 @@
         ondropcell={place}
         onshipdrag={selectShip}
       />
-      <p class:danger={!preview.valid} class="placement-notice" aria-live="polite">{notice}</p>
+      <p class:danger={!preview.valid} class="placement-notice" aria-live="polite">
+        {$t(noticeKey, {
+          ship: noticeShip ? $t(shipMessageKey(noticeShip)) : ''
+        })}
+      </p>
     </div>
 
     <aside class="fleet-dock panel">
       <div class="fleet-dock__heading">
-        <div><span>FLEET MANIFEST</span><strong>함대 목록</strong></div>
+        <div>
+          <span>{$t('placement.manifestCode')}</span><strong>{$t('placement.manifest')}</strong>
+        </div>
         <Grip size={18} />
       </div>
       <div class="fleet-list">
@@ -220,7 +245,9 @@
             ondragstart={() => selectShip(ship.kind)}
           >
             <span class="fleet-item__meta"
-              ><strong>{ship.name}</strong><small>{ship.size} CELLS</small></span
+              ><strong>{$t(shipMessageKey(ship.kind))}</strong><small
+                >{$t('placement.cells', { count: formatNumber(ship.size) })}</small
+              ></span
             >
             <span class="ship-shape" style={`--ship-cells: ${ship.size}`} aria-hidden="true"
               ><Vessel
@@ -238,27 +265,26 @@
           class="button button--small"
           type="button"
           onclick={rotate}
-          disabled={confirmed || autoDeploying || !selectedKind}><RotateCw size={15} /> 회전</button
+          disabled={confirmed || autoDeploying || !selectedKind}
+          ><RotateCw size={15} /> {$t('placement.rotate')}</button
         >
         <button
           class="button button--small"
           type="button"
           onclick={autoPlace}
-          disabled={confirmed || autoDeploying}><Dices size={15} /> 자동 배치</button
+          disabled={confirmed || autoDeploying}><Dices size={15} /> {$t('placement.auto')}</button
         >
         <button
           class="button button--small button--danger"
           type="button"
           onclick={reset}
           disabled={confirmed || autoDeploying || placements.length === 0}
-          ><Trash2 size={15} /> 초기화</button
+          ><Trash2 size={15} /> {$t('placement.reset')}</button
         >
       </div>
       <div class="confirm-zone">
         <p>
-          {fleet.valid
-            ? '모든 함선이 교전 준비를 마쳤습니다.'
-            : '다섯 척을 모두 유효한 위치에 배치하십시오.'}
+          {fleet.valid ? $t('placement.ready') : $t('placement.incomplete')}
         </p>
         <button
           class="button button--primary button--wide"
@@ -269,9 +295,13 @@
             onconfirm(placements);
           }}
           ><Check size={17} />
-          {submitting ? '배치 확인 중…' : confirmed ? '배치 확정됨' : '배치 확정'}</button
+          {submitting
+            ? $t('placement.confirming')
+            : confirmed
+              ? $t('placement.confirmed')
+              : $t('placement.confirm')}</button
         >
-        <small>확정한 뒤에는 위치를 변경할 수 없습니다.</small>
+        <small>{$t('placement.lockWarning')}</small>
       </div>
     </aside>
   </div>

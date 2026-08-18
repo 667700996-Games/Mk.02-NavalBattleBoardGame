@@ -4,9 +4,10 @@
   import { resolve } from '$app/paths';
   import { onMount } from 'svelte';
   import { ArrowRight, KeyRound, Radio } from '@lucide/svelte';
-  import { api, ApiError } from '$lib/api';
+  import { api } from '$lib/api';
   import { trackFunnelFailure, trackFunnelReached } from '$lib/funnel';
   import { gameSnapshot, session } from '$lib/stores';
+  import { localizeError, t } from '$lib/i18n';
   import { Button, Field, Surface } from '$lib/ui';
 
   const code = (page.params.code ?? '').toUpperCase();
@@ -48,24 +49,27 @@
         needsSession && !sessionCreated ? 'session_created' : 'room_joined',
         needsSession && !sessionCreated ? 'session_creation' : 'room_entry'
       );
-      error = caught instanceof ApiError ? caught.message : '초대 채널에 접속하지 못했습니다.';
+      error = localizeError(caught, 'join.channelError');
     } finally {
       joining = false;
     }
   }
 </script>
 
-<svelte:head><title>작전 초대 {code} · Mk.01</title></svelte:head>
+<svelte:head><title>{$t('join.metaTitle', { code })}</title></svelte:head>
 
 <div class="join-page shell">
   <div class="join-orbit" aria-hidden="true"><i></i><i></i><i></i></div>
   <Surface class="invite-card" tone="elevated" padding="lg">
-    <div class="secure-rail"><span></span> SECURE CHANNEL / AES-256 <em>VERIFIED</em></div>
+    <div class="secure-rail">
+      <span></span>
+      {$t('join.secureChannel')} <em>{$t('join.verified')}</em>
+    </div>
     <div class="invite-icon"><Radio size={28} /></div>
-    <p class="eyebrow">ENCRYPTED INVITATION</p>
-    <h1>작전 참가 요청</h1>
-    <p class="muted">보안 채널을 통해 1:1 해전 작전실로 초대받았습니다.</p>
-    <div class="code-block"><small>OPERATION CODE</small><strong>{code}</strong></div>
+    <p class="eyebrow">{$t('join.eyebrow')}</p>
+    <h1>{$t('join.title')}</h1>
+    <p class="muted">{$t('join.description')}</p>
+    <div class="code-block"><small>{$t('join.operationCode')}</small><strong>{code}</strong></div>
     {#if loading}
       <div class="spinner"></div>
     {:else}
@@ -78,11 +82,11 @@
         {#if needsSession}
           <Field
             id="nickname"
-            label="지휘관 호출부호"
+            label={$t('join.callsign')}
             bind:value={nickname}
             minlength={2}
             maxlength={16}
-            placeholder="호출부호를 입력하십시오"
+            placeholder={$t('join.callsignPlaceholder')}
             autocomplete="nickname"
             required
           />
@@ -95,7 +99,7 @@
           type="submit"
           loading={joining}
           disabled={joining || (needsSession && nickname.length < 2)}
-          ><KeyRound size={17} /> 초대 수락 <ArrowRight size={17} /></Button
+          ><KeyRound size={17} /> {$t('join.accept')} <ArrowRight size={17} /></Button
         >
       </form>
     {/if}

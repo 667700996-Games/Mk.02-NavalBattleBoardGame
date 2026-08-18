@@ -12,8 +12,9 @@
     ShieldCheck,
     Waves
   } from '@lucide/svelte';
-  import { api, ApiError } from '$lib/api';
+  import { api } from '$lib/api';
   import { trackFunnelFailure, trackFunnelReached } from '$lib/funnel';
+  import { localizeError, t } from '$lib/i18n';
   import { session } from '$lib/stores';
   import { Badge, Button, Field, Surface } from '$lib/ui';
 
@@ -51,7 +52,7 @@
       await goto(resolve('/lobby'));
     } catch (caught) {
       trackFunnelFailure('session_created', 'session_creation');
-      error = caught instanceof ApiError ? caught.message : '지휘관 등록에 실패했습니다.';
+      error = localizeError(caught, 'landing.sessionCreateError');
     } finally {
       submitting = false;
     }
@@ -65,30 +66,31 @@
       session.set(authenticated);
       await goto(resolve('/lobby'));
     } catch (caught) {
-      error = caught instanceof ApiError ? caught.message : '계정을 확인하지 못했습니다.';
+      error = localizeError(caught, 'landing.accountLoginError');
     } finally {
       submitting = false;
     }
   }
 </script>
 
-<svelte:head><title>Mk.01 — 실시간 온라인 해전</title></svelte:head>
+<svelte:head><title>{$t('landing.meta.title')}</title></svelte:head>
 
 <section class="hero shell">
   <div class="hero__copy">
     <div class="hero__status-line">
-      <Badge tone="success" pulse>LIVE COMMAND NETWORK</Badge>
-      <span>2 COMMANDERS · 10×10 SECTORS · ZERO INTEL LEAK</span>
+      <Badge tone="success" pulse>{$t('landing.liveNetwork')}</Badge>
+      <span>{$t('landing.liveSummary')}</span>
     </div>
 
-    <p class="eyebrow">MK.01 / REAL-TIME NAVAL WARFARE</p>
+    <p class="eyebrow">{$t('landing.eyebrow')}</p>
     <h1 class="display-title">
-      <span class="display-title__line">보이지 않는 함대를,</span>
-      <span class="display-title__line display-title__line--signal">좌표 위에서 지휘하십시오.</span>
+      <span class="display-title__line">{$t('landing.titleLineOne')}</span>
+      <span class="display-title__line display-title__line--signal"
+        >{$t('landing.titleLineTwo')}</span
+      >
     </h1>
     <p class="hero__lead">
-      다섯 척의 함대를 숨기고 한 칸의 정보로 전장을 재구성하십시오. 당신의 선택은 숨겨지고, 모든
-      판정은 서버에서 증명됩니다.
+      {$t('landing.lead')}
     </p>
 
     <Surface tone="elevated" padding="md" class="command-entry">
@@ -101,25 +103,29 @@
         >
           <div class="command-entry__head">
             <div class="command-symbol"><KeyRound size={17} /></div>
-            <div><small>ACCOUNT RECOVERY CHANNEL</small><strong>계정 신원 확인</strong></div>
-            <span>VERIFIED</span>
+            <div>
+              <small>{$t('landing.accountRecoveryChannel')}</small><strong
+                >{$t('landing.accountIdentity')}</strong
+              >
+            </div>
+            <span>{$t('landing.verified')}</span>
           </div>
           <div class="account-entry-fields">
             <Field
               id="account-id"
-              label="계정 ID"
+              label={$t('landing.accountId')}
               bind:value={accountId}
               autocomplete="username"
-              placeholder="UUID 계정 ID"
+              placeholder={$t('landing.accountIdPlaceholder')}
               disabled={submitting}
               required
             />
             <Field
               id="recovery-key"
-              label="복구 키"
+              label={$t('landing.recoveryKey')}
               bind:value={recoveryKey}
               autocomplete="current-password"
-              placeholder="43자 복구 키"
+              placeholder={$t('landing.recoveryKeyPlaceholder')}
               minlength={43}
               maxlength={43}
               disabled={submitting}
@@ -129,10 +135,10 @@
           </div>
           <div class="account-entry-actions">
             <button type="button" class="entry-switch" onclick={() => (accountLogin = false)}
-              >게스트로 시작</button
+              >{$t('landing.startAsGuest')}</button
             >
             <Button variant="primary" size="lg" type="submit" loading={submitting}
-              >계정으로 복귀 <ArrowRight size={18} /></Button
+              >{$t('landing.returnWithAccount')} <ArrowRight size={18} /></Button
             >
           </div>
         </form>
@@ -146,26 +152,30 @@
           <div class="command-entry__head">
             <div class="command-symbol"><Crosshair size={17} /></div>
             <div>
-              <small>COMMANDER AUTHORIZATION</small>
-              <strong>{existingSession ? '작전 세션 확인됨' : '지휘관 호출부호 등록'}</strong>
+              <small>{$t('landing.commanderAuthorization')}</small>
+              <strong
+                >{existingSession
+                  ? $t('landing.sessionVerified')
+                  : $t('landing.registerCallsign')}</strong
+              >
             </div>
-            <span>{existingSession ? 'RESUME' : 'GUEST ACCESS'}</span>
+            <span>{existingSession ? $t('landing.resume') : $t('landing.guestAccess')}</span>
           </div>
           <div class="command-entry__controls">
             <Field
               id="nickname"
-              label="닉네임"
+              label={$t('landing.nickname')}
               bind:value={nickname}
               minlength={2}
               maxlength={16}
               autocomplete="nickname"
-              placeholder="호출부호 입력 (2~16자)"
+              placeholder={$t('landing.nicknamePlaceholder')}
               disabled={existingSession || submitting}
               {error}
               required
             />
             <Button variant="primary" size="lg" type="submit" loading={submitting}>
-              {existingSession ? '작전 복귀' : '작전 로비 입장'}
+              {existingSession ? $t('landing.resumeOperation') : $t('landing.enterLobby')}
               <ArrowRight size={18} />
             </Button>
           </div>
@@ -173,22 +183,31 @@
               type="button"
               class="entry-switch"
               onclick={() => (accountLogin = true)}
-              ><KeyRound size={13} /> 기존 계정과 복구 키로 접속</button
+              ><KeyRound size={13} /> {$t('landing.useExistingAccount')}</button
             >{/if}
         </form>
       {/if}
     </Surface>
 
-    <div class="trust-row" aria-label="보안 특성">
+    <div class="trust-row" aria-label={$t('landing.securityFeatures')}>
       <span
-        ><ShieldCheck size={15} /><strong>서버 권위 판정</strong><small>AUTHORITATIVE</small></span
+        ><ShieldCheck size={15} /><strong>{$t('landing.serverAuthority')}</strong><small
+          >{$t('landing.serverAuthorityCode')}</small
+        ></span
       >
-      <span><LockKeyhole size={15} /><strong>비공개 함선 좌표</strong><small>ENCRYPTED</small></span
+      <span
+        ><LockKeyhole size={15} /><strong>{$t('landing.privateCoordinates')}</strong><small
+          >{$t('landing.privateCoordinatesCode')}</small
+        ></span
       >
-      <span><Radio size={15} /><strong>실시간 재접속</strong><small>RESILIENT</small></span>
+      <span
+        ><Radio size={15} /><strong>{$t('landing.realtimeReconnect')}</strong><small
+          >{$t('landing.realtimeReconnectCode')}</small
+        ></span
+      >
     </div>
     <a class="tutorial-link" href={resolve('/tutorial')}
-      >처음이신가요? 5분 작전 튜토리얼 <ArrowRight size={15} /></a
+      >{$t('landing.tutorialLink')} <ArrowRight size={15} /></a
     >
   </div>
 
@@ -225,13 +244,21 @@
       >
       <div class="fleet-trace fleet-trace--one"><i></i><i></i><i></i><i></i><i></i></div>
       <div class="fleet-trace fleet-trace--two"><i></i><i></i><i></i></div>
-      <div class="radar-readout"><span>PASSIVE ARRAY</span><strong>NOISE 02.8</strong></div>
+      <div class="radar-readout">
+        <span>{$t('landing.passiveArray')}</span><strong
+          >{$t('landing.noise', { value: '02.8' })}</strong
+        >
+      </div>
     </div>
     <div class="telemetry-card telemetry-card--top">
-      <small>SONAR ARRAY</small><strong>ACTIVE</strong><span>SCAN RATE 04.8s</span>
+      <small>{$t('landing.sonarArray')}</small><strong>{$t('landing.active')}</strong><span
+        >{$t('landing.scanRate', { value: '04.8s' })}</span
+      >
     </div>
     <div class="telemetry-card telemetry-card--bottom">
-      <small>OCEAN DEPTH</small><strong>4,218 m</strong><span>THERMAL LAYER STABLE</span>
+      <small>{$t('landing.oceanDepth')}</small><strong
+        >{$t('landing.depthValue', { value: '4,218' })}</strong
+      ><span>{$t('landing.thermalStable')}</span>
     </div>
     <div class="visual-index"><span>01</span><i></i><span>04</span></div>
   </div>
@@ -240,31 +267,37 @@
 <section class="mission-brief shell" aria-labelledby="mission-title">
   <header class="mission-brief__heading">
     <div>
-      <p class="eyebrow">MISSION PROTOCOL</p>
-      <h2 id="mission-title">세 단계의 정밀한 교전</h2>
+      <p class="eyebrow">{$t('landing.missionProtocol')}</p>
+      <h2 id="mission-title">{$t('landing.missionTitle')}</h2>
     </div>
-    <p>배치, 추론, 격침. 규칙은 간결하지만 모든 좌표에는 의도가 필요합니다.</p>
+    <p>{$t('landing.missionLead')}</p>
   </header>
   <div class="mission-grid">
     <Surface tone="interactive" padding="lg">
       <article>
-        <span class="mission-number">01</span><Waves size={22} /><small>DEPLOY</small>
-        <h3>은밀 배치</h3>
-        <p>다섯 척의 함대를 해역 안에 자유롭게 편성합니다. 좌표는 오직 당신만 봅니다.</p>
+        <span class="mission-number">01</span><Waves size={22} /><small
+          >{$t('landing.deployCode')}</small
+        >
+        <h3>{$t('landing.deployTitle')}</h3>
+        <p>{$t('landing.deployDescription')}</p>
       </article>
     </Surface>
     <Surface tone="interactive" padding="lg">
       <article>
-        <span class="mission-number">02</span><Crosshair size={22} /><small>DEDUCE</small>
-        <h3>좌표 추론</h3>
-        <p>명중과 빗나감의 패턴을 읽고 적 함대의 형태를 좌표 위에 재구성합니다.</p>
+        <span class="mission-number">02</span><Crosshair size={22} /><small
+          >{$t('landing.deduceCode')}</small
+        >
+        <h3>{$t('landing.deduceTitle')}</h3>
+        <p>{$t('landing.deduceDescription')}</p>
       </article>
     </Surface>
     <Surface tone="interactive" padding="lg">
       <article>
-        <span class="mission-number">03</span><RotateCw size={22} /><small>ENDURE</small>
-        <h3>끊김 없는 작전</h3>
-        <p>순간적인 통신 두절이나 새로고침 후에도 같은 턴과 같은 전장으로 복귀합니다.</p>
+        <span class="mission-number">03</span><RotateCw size={22} /><small
+          >{$t('landing.endureCode')}</small
+        >
+        <h3>{$t('landing.endureTitle')}</h3>
+        <p>{$t('landing.endureDescription')}</p>
       </article>
     </Surface>
   </div>

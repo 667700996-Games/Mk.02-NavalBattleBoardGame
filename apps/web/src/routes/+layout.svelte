@@ -18,11 +18,29 @@
     socketStatus
   } from '$lib/stores';
   import { Avatar, Status, Toast, Tooltip } from '$lib/ui';
+  import {
+    formatDateTime,
+    initializeLocale,
+    launchLocales,
+    localizeError,
+    locale,
+    setLocale,
+    t,
+    type Locale,
+    type MessageKey
+  } from '$lib/i18n';
 
   let { children } = $props();
-  let clock = $state('00:00');
+  let now = $state<Date | null>(null);
+  const clock = $derived.by(() => {
+    void $locale;
+    return now
+      ? formatDateTime(now, { hour: '2-digit', minute: '2-digit', hour12: false })
+      : '--:--';
+  });
 
   onMount(() => {
+    initializeLocale();
     const removeFunnelTracking = installFunnelAbandonmentTracking();
     const removePerformanceTracking = installRealUserMonitoring();
     const keyboardKeys = new Set([
@@ -46,8 +64,7 @@
     inputModality.set(matchMedia('(pointer: coarse)').matches ? 'touch' : 'pointer');
     window.addEventListener('keydown', onKeydown, true);
     window.addEventListener('pointerdown', onPointerdown, true);
-    const updateClock = () =>
-      (clock = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }));
+    const updateClock = () => (now = new Date());
     updateClock();
     const timer = setInterval(updateClock, 30_000);
     api.protocolCompatibility().catch((caught: unknown) => {
@@ -68,13 +85,18 @@
     };
   });
 
-  const connectionText = (status: string) =>
-    ({
-      online: '실시간 연결',
-      connecting: '연결 중',
-      reconnecting: '재연결 중',
-      offline: '연결 끊김'
-    })[status] ?? '대기';
+  const connectionText = (status: string) => {
+    const key =
+      (
+        {
+          online: 'connection.online',
+          connecting: 'connection.connecting',
+          reconnecting: 'connection.reconnecting',
+          offline: 'connection.offline'
+        } satisfies Record<string, MessageKey>
+      )[status] ?? 'connection.idle';
+    return $t(key);
+  };
 
   const statusState = (status: string) =>
     status === 'online'
@@ -92,75 +114,88 @@
     document.documentElement.dataset.motion = $preferences.reducedMotion ? 'reduced' : 'full';
     document.documentElement.dataset.contrast = $preferences.highContrast ? 'high' : 'standard';
     document.documentElement.dataset.colorVision = $preferences.colorVision;
+    document.documentElement.lang = $locale === 'en-XA' ? 'en' : $locale;
   });
 </script>
 
 <svelte:head>
-  <title>Mk.01 — Naval Command</title>
-  <meta
-    name="description"
-    content="두 지휘관이 실시간으로 맞붙는 서버 권위형 온라인 해전 전략 게임"
-  />
+  <title>{$t('layout.meta.title')}</title>
+  <meta name="description" content={$t('layout.meta.description')} />
   <meta property="og:type" content="website" />
-  <meta property="og:locale" content="ko_KR" />
-  <meta property="og:title" content="Mk.01 — Naval Command" />
-  <meta
-    property="og:description"
-    content="함선을 배치하고 좌표를 추론하며 맞붙는 2인 실시간 해전 전략 게임"
-  />
+  <meta property="og:locale" content={$locale.replace('-', '_')} />
+  <meta property="og:title" content={$t('layout.meta.title')} />
+  <meta property="og:description" content={$t('layout.meta.ogDescription')} />
   <meta property="og:image" content="/og-mk01-command-v2.png" />
   <meta property="og:image:width" content="1200" />
   <meta property="og:image:height" content="630" />
-  <meta property="og:image:alt" content="시안과 주황 함대가 대치하는 Mk.01 해군 전술 지도" />
+  <meta property="og:image:alt" content={$t('layout.meta.ogImageAlt')} />
   <meta name="twitter:card" content="summary_large_image" />
 </svelte:head>
 
 <header class="app-header">
   <div class="shell app-header__inner">
-    <a class="brand" href={resolve($session ? '/lobby' : '/')} aria-label="Mk.01 홈">
+    <a class="brand" href={resolve($session ? '/lobby' : '/')} aria-label={$t('layout.home')}>
       <span class="brand__mark"><Crosshair size={18} strokeWidth={1.5} /></span>
       <span class="brand__text">
         <strong>MK.01</strong>
-        <small>NAVAL COMMAND SYSTEM</small>
+        <small>{$t('layout.brandTagline')}</small>
       </span>
     </a>
 
-    <nav class="nav-links" aria-label="주 메뉴">
+    <nav class="nav-links" aria-label={$t('layout.mainNavigation')}>
       {#if $session}
-        <Tooltip text="작전 로비" side="bottom">
+        <Tooltip text={$t('layout.operationsLobby')} side="bottom">
           <a
             class:active={active('/lobby') || active('/room')}
             class="nav-link"
-            aria-label="작전 로비"
-            href={resolve('/lobby')}><Radio size={17} /><span>작전 로비</span></a
+            aria-label={$t('layout.operationsLobby')}
+            href={resolve('/lobby')}
+            ><Radio size={17} /><span>{$t('layout.operationsLobby')}</span></a
           >
         </Tooltip>
-        <Tooltip text="전투 기록" side="bottom">
+        <Tooltip text={$t('layout.battleHistory')} side="bottom">
           <a
             class:active={active('/stats')}
             class="nav-link"
-            aria-label="전투 기록"
-            href={resolve('/stats')}><History size={17} /><span>전투 기록</span></a
+            aria-label={$t('layout.battleHistory')}
+            href={resolve('/stats')}
+            ><History size={17} /><span>{$t('layout.battleHistory')}</span></a
           >
         </Tooltip>
       {/if}
-      <Tooltip text="환경 설정" side="bottom">
+      <Tooltip text={$t('layout.settings')} side="bottom">
         <a
           class:active={active('/settings')}
           class="nav-link"
-          aria-label="환경 설정"
-          href={resolve('/settings')}><Settings size={17} /><span>설정</span></a
+          aria-label={$t('layout.settings')}
+          href={resolve('/settings')}
+          ><Settings size={17} /><span>{$t('layout.settingsShort')}</span></a
         >
       </Tooltip>
     </nav>
 
     <div class="header-operator">
-      <div class="header-clock" aria-label={`현재 시간 ${clock}`}>
-        <small>LOCAL</small><strong>{clock}</strong>
+      <label class="locale-control">
+        <span class="sr-only">{$t('locale.selector')}</span>
+        <select
+          aria-label={$t('locale.selector')}
+          value={$locale}
+          onchange={(event) => setLocale(event.currentTarget.value as Locale)}
+        >
+          {#each launchLocales as option (option)}
+            <option value={option}>
+              {$t(option === 'ko-KR' ? 'locale.koKR' : 'locale.enUS')}
+            </option>
+          {/each}
+          {#if $locale === 'en-XA'}<option value="en-XA">{$t('locale.enXA')}</option>{/if}
+        </select>
+      </label>
+      <div class="header-clock" aria-label={$t('layout.currentTime', { time: clock })}>
+        <small>{$t('layout.localTime')}</small><strong>{clock}</strong>
       </div>
       {#if $session}
         <Status
-          label="TACTICAL LINK"
+          label={$t('layout.tacticalLink')}
           value={connectionText($socketStatus)}
           state={statusState($socketStatus)}
         />
@@ -177,7 +212,7 @@
           <span>{$session.nickname}</span>
         </span>
       {:else}
-        <Status label="SYSTEM" value="STANDBY" state="idle" />
+        <Status label={$t('layout.system')} value={$t('layout.standby')} state="idle" />
       {/if}
     </div>
   </div>
@@ -191,7 +226,7 @@
       <Toast
         tone="danger"
         title={$gameError.code}
-        message={$gameError.message}
+        message={localizeError($gameError, 'error.requestFailed')}
         onclose={() => gameError.set(null)}
       />
     {/if}
@@ -207,6 +242,16 @@
 {/if}
 
 <style>
+  .locale-control select {
+    min-height: 30px;
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    padding: 4px 24px 4px 8px;
+    color: var(--ink-300);
+    background: var(--navy-950);
+    font: 700 9px var(--font-display);
+    letter-spacing: 0.04em;
+  }
   .header-clock {
     display: grid;
     justify-items: end;
@@ -229,6 +274,12 @@
     .header-clock,
     .header-operator :global(.ui-status) {
       display: none;
+    }
+  }
+  @media (max-width: 560px) {
+    .locale-control select {
+      width: 42px;
+      padding-inline: 5px;
     }
   }
 </style>

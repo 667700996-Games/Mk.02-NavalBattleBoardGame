@@ -1,30 +1,41 @@
-import { readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { format } from 'prettier';
+import { readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { format } from "prettier";
 
 const toolDirectory = path.dirname(fileURLToPath(import.meta.url));
-const repositoryRoot = path.resolve(toolDirectory, '..');
-const fontPackage = path.join(repositoryRoot, 'node_modules/@fontsource/ibm-plex-sans-kr');
-const outputPath = path.join(repositoryRoot, 'apps/web/src/fonts.css');
-const write = process.argv.includes('--write');
-const maximumKoreanPayload = 450_000;
+const repositoryRoot = path.resolve(toolDirectory, "..");
+const fontPackage = path.join(
+  repositoryRoot,
+  "node_modules/@fontsource/ibm-plex-sans-kr",
+);
+const outputPath = path.join(repositoryRoot, "apps/web/src/fonts.css");
+const write = process.argv.includes("--write");
+const performanceBudgets = JSON.parse(
+  readFileSync(
+    path.join(repositoryRoot, "config/performance-budgets.json"),
+    "utf8",
+  ),
+);
+const maximumKoreanPayload = Math.min(
+  ...Object.values(performanceBudgets.tiers).map((tier) => tier.fontBytes),
+);
 
 function sourceFiles(directory) {
   const files = [];
   for (const entry of readdirSync(directory, { withFileTypes: true })) {
     const resolved = path.join(directory, entry.name);
     if (entry.isDirectory()) files.push(...sourceFiles(resolved));
-    else if (/\.(rs|svelte|ts)$/.test(entry.name)) files.push(resolved);
+    else if (/\.(json|rs|svelte|ts)$/.test(entry.name)) files.push(resolved);
   }
   return files.sort();
 }
 
 const sources = [
-  ...sourceFiles(path.join(repositoryRoot, 'apps/server/src')),
-  ...sourceFiles(path.join(repositoryRoot, 'apps/web/src'))
+  ...sourceFiles(path.join(repositoryRoot, "apps/server/src")),
+  ...sourceFiles(path.join(repositoryRoot, "apps/web/src")),
 ];
-const sourceText = sources.map((file) => readFileSync(file, 'utf8')).join('\n');
+const sourceText = sources.map((file) => readFileSync(file, "utf8")).join("\n");
 const koreanCodePoints = new Set(
   [...sourceText]
     .map((character) => character.codePointAt(0))
@@ -34,13 +45,13 @@ const koreanCodePoints = new Set(
         (codePoint >= 0x3130 && codePoint <= 0x318f) ||
         (codePoint >= 0xa960 && codePoint <= 0xa97f) ||
         (codePoint >= 0xac00 && codePoint <= 0xd7af) ||
-        (codePoint >= 0xd7b0 && codePoint <= 0xd7ff)
-    )
+        (codePoint >= 0xd7b0 && codePoint <= 0xd7ff),
+    ),
 );
 
 function parseRanges(value) {
-  return value.split(',').map((part) => {
-    const [start, end = start] = part.trim().replace(/^U\+/i, '').split('-');
+  return value.split(",").map((part) => {
+    const [start, end = start] = part.trim().replace(/^U\+/i, "").split("-");
     return [Number.parseInt(start, 16), Number.parseInt(end, 16)];
   });
 }
@@ -50,33 +61,36 @@ function includesCodePoint(ranges, codePoint) {
 }
 
 function selectedFaces(weight) {
-  const css = readFileSync(path.join(fontPackage, `${weight}.css`), 'utf8');
-  const facePattern = /\/\* ibm-plex-sans-kr-\[(\d+)]-\d+-normal \*\/[\s\S]*?src: url\(\.\/files\/([^)]*\.woff2)\)[\s\S]*?unicode-range: ([^;]+);/g;
+  const css = readFileSync(path.join(fontPackage, `${weight}.css`), "utf8");
+  const facePattern =
+    /\/\* ibm-plex-sans-kr-\[(\d+)]-\d+-normal \*\/[\s\S]*?src: url\(\.\/files\/([^)]*\.woff2)\)[\s\S]*?unicode-range: ([^;]+);/g;
   const faces = [...css.matchAll(facePattern)].map((match) => ({
     slice: Number(match[1]),
     file: match[2],
-    ranges: parseRanges(match[3])
+    ranges: parseRanges(match[3]),
   }));
   const selected = faces
     .map((face) => ({
       ...face,
       usedCodePoints: [...koreanCodePoints].filter((codePoint) =>
-        includesCodePoint(face.ranges, codePoint)
-      )
+        includesCodePoint(face.ranges, codePoint),
+      ),
     }))
     .filter((face) => face.usedCodePoints.length > 0)
     .sort(
       (left, right) =>
-        right.usedCodePoints.length - left.usedCodePoints.length || right.slice - left.slice
+        right.usedCodePoints.length - left.usedCodePoints.length ||
+        right.slice - left.slice,
     );
   const uncovered = [...koreanCodePoints].filter(
-    (codePoint) => !selected.some((face) => includesCodePoint(face.ranges, codePoint))
+    (codePoint) =>
+      !selected.some((face) => includesCodePoint(face.ranges, codePoint)),
   );
   if (uncovered.length > 0) {
     throw new Error(
       `IBM Plex Sans KR ${weight} is missing source glyphs: ${uncovered
         .map((codePoint) => `U+${codePoint.toString(16).toUpperCase()}`)
-        .join(', ')}`
+        .join(", ")}`,
     );
   }
   return selected;
@@ -84,19 +98,21 @@ function selectedFaces(weight) {
 
 const selectedByWeight = new Map([
   [400, selectedFaces(400)],
-  [700, selectedFaces(700)]
+  [700, selectedFaces(700)],
 ]);
-const selectedFiles = [...selectedByWeight.values()].flat().map((face) => face.file);
+const selectedFiles = [...selectedByWeight.values()]
+  .flat()
+  .map((face) => face.file);
 if (new Set(selectedFiles).size !== selectedFiles.length) {
-  throw new Error('Font subset selection contains duplicate assets.');
+  throw new Error("Font subset selection contains duplicate assets.");
 }
 const koreanPayload = selectedFiles.reduce(
-  (total, file) => total + statSync(path.join(fontPackage, 'files', file)).size,
-  0
+  (total, file) => total + statSync(path.join(fontPackage, "files", file)).size,
+  0,
 );
 if (koreanPayload > maximumKoreanPayload) {
   throw new Error(
-    `Korean WOFF2 subset payload ${koreanPayload} exceeds ${maximumKoreanPayload} bytes.`
+    `Korean WOFF2 subset payload ${koreanPayload} exceeds ${maximumKoreanPayload} bytes.`,
   );
 }
 
@@ -104,10 +120,10 @@ const koreanFamilies = selectedByWeight
   .get(400)
   .map((face) => `'K${face.slice}'`);
 const unformatted = [
-  '/* Generated by tools/check-font-subsets.mjs. Run npm run fonts:generate after copy changes. */',
+  "/* Generated by tools/check-font-subsets.mjs. Run npm run fonts:generate after copy changes. */",
   `
 :root {
-  --font-korean: 'KLatin', ${koreanFamilies.join(', ')};
+  --font-korean: 'KLatin', ${koreanFamilies.join(", ")};
 }`,
   ...[400, 700].flatMap((weight) =>
     selectedByWeight.get(weight).map(
@@ -115,20 +131,20 @@ const unformatted = [
 @font-face {
   font-family: 'K${face.slice}';
   font-display: swap;
-  ${weight === 400 ? '' : `font-weight: ${weight};`}
+  ${weight === 400 ? "" : `font-weight: ${weight};`}
   src: url('@fontsource/ibm-plex-sans-kr/files/${face.file}');
-}`
-    )
+}`,
+    ),
   ),
   ...[400, 700].map(
     (weight) => `
 @font-face {
   font-family: 'KLatin';
   font-display: swap;
-  ${weight === 400 ? '' : `font-weight: ${weight};`}
+  ${weight === 400 ? "" : `font-weight: ${weight};`}
   src: url('@fontsource/ibm-plex-sans-kr/files/ibm-plex-sans-kr-latin-${weight}-normal.woff2');
   unicode-range: U+0000-00ff, U+0131, U+0152-0153, U+02bb-02bc, U+02c6, U+02da, U+02dc, U+0304, U+0308, U+0329, U+2000-206f, U+20ac, U+2122, U+2191, U+2193, U+2212, U+2215, U+feff, U+fffd;
-}`
+}`,
   ),
   ...[500, 600, 700].map(
     (weight) => `
@@ -137,18 +153,24 @@ const unformatted = [
   font-display: swap;
   font-weight: ${weight};
   src: url('@fontsource/rajdhani/files/rajdhani-latin-${weight}-normal.woff2');
-}`
+}`,
   ),
-  ''
-].join('\n');
-const generated = await format(unformatted, { parser: 'css', printWidth: 100, singleQuote: true });
+  "",
+].join("\n");
+const generated = await format(unformatted, {
+  parser: "css",
+  printWidth: 100,
+  singleQuote: true,
+});
 
 if (write) {
   writeFileSync(outputPath, generated);
-} else if (readFileSync(outputPath, 'utf8') !== generated) {
-  throw new Error('apps/web/src/fonts.css is stale. Run npm run fonts:generate.');
+} else if (readFileSync(outputPath, "utf8") !== generated) {
+  throw new Error(
+    "apps/web/src/fonts.css is stale. Run npm run fonts:generate.",
+  );
 }
 
 console.log(
-  `Font subset gate passed: ${koreanCodePoints.size} Korean source glyphs, ${selectedFiles.length} WOFF2 slices, ${koreanPayload} bytes.`
+  `Font subset gate passed: ${koreanCodePoints.size} Korean source glyphs, ${selectedFiles.length} WOFF2 slices, ${koreanPayload} bytes.`,
 );

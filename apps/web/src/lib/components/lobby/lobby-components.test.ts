@@ -1,6 +1,7 @@
 import { render } from 'svelte/server';
 import { describe, expect, it, vi } from 'vitest';
 import type { MatchmakingTicket, RoomSummary } from '$lib/types';
+import { translate } from '$lib/i18n';
 import LobbyCommandDashboard from './LobbyCommandDashboard.svelte';
 import LobbyRoomOperations from './LobbyRoomOperations.svelte';
 
@@ -50,13 +51,13 @@ describe('LobbyCommandDashboard', () => {
       }
     });
 
-    expect(body).toContain('빠른 교전');
-    expect(body).toContain('상대 찾기');
-    expect(body).toContain('실시간 동기화 중');
-    expect(body).toContain('RECRUIT');
-    expect(body).toContain('OFFICER');
-    expect(body).toContain('ADMIRAL');
-    expect(body).toContain('aria-label="매칭 유형"');
+    expect(body).toContain(translate('ko-KR', 'dashboard.quickTitle'));
+    expect(body).toContain(translate('ko-KR', 'dashboard.findOpponent'));
+    expect(body).toContain(translate('ko-KR', 'dashboard.synchronizing'));
+    expect(body).toContain(translate('ko-KR', 'dashboard.recruit'));
+    expect(body).toContain(translate('ko-KR', 'dashboard.officer'));
+    expect(body).toContain(translate('ko-KR', 'dashboard.admiral'));
+    expect(body).toContain(`aria-label="${translate('ko-KR', 'dashboard.type')}"`);
   });
 
   it('renders ranked search telemetry and locks mutable matchmaking controls', () => {
@@ -76,11 +77,16 @@ describe('LobbyCommandDashboard', () => {
       }
     });
 
-    expect(body).toContain('상대 지휘관 탐색 중');
-    expect(body).toContain('17초 경과 · REGIONAL');
-    expect(body).toContain('RATING 1542');
-    expect(body).toContain('매칭 취소');
-    expect(body).toContain('RECONNECTING');
+    expect(body).toContain(translate('ko-KR', 'dashboard.searchingTitle'));
+    expect(body).toContain(
+      translate('ko-KR', 'dashboard.searchDescription', {
+        elapsed: '17',
+        phase: translate('ko-KR', 'matchPhase.REGIONAL')
+      })
+    );
+    expect(body).toContain(translate('ko-KR', 'dashboard.rating', { rating: '1,542' }));
+    expect(body).toContain(translate('ko-KR', 'dashboard.cancelMatch'));
+    expect(body).toContain(translate('ko-KR', 'dashboard.statusReconnecting'));
     expect(body.match(/disabled/g)?.length).toBeGreaterThanOrEqual(6);
   });
 });
@@ -109,17 +115,19 @@ describe('LobbyRoomOperations', () => {
     const empty = render(LobbyRoomOperations, {
       props: { ...roomProps, rooms: [], loading: false }
     }).body;
-    expect(empty).toContain('NO ACTIVE OPERATIONS DETECTED');
-    expect(empty).toContain('첫 채널 편성');
+    expect(empty).toContain(translate('ko-KR', 'lobbyRooms.none'));
+    expect(empty).toContain(translate('ko-KR', 'lobbyRooms.firstChannel'));
 
     const populated = render(LobbyRoomOperations, {
       props: { ...roomProps, rooms: [room], loading: false }
     }).body;
     expect(populated).toContain('북해 호송 작전');
     expect(populated).toContain('FLEET1');
-    expect(populated).toContain('SALVO');
-    expect(populated).toContain('1 / 2 지휘관');
-    expect(populated).toContain('채널 참가');
+    expect(populated).toContain(translate('ko-KR', 'gameMode.SALVO'));
+    expect(populated).toContain(
+      translate('ko-KR', 'lobbyRooms.commanderCount', { players: '1', capacity: '2' })
+    );
+    expect(populated).toContain(translate('ko-KR', 'lobbyRooms.join'));
   });
 
   it('renders create and secure-join dialogs with their validation contracts', () => {

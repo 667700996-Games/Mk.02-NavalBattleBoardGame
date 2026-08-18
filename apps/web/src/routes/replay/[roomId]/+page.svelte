@@ -14,10 +14,10 @@
     Radio
   } from '@lucide/svelte';
   import GridBoard from '$lib/components/GridBoard.svelte';
-  import { api, ApiError } from '$lib/api';
+  import { api } from '$lib/api';
   import { analyzeReplay } from '$lib/game/replay-analysis';
+  import { localizeError, shipName, t } from '$lib/i18n';
   import {
-    shipName,
     type CellAttackSnapshot,
     type GameReplay,
     type GameTimelineEvent,
@@ -29,7 +29,7 @@
   let step = $state(0);
   let loading = $state(true);
   let error = $state('');
-  let linkStatus = $state('');
+  let linkStatus = $state<'copied' | 'manual' | ''>('');
 
   onMount(async () => {
     try {
@@ -39,7 +39,7 @@
       replay = await api.replay(roomId);
       step = replay.timeline.length;
     } catch (caught) {
-      error = caught instanceof ApiError ? caught.message : '복기 데이터를 불러오지 못했습니다.';
+      error = localizeError(caught, 'replay.loadError');
     } finally {
       loading = false;
     }
@@ -47,7 +47,7 @@
 
   let visibleEvents = $derived(replay?.timeline.slice(0, step) ?? []);
   let currentEvent = $derived(step > 0 ? replay?.timeline[step - 1] : null);
-  let analysis = $derived(replay ? analyzeReplay(replay) : null);
+  let analysis = $derived(replay ? analyzeReplay(replay, $t) : null);
 
   function attacksFor(playerId: string): Extract<GameTimelineEvent, { type: 'ATTACK' }>[] {
     return visibleEvents.filter(
@@ -82,22 +82,27 @@
   }
 
   function playerName(playerId: string | null | undefined): string {
-    return replay?.players.find((player) => player.id === playerId)?.nickname ?? '지휘관';
+    return (
+      replay?.players.find((player) => player.id === playerId)?.nickname ?? $t('common.commander')
+    );
   }
 
   function eventLabel(event: GameTimelineEvent | null | undefined): string {
-    if (!event) return '교전 개시 전 · 양측 함대 배치 공개';
+    if (!event) return $t('replay.beforeBattle');
     if (event.type === 'TURN_EXPIRED') {
-      return `${event.payload.expiredTurnNumber}턴 · ${playerName(event.payload.expiredPlayerId)} 시간 초과`;
+      return $t('replay.timeoutEvent', {
+        turn: event.payload.expiredTurnNumber,
+        player: playerName(event.payload.expiredPlayerId)
+      });
     }
     const coordinate = `${String.fromCharCode(65 + event.payload.coordinate.row)}${event.payload.coordinate.col + 1}`;
-    const outcome =
-      event.payload.outcome === 'MISS'
-        ? '빗나감'
-        : event.payload.outcome === 'HIT'
-          ? '명중'
-          : '격침';
-    return `${event.payload.turnNumber}턴 · ${playerName(event.payload.attackerId)} ${coordinate} 공격 · ${outcome}`;
+    const outcome = $t(`attackOutcome.${event.payload.outcome}`);
+    return $t('replay.attackEvent', {
+      turn: event.payload.turnNumber,
+      player: playerName(event.payload.attackerId),
+      coordinate,
+      outcome
+    });
   }
 
   function percentage(value: number): string {
@@ -105,78 +110,102 @@
   }
 
   function impactLabel(impact: 'CRITICAL' | 'HIGH' | 'MEDIUM'): string {
-    if (impact === 'CRITICAL') return '승부 확정';
-    if (impact === 'HIGH') return '중대 전환';
-    return '주도권 변화';
+    if (impact === 'CRITICAL') return $t('replay.impactCritical');
+    if (impact === 'HIGH') return $t('replay.impactHigh');
+    return $t('replay.impactMedium');
   }
 
   async function copyReplayLink() {
     try {
       await navigator.clipboard.writeText(location.href);
-      linkStatus = '참가자 전용 링크 복사됨';
+      linkStatus = 'copied';
     } catch {
-      linkStatus = '주소창에서 링크를 복사해 주세요.';
+      linkStatus = 'manual';
     }
     setTimeout(() => (linkStatus = ''), 2200);
   }
 </script>
 
-<svelte:head><title>전투 복기 · Mk.01</title></svelte:head>
+<svelte:head><title>{$t('replay.metaTitle')}</title></svelte:head>
 
 <main class="replay shell">
   <header class="replay-heading">
     <div>
-      <p class="eyebrow">AFTER ACTION REPLAY / RULESET {replay?.rulesetVersion ?? '—'}</p>
-      <h1 class="page-title">전투 복기</h1>
-      <p>{replay?.roomName ?? '작전 기록을 복호화하고 있습니다.'}</p>
+      <p class="eyebrow">
+        {$t('replay.eyebrow', { ruleset: replay?.rulesetVersion ?? '—' })}
+      </p>
+      <h1 class="page-title">{$t('replay.title')}</h1>
+      <p>{replay?.roomName ?? $t('replay.decryptingRecord')}</p>
     </div>
     <div class="replay-heading-actions">
       <div>
         <button class="button button--ghost" onclick={copyReplayLink}
-          >{#if linkStatus === '참가자 전용 링크 복사됨'}<Check size={16} /> 복사됨{:else}<Link2
+          >{#if linkStatus === 'copied'}<Check size={16} /> {$t('common.copied')}{:else}<Link2
               size={16}
-            /> 복기 링크 복사{/if}</button
+            />
+            {$t('replay.copyLink')}{/if}</button
         >
         <a class="button button--ghost" href={resolve('/stats')}
-          ><ArrowLeft size={16} /> 전투 기록</a
+          ><ArrowLeft size={16} /> {$t('replay.battleRecords')}</a
         >
       </div>
-      <small aria-live="polite">{linkStatus || '참가자 세션만 열람할 수 있습니다.'}</small>
+      <small aria-live="polite"
+        >{linkStatus === 'copied'
+          ? $t('replay.linkCopied')
+          : linkStatus === 'manual'
+            ? $t('replay.copyManual')
+            : $t('replay.participantOnly')}</small
+      >
     </div>
   </header>
 
   {#if loading}
     <section class="replay-state panel">
       <div class="spinner"></div>
-      <p>작전 타임라인 복호화 중</p>
+      <p>{$t('replay.decryptingTimeline')}</p>
     </section>
   {:else if error || !replay}
     <section class="replay-state panel" role="alert">
       <Radio size={28} />
-      <h2>REPLAY SIGNAL LOST</h2>
+      <h2>{$t('replay.signalLost')}</h2>
       <p>{error}</p>
-      <button class="button" onclick={() => goto(resolve('/stats'))}>기록실로 복귀</button>
+      <button class="button" onclick={() => goto(resolve('/stats'))}
+        >{$t('replay.returnArchive')}</button
+      >
     </section>
   {:else}
-    <section class="replay-console panel" aria-label="전투 복기 조작기">
+    <section class="replay-console panel" aria-label={$t('replay.controls')}>
       <div class="replay-status">
-        <span><Clock3 size={15} /> STEP {step} / {replay.timeline.length}</span>
+        <span
+          ><Clock3 size={15} />
+          {$t('replay.step', {
+            step,
+            total: replay.timeline.length
+          })}</span
+        >
         <strong aria-live="polite">{eventLabel(currentEvent)}</strong>
-        <small>PROTOCOL {replay.protocolVersion} · RULESET {replay.rulesetVersion}</small>
+        <small
+          >{$t('replay.protocolRuleset', {
+            protocol: replay.protocolVersion,
+            ruleset: replay.rulesetVersion
+          })}</small
+        >
       </div>
       <div class="replay-controls">
-        <button aria-label="이전 사건" disabled={step === 0} onclick={() => (step -= 1)}
-          ><ChevronLeft size={18} /></button
+        <button
+          aria-label={$t('replay.previousEvent')}
+          disabled={step === 0}
+          onclick={() => (step -= 1)}><ChevronLeft size={18} /></button
         >
         <input
-          aria-label="복기 사건 위치"
+          aria-label={$t('replay.eventPosition')}
           type="range"
           min="0"
           max={replay.timeline.length}
           bind:value={step}
         />
         <button
-          aria-label="다음 사건"
+          aria-label={$t('replay.nextEvent')}
           disabled={step === replay.timeline.length}
           onclick={() => (step += 1)}><ChevronRight size={18} /></button
         >
@@ -185,45 +214,49 @@
 
     <section class="balance-record panel" aria-labelledby="balance-record-title">
       <header>
-        <h2 id="balance-record-title">검증된 밸런스 기록</h2>
-        <strong>RULESET V{replay.balance.rulesetVersion} · PIN VERIFIED</strong>
+        <h2 id="balance-record-title">{$t('replay.verifiedBalance')}</h2>
+        <strong>{$t('replay.pinVerified', { version: replay.balance.rulesetVersion })}</strong>
       </header>
       <p>
-        {replay.balance.manifest.boardSize}×{replay.balance.manifest.boardSize} 전장 ·
-        {replay.balance.manifest.fleet.length}척 · 고속전
-        {replay.balance.manifest.rapidTurnDurationSeconds}초 · 턴 최대
-        {replay.balance.manifest.maximumTurnDurationSeconds}초 · 생존 함선당 1발 · 연속
-        {replay.balance.manifest.consecutiveTimeoutForfeit}회 시간 초과 시 패배
+        {$t('replay.balanceSummary', {
+          board: replay.balance.manifest.boardSize,
+          fleet: replay.balance.manifest.fleet.length,
+          rapid: replay.balance.manifest.rapidTurnDurationSeconds,
+          maximum: replay.balance.manifest.maximumTurnDurationSeconds,
+          timeouts: replay.balance.manifest.consecutiveTimeoutForfeit
+        })}
       </p>
       <p>
-        함대 ·
+        {$t('replay.fleet')} ·
         {#each replay.balance.manifest.fleet as ship, index (ship.kind)}
-          <span>{shipName(ship.kind)} {ship.cells}칸</span>{index <
-          replay.balance.manifest.fleet.length - 1
-            ? ' · '
-            : ''}
+          <span>{$t('replay.shipCells', { ship: shipName(ship.kind), cells: ship.cells })}</span
+          >{index < replay.balance.manifest.fleet.length - 1 ? ' · ' : ''}
         {/each}
       </p>
       <code title={replay.balance.checksum}>SHA-256 {replay.balance.checksum}</code>
     </section>
 
-    <section class="replay-boards" aria-label="양측 공개 함대">
+    <section class="replay-boards" aria-label={$t('replay.revealedFleets')}>
       {#each replay.players as player (player.id)}
         <article class="panel">
           <header>
             <div>
-              <small>{player.kind === 'AI' ? 'AI OPPONENT' : 'FLEET COMMAND'}</small>
+              <small
+                >{player.kind === 'AI' ? $t('replay.aiOpponent') : $t('replay.fleetCommand')}</small
+              >
               <h2>{player.nickname}</h2>
             </div>
             <span class:winner={replay.result.winnerId === player.id}
               ><Crosshair size={14} />
-              {replay.result.winnerId === player.id ? 'WINNER' : 'FLEET'}</span
+              {replay.result.winnerId === player.id
+                ? $t('replay.winner')
+                : $t('replay.fleet')}</span
             >
           </header>
           <GridBoard
             balance={replay.balance.manifest}
             mode="own"
-            label={`${player.nickname} 공개 함대`}
+            label={$t('replay.playerFleet', { player: player.nickname })}
             ownBoard={boardFor(player)}
             disabled={true}
           />
@@ -235,10 +268,10 @@
       <section class="after-action" aria-labelledby="after-action-title">
         <header class="after-action-heading">
           <div>
-            <p class="eyebrow">AUTHORITATIVE AFTER ACTION ANALYSIS</p>
-            <h2 id="after-action-title">전술 분석</h2>
+            <p class="eyebrow">{$t('replay.analysisEyebrow')}</p>
+            <h2 id="after-action-title">{$t('replay.analysisTitle')}</h2>
           </div>
-          <p>서버 타임라인만 분석하며 숨겨졌던 함대 정보는 종료 경기에서만 사용합니다.</p>
+          <p>{$t('replay.analysisDescription')}</p>
         </header>
 
         <div class="analysis-grid">
@@ -246,7 +279,11 @@
             <article class:winner={playerAnalysis.won} class="analysis-card panel">
               <header>
                 <div>
-                  <small>{playerAnalysis.won ? 'VICTOR ANALYSIS' : 'FLEET ANALYSIS'}</small>
+                  <small
+                    >{playerAnalysis.won
+                      ? $t('replay.victorAnalysis')
+                      : $t('replay.fleetAnalysis')}</small
+                  >
                   <h3>{playerAnalysis.nickname}</h3>
                 </div>
                 <strong>{percentage(playerAnalysis.accuracy)}</strong>
@@ -254,28 +291,31 @@
 
               <dl class="analysis-stats">
                 <div>
-                  <dt>명중 / 발사</dt>
+                  <dt>{$t('replay.hitsShots')}</dt>
                   <dd>{playerAnalysis.hits} / {playerAnalysis.shots}</dd>
                 </div>
                 <div>
-                  <dt>최대 연속 명중</dt>
+                  <dt>{$t('replay.maxHitStreak')}</dt>
                   <dd>{playerAnalysis.maxHitStreak}</dd>
                 </div>
                 <div>
-                  <dt>최대 연속 빗나감</dt>
+                  <dt>{$t('replay.maxMissStreak')}</dt>
                   <dd>{playerAnalysis.maxMissStreak}</dd>
                 </div>
                 <div>
-                  <dt>격침</dt>
+                  <dt>{$t('replay.shipsSunk')}</dt>
                   <dd>{playerAnalysis.shipsSunk}</dd>
                 </div>
                 <div>
-                  <dt>시간 초과</dt>
+                  <dt>{$t('replay.timeouts')}</dt>
                   <dd>{playerAnalysis.timeouts}</dd>
                 </div>
               </dl>
 
-              <div class="phase-accuracy" aria-label={`${playerAnalysis.nickname} 구간별 명중률`}>
+              <div
+                class="phase-accuracy"
+                aria-label={$t('replay.phaseAccuracy', { player: playerAnalysis.nickname })}
+              >
                 {#each playerAnalysis.phases as phase (phase.id)}
                   <div>
                     <span
@@ -284,17 +324,22 @@
                       ></span
                     >
                     <progress
-                      aria-label={`${phase.label} 명중률`}
+                      aria-label={$t('replay.phaseAccuracyLabel', { phase: phase.label })}
                       max="100"
                       value={Math.round(phase.accuracy * 100)}
                     ></progress>
-                    <small>{phase.hits}명중 / {phase.shots}발</small>
+                    <small
+                      >{$t('replay.phaseHitsShots', {
+                        hits: phase.hits,
+                        shots: phase.shots
+                      })}</small
+                    >
                   </div>
                 {/each}
               </div>
 
               <div class="improvement-tips">
-                <h4>다음 교전 개선 제안</h4>
+                <h4>{$t('replay.improvementTips')}</h4>
                 <ul>
                   {#each playerAnalysis.tips as tip, tipIndex (`${tipIndex}:${tip}`)}
                     <li>{tip}</li>
@@ -308,10 +353,10 @@
         <section class="decisive panel" aria-labelledby="decisive-title">
           <header>
             <div>
-              <small>DECISIVE MOMENTS</small>
-              <h3 id="decisive-title">결정적 전환점</h3>
+              <small>{$t('replay.decisiveMoments')}</small>
+              <h3 id="decisive-title">{$t('replay.decisiveTitle')}</h3>
             </div>
-            <span>영향도 기준 최대 3건</span>
+            <span>{$t('replay.maxThree')}</span>
           </header>
           <ol>
             {#each analysis.decisiveMoments as moment, index (`${moment.eventIndex}:${moment.title}`)}
@@ -320,7 +365,12 @@
                   >{impactLabel(moment.impact)}</span
                 >
                 <div>
-                  <small>#{index + 1} · {moment.turnNumber}턴 · {playerName(moment.playerId)}</small
+                  <small
+                    >{$t('replay.momentMeta', {
+                      index: index + 1,
+                      turn: moment.turnNumber,
+                      player: playerName(moment.playerId)
+                    })}</small
                   >
                   <strong>{moment.title}</strong>
                   <p>{moment.detail}</p>
@@ -328,8 +378,9 @@
                 {#if moment.eventIndex !== null}
                   <button
                     class="moment-jump"
-                    aria-label={`${moment.title} 사건 보기`}
-                    onclick={() => (step = moment.eventIndex! + 1)}>사건 보기</button
+                    aria-label={$t('replay.viewMomentLabel', { title: moment.title })}
+                    onclick={() => (step = moment.eventIndex! + 1)}
+                    >{$t('replay.viewMoment')}</button
                   >
                 {/if}
               </li>
@@ -339,7 +390,7 @@
       </section>
     {/if}
 
-    <ol class="event-log panel" aria-label="작전 사건 목록">
+    <ol class="event-log panel" aria-label={$t('replay.eventList')}>
       {#each replay.timeline as event, index (index)}
         <li class:active={index + 1 === step} class:future={index + 1 > step}>
           <button onclick={() => (step = index + 1)}

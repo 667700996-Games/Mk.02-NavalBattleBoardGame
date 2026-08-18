@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
   import { X } from '@lucide/svelte';
+  import { t } from '$lib/i18n';
 
   interface Props {
     open: boolean;
@@ -74,7 +75,7 @@
         class="ui-icon-button ui-modal__close"
         type="button"
         onclick={onclose}
-        aria-label="닫기"
+        aria-label={$t('common.close')}
       >
         <X size={17} />
       </button>

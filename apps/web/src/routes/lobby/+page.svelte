@@ -8,6 +8,7 @@
   import { realtime } from '$lib/realtime';
   import { gameSnapshot, session, socketStatus } from '$lib/stores';
   import { Badge, Button } from '$lib/ui';
+  import { localizeError, t } from '$lib/i18n';
   import LobbyCommandDashboard from '$lib/components/lobby/LobbyCommandDashboard.svelte';
   import LobbyRoomOperations from '$lib/components/lobby/LobbyRoomOperations.svelte';
   import './lobby.css';
@@ -28,7 +29,7 @@
   let error = '';
   let showCreate = false;
   let showJoin = false;
-  let roomName = '북태평양 교전';
+  let roomName = '';
   let visibility: RoomVisibility = 'PUBLIC';
   let gameMode: GameMode = 'CLASSIC';
   let turnDurationSeconds = 60;
@@ -44,6 +45,7 @@
   let matchmakingTicket: MatchmakingTicket | null = null;
 
   onMount(() => {
+    if (!roomName) roomName = $t('lobby.defaultRoomName');
     let refreshTimer: ReturnType<typeof setInterval>;
     let queueTimer: ReturnType<typeof setInterval>;
     let matchmakingPollTimer: ReturnType<typeof setInterval>;
@@ -81,7 +83,7 @@
         }, 3_000);
       } catch (caught) {
         if (caught instanceof ApiError && caught.code === 'SERVER_PROTOCOL_MISMATCH') {
-          error = caught.message;
+          error = localizeError(caught, 'lobby.loadRoomsError');
           loading = false;
           return;
         }
@@ -102,7 +104,7 @@
       rooms = (await api.listRooms()).rooms;
       error = '';
     } catch (caught) {
-      error = caught instanceof ApiError ? caught.message : '공개 방 목록을 불러오지 못했습니다.';
+      error = localizeError(caught, 'lobby.loadRoomsError');
     } finally {
       loading = false;
     }
@@ -121,7 +123,7 @@
       await goto(resolve('/room/[code]', { code: response.snapshot.room.code }));
     } catch (caught) {
       trackFunnelFailure('room_joined', 'room_entry');
-      error = caught instanceof ApiError ? caught.message : '작전실을 만들지 못했습니다.';
+      error = localizeError(caught, 'lobby.createError');
     } finally {
       submitting = false;
     }
@@ -137,7 +139,7 @@
       await goto(resolve('/room/[code]', { code: snapshot.room.code }));
     } catch (caught) {
       trackFunnelFailure('room_joined', 'room_entry');
-      error = caught instanceof ApiError ? caught.message : '작전실에 참가하지 못했습니다.';
+      error = localizeError(caught, 'lobby.joinError');
     } finally {
       submitting = false;
     }
@@ -154,7 +156,7 @@
     }
     try {
       if (matchPool === 'RANKED' && !$session?.accountId) {
-        error = '랭크 매칭은 계정 업그레이드 후 이용할 수 있습니다.';
+        error = $t('lobby.rankedAccountRequired');
         return;
       }
       if (matchPool === 'RANKED' && measuredLatency === null) {
@@ -164,7 +166,7 @@
       await acceptMatchmakingResponse(response);
     } catch (caught) {
       trackFunnelFailure('room_joined', 'matchmaking');
-      error = caught instanceof ApiError ? caught.message : '빠른 매칭을 시작하지 못했습니다.';
+      error = localizeError(caught, 'lobby.matchmakingError');
     }
   }
 
@@ -211,36 +213,36 @@
       await goto(resolve('/room/[code]', { code: snapshot.room.code }));
     } catch (caught) {
       trackFunnelFailure('room_joined', 'room_entry');
-      error = caught instanceof ApiError ? caught.message : 'AI 전술 훈련을 시작하지 못했습니다.';
+      error = localizeError(caught, 'lobby.practiceError');
     } finally {
       practicing = false;
     }
   }
 </script>
 
-<svelte:head><title>작전 로비 · Mk.01</title></svelte:head>
+<svelte:head><title>{$t('lobby.metaTitle')}</title></svelte:head>
 
 <div class="lobby-page">
   <div class="lobby shell">
     <header class="lobby-heading">
       <div>
         <div class="heading-signal">
-          <Badge tone="success" pulse>COMMAND NETWORK ONLINE</Badge><span
-            >SECTOR ACCESS / PACIFIC FLEET</span
+          <Badge tone="success" pulse>{$t('lobby.networkOnline')}</Badge><span
+            >{$t('lobby.sectorAccess')}</span
           >
         </div>
-        <p class="eyebrow">OPERATIONS LOBBY</p>
-        <h1 class="page-title">작전 로비</h1>
+        <p class="eyebrow">{$t('lobby.eyebrow')}</p>
+        <h1 class="page-title">{$t('lobby.title')}</h1>
         <p>
-          <strong>{$session?.nickname}</strong> 지휘관, 신호를 선택하거나 새 작전을 편성하십시오.
+          {$t('lobby.greeting', { commander: $session?.nickname ?? '' })}
         </p>
       </div>
       <div class="lobby-heading__actions">
         <Button variant="outline" onclick={() => (showJoin = true)}
-          ><KeyRound size={17} /> 코드 참가</Button
+          ><KeyRound size={17} /> {$t('lobby.joinCode')}</Button
         >
         <Button variant="primary" onclick={() => (showCreate = true)}
-          ><Plus size={17} /> 작전실 생성</Button
+          ><Plus size={17} /> {$t('lobby.createRoom')}</Button
         >
       </div>
     </header>
@@ -248,7 +250,7 @@
     {#if error}<div class="lobby-alert" role="alert">
         <span><Radio size={17} /></span>
         <div>
-          <strong>CHANNEL ERROR</strong>
+          <strong>{$t('lobby.channelError')}</strong>
           <p>{error}</p>
         </div>
       </div>{/if}

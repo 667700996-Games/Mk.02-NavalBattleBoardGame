@@ -20,6 +20,7 @@
   import { realtime } from '$lib/realtime';
   import { sounds } from '$lib/sound';
   import { Button, Modal } from '$lib/ui';
+  import { localizeError, roomStatusMessageKey, t, type MessageKey } from '$lib/i18n';
   import {
     gameError,
     gameSnapshot,
@@ -33,6 +34,7 @@
   const routeCode = (page.params.code ?? '').toUpperCase();
   let loading = $state(true);
   let loadError = $state('');
+  let loadErrorKey = $state<MessageKey | null>(null);
   let placementSubmitting = $state(false);
   let attackPending = $state(false);
   let surrenderPending = $state(false);
@@ -47,11 +49,11 @@
   let previousRoomStatus = '';
   let launchTimer: ReturnType<typeof setInterval> | null = null;
   let resultTimer: ReturnType<typeof setTimeout> | null = null;
-  const launchStages = [
-    'OPERATION AUTHORIZED',
-    'ENCRYPTING TACTICAL CHANNEL',
-    'LOADING BATTLESPACE',
-    'DEPLOY FLEET'
+  const launchStages: MessageKey[] = [
+    'room.launchAuthorized',
+    'room.launchEncrypting',
+    'room.launchLoading',
+    'room.launchDeploy'
   ];
 
   let snapshot = $derived($gameSnapshot);
@@ -94,7 +96,7 @@
         session.set(current);
         const recovered = await api.recover();
         if (!recovered || recovered.room.code !== routeCode) {
-          loadError = '이 세션에서 복구할 수 있는 작전실이 아닙니다.';
+          loadErrorKey = 'room.recoveryMismatch';
           return;
         }
         gameSnapshot.set(recovered);
@@ -107,8 +109,7 @@
           return;
         }
         trackFunnelFailure('room_joined', 'recovery');
-        loadError =
-          caught instanceof ApiError ? caught.message : '전장 상태를 불러오지 못했습니다.';
+        loadError = localizeError(caught, 'room.loadError');
       } finally {
         loading = false;
       }
@@ -226,7 +227,7 @@
       readyPending = false;
       gameError.set({
         code: 'CONNECTION_REQUIRED',
-        message: '실시간 연결이 복구된 뒤 준비 상태를 다시 변경해 주세요.',
+        message: $t('room.readyConnectionError'),
         retryable: true
       });
     }
@@ -257,7 +258,7 @@
       startPending = false;
       gameError.set({
         code: 'CONNECTION_REQUIRED',
-        message: '실시간 연결이 복구된 뒤 작전 시작을 다시 승인해 주세요.',
+        message: $t('room.startConnectionError'),
         retryable: true
       });
     }
@@ -285,7 +286,7 @@
       trackFunnelFailure('first_attack', 'network');
       gameError.set({
         code: 'CONNECTION_REQUIRED',
-        message: '실시간 연결이 복구된 뒤 다시 공격해 주세요.',
+        message: $t('room.attackConnectionError'),
         retryable: true
       });
     }
@@ -303,7 +304,7 @@
       surrenderPending = false;
       gameError.set({
         code: 'CONNECTION_REQUIRED',
-        message: '실시간 연결이 복구된 뒤 기권을 다시 요청해 주세요.',
+        message: $t('room.surrenderConnectionError'),
         retryable: true
       });
     }
@@ -326,40 +327,47 @@
   }
 </script>
 
-<svelte:head><title>{snapshot?.room.name ?? '전장 연결'} · Mk.01</title></svelte:head>
+<svelte:head><title>{snapshot?.room.name ?? $t('room.connectingTitle')} · Mk.01</title></svelte:head
+>
 
 <div class="room-page shell">
   {#if loading}
     <div class="loading-view">
       <div class="spinner"></div>
-      <p>암호화된 작전 채널 연결 중…</p>
+      <p>{$t('room.connecting')}</p>
     </div>
   {:else if loadError}
     <section class="load-error panel">
       <WifiOff size={34} />
-      <h1>작전 채널에 연결할 수 없습니다</h1>
-      <p>{loadError}</p>
-      <a class="button" href={resolve('/lobby')}><ArrowLeft size={16} /> 로비로 복귀</a>
+      <h1>{$t('room.connectionFailed')}</h1>
+      <p>{loadErrorKey ? $t(loadErrorKey) : loadError}</p>
+      <a class="button" href={resolve('/lobby')}><ArrowLeft size={16} /> {$t('room.returnLobby')}</a
+      >
     </section>
   {:else if snapshot}
     <div class="room-meta">
       <div>
-        <span class="status-pill"><span class="status-dot"></span>{snapshot.room.status}</span
+        <span class="status-pill"
+          ><span class="status-dot"></span>{$t(roomStatusMessageKey(snapshot.room.status))}</span
         ><strong>{snapshot.room.name}</strong><small
-          >CODE {snapshot.room.code} · STATE V{snapshot.version}</small
+          >{$t('room.codeState', {
+            code: snapshot.room.code,
+            version: snapshot.version
+          })}</small
         >
       </div>
       <div class:offline={$socketStatus !== 'online'} class="connection-indicator">
-        {#if $socketStatus === 'online'}<Wifi size={14} /> 실시간 연결{:else}<WifiOff size={14} />
-          {$socketStatus === 'reconnecting' ? '재연결 중' : '오프라인'}{/if}
+        {#if $socketStatus === 'online'}<Wifi size={14} />
+          {$t('room.liveConnection')}{:else}<WifiOff size={14} />
+          {$socketStatus === 'reconnecting' ? $t('room.reconnecting') : $t('room.offline')}{/if}
       </div>
     </div>
 
     {#if launchSequence}
       <div class="launch-sequence" role="status" aria-live="polite">
         <span class="launch-sequence__radar"><i></i><b></b></span>
-        <small>MK.01 / COMMAND LINK</small>
-        <strong>{launchStages[launchStage]}</strong>
+        <small>{$t('room.commandLink')}</small>
+        <strong>{$t(launchStages[launchStage])}</strong>
         <div class="launch-sequence__steps">
           {#each launchStages as stage, index (stage)}<i class:active={index <= launchStage}
             ></i>{/each}
@@ -383,17 +391,16 @@
       {#if selfPlayer?.placementConfirmed}
         <section class="confirmed-wait panel">
           <div class="confirmed-icon"><Check size={29} /></div>
-          <p class="eyebrow">DEPLOYMENT LOCKED</p>
-          <h1>함대 배치 확정 완료</h1>
-          <p>
-            상대 지휘관의 배치 확정을 기다리고 있습니다. 양쪽 함대가 배치되면 선공을 무작위로
-            결정합니다.
-          </p>
+          <p class="eyebrow">{$t('room.deploymentLocked')}</p>
+          <h1>{$t('room.deploymentConfirmed')}</h1>
+          <p>{$t('room.deploymentWait')}</p>
           <div class="player-ready-list">
             {#each snapshot.players as player (player.id)}<div>
                 <span class:ready={player.placementConfirmed}><ShieldCheck size={17} /></span
                 ><strong>{player.nickname}</strong><em
-                  >{player.placementConfirmed ? '배치 확정' : '배치 중'}</em
+                  >{player.placementConfirmed
+                    ? $t('room.placementConfirmed')
+                    : $t('room.placing')}</em
                 >
               </div>{/each}
           </div>
@@ -424,29 +431,32 @@
           aria-live="polite"
         >
           <span class="result-recognition__pulse"><Check size={20} /></span>
-          <small>FINAL IMPACT / BATTLESPACE FROZEN</small>
-          <strong>RESULT RECOGNIZED</strong>
-          <span>AFTER ACTION REPORT COMPILING</span>
+          <small>{$t('room.finalImpact')}</small>
+          <strong>{$t('room.resultRecognized')}</strong>
+          <span>{$t('room.reportCompiling')}</span>
         </section>
       {/if}
       <ResultView {snapshot} onrematch={rematch} onlobby={leaveRoom} />
     {:else if snapshot.room.status === 'CANCELLED'}
       <section class="load-error panel">
         <WifiOff size={34} />
-        <h1>작전이 취소되었습니다</h1>
-        <p>상대 지휘관이 이탈했거나 작전실이 종료되었습니다.</p>
-        <button class="button" onclick={leaveRoom}><ArrowLeft size={16} /> 로비로 복귀</button>
+        <h1>{$t('room.cancelled')}</h1>
+        <p>{$t('room.cancelledDescription')}</p>
+        <button class="button" onclick={leaveRoom}
+          ><ArrowLeft size={16} /> {$t('room.returnLobby')}</button
+        >
       </section>
     {:else}
       <section class="load-error panel" role="alert">
         <WifiOff size={34} />
-        <h1>서버 버전을 확인해 주세요</h1>
+        <h1>{$t('room.versionTitle')}</h1>
         <p>
-          대기실 상태 정보가 현재 화면과 호환되지 않습니다. 기존 개발 서버를 완전히 종료한 뒤 <code
-            >npm run dev</code
-          >로 다시 시작해 주세요.
+          {$t('room.versionDescriptionBefore')} <code>npm run dev</code>
+          {$t('room.versionDescriptionAfter')}
         </p>
-        <a class="button" href={resolve('/lobby')}><ArrowLeft size={16} /> 로비로 복귀</a>
+        <a class="button" href={resolve('/lobby')}
+          ><ArrowLeft size={16} /> {$t('room.returnLobby')}</a
+        >
       </section>
     {/if}
     <ChatDrawer
@@ -465,19 +475,19 @@
 
 <Modal
   open={showStart}
-  eyebrow="HOST AUTHORIZATION"
-  title="작전을 시작하시겠습니까?"
-  description="두 지휘관의 준비가 완료되었습니다. 작전을 시작하면 함선 배치 단계로 이동합니다."
+  eyebrow={$t('room.hostAuthorization')}
+  title={$t('room.startTitle')}
+  description={$t('room.startDescription')}
   onclose={() => (showStart = false)}
 >
   <div class="start-modal-actions">
-    <Button variant="ghost" full onclick={() => (showStart = false)}>취소</Button>
+    <Button variant="ghost" full onclick={() => (showStart = false)}>{$t('room.cancel')}</Button>
     <Button
       variant="primary"
       full
       loading={startPending}
       disabled={!snapshot?.canStartGame || $socketStatus !== 'online'}
-      onclick={startGame}><Rocket size={15} /> 작전 시작</Button
+      onclick={startGame}><Rocket size={15} /> {$t('room.start')}</Button
     >
   </div>
 </Modal>

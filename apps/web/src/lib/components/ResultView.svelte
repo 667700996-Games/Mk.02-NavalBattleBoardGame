@@ -14,6 +14,7 @@
     Trophy
   } from '@lucide/svelte';
   import GridBoard from './GridBoard.svelte';
+  import { formatNumber, t, type MessageKey } from '$lib/i18n';
   import type { GameSnapshot } from '$lib/types';
 
   interface Props {
@@ -30,36 +31,32 @@
     snapshot.result?.players.find((player) => player.playerId !== snapshot.selfPlayerId)
   );
   let rematchRequested = $derived(snapshot.rematchRequestedBy.includes(snapshot.selfPlayerId));
-  let operationStatus = $derived(won ? 'OPERATION COMPLETE' : 'OPERATION FAILED');
-  let outcomeLabel = $derived.by(() => {
+  let operationStatusKey = $derived<MessageKey>(
+    won ? 'result.operationComplete' : 'result.operationFailed'
+  );
+  let outcomeKey = $derived.by<MessageKey>(() => {
     switch (snapshot.result?.winType) {
       case 'SURRENDER':
-        return won ? 'Victory by Surrender' : 'Defeat by Surrender';
+        return won ? 'result.surrenderVictory' : 'result.surrenderDefeat';
       case 'DISCONNECT':
-        return won ? 'Victory by Disconnect' : 'Defeat by Disconnect';
+        return won ? 'result.disconnectVictory' : 'result.disconnectDefeat';
       case 'TIMEOUT':
-        return won ? 'Victory by Timeout' : 'Defeat by Timeout';
+        return won ? 'result.timeoutVictory' : 'result.timeoutDefeat';
       default:
-        return won ? 'Normal Victory' : 'Normal Defeat';
+        return won ? 'result.normalVictory' : 'result.normalDefeat';
     }
   });
-  let outcomeSummary = $derived.by(() => {
+  let summaryKey = $derived.by<MessageKey>(() => {
     if (snapshot.result?.winType === 'SURRENDER') {
-      return won ? '적 지휘관이 작전을 포기했습니다.' : '작전 포기로 교전이 종료되었습니다.';
+      return won ? 'result.summarySurrenderWin' : 'result.summarySurrenderLoss';
     }
     if (snapshot.result?.winType === 'DISCONNECT') {
-      return won
-        ? '적 지휘관의 연결 복구 시간이 만료되었습니다.'
-        : '연결 복구 시간이 만료되어 작전이 종료되었습니다.';
+      return won ? 'result.summaryDisconnectWin' : 'result.summaryDisconnectLoss';
     }
     if (snapshot.result?.winType === 'TIMEOUT') {
-      return won
-        ? `적 지휘관이 ${snapshot.balance.manifest.consecutiveTimeoutForfeit}회 연속 작전 시간을 초과했습니다.`
-        : `${snapshot.balance.manifest.consecutiveTimeoutForfeit}회 연속 작전 시간 초과로 교전이 종료되었습니다.`;
+      return won ? 'result.summaryTimeoutWin' : 'result.summaryTimeoutLoss';
     }
-    return won
-      ? '상대 함대 전력을 모두 무력화했습니다.'
-      : '아군 함대가 전투 불능 상태에 도달했습니다.';
+    return won ? 'result.summaryFleetWin' : 'result.summaryFleetLoss';
   });
   let shared = $state(false);
   const formatDuration = (seconds: number) => {
@@ -72,8 +69,16 @@
   };
 
   async function shareResult() {
-    const title = `${won ? '작전 승리' : '작전 완료'} · Mk.01`;
-    const text = `${outcomeLabel} · ${snapshot.room.name}에서 ${stats?.hits ?? 0}회 명중, ${Math.round((stats?.accuracy ?? 0) * 100)}% 명중률을 기록했습니다.`;
+    const title = $t(won ? 'result.shareTitleVictory' : 'result.shareTitleComplete');
+    const text = $t('result.shareText', {
+      outcome: $t(outcomeKey),
+      room: snapshot.room.name,
+      hits: formatNumber(stats?.hits ?? 0),
+      accuracy: formatNumber(stats?.accuracy ?? 0, {
+        style: 'percent',
+        maximumFractionDigits: 0
+      })
+    });
     if (navigator.share) await navigator.share({ title, text, url: location.origin });
     else await navigator.clipboard.writeText(`${title}\n${text}\n${location.origin}`);
     shared = true;
@@ -82,49 +87,78 @@
 </script>
 
 <section class:result--loss={!won} class="result panel">
-  <span class="result__watermark" aria-hidden="true">{won ? 'VICTORY' : 'DEFEAT'}</span>
-  <div class="result__classification"><span></span> AFTER ACTION REPORT <span></span></div>
+  <span class="result__watermark" aria-hidden="true"
+    >{won ? $t('result.victoryWatermark') : $t('result.defeatWatermark')}</span
+  >
+  <div class="result__classification">
+    <span></span>
+    {$t('result.afterActionReport')} <span></span>
+  </div>
   <div class="result__emblem">
     {#if won}<Trophy size={42} />{:else}<Medal size={42} />{/if}
   </div>
-  <p class="eyebrow">{operationStatus}</p>
-  <h1>{won ? '작전 승리' : '작전 패배'}</h1>
-  <p class="result__outcome"><Flag size={13} /> {outcomeLabel}</p>
-  <p class="result__summary">{outcomeSummary}</p>
+  <p class="eyebrow">{$t(operationStatusKey)}</p>
+  <h1>{won ? $t('result.victory') : $t('result.defeat')}</h1>
+  <p class="result__outcome"><Flag size={13} /> {$t(outcomeKey)}</p>
+  <p class="result__summary">
+    {$t(summaryKey, {
+      count: formatNumber(snapshot.balance.manifest.consecutiveTimeoutForfeit)
+    })}
+  </p>
 
   <div class="result-score">
     <div class:score-winner={won}>
       <small
         >{snapshot.players.find((player) => player.id === snapshot.selfPlayerId)?.nickname}</small
-      ><strong>{stats?.hits ?? 0}</strong><span>명중</span>
+      ><strong>{formatNumber(stats?.hits ?? 0)}</strong><span>{$t('result.hits')}</span>
     </div>
     <em>VS</em>
     <div class:score-winner={!won}>
       <small
         >{snapshot.players.find((player) => player.id !== snapshot.selfPlayerId)?.nickname}</small
-      ><strong>{opponentStats?.hits ?? 0}</strong><span>명중</span>
+      ><strong>{formatNumber(opponentStats?.hits ?? 0)}</strong><span>{$t('result.hits')}</span>
     </div>
   </div>
 
   <div class="stats-grid">
     <article>
-      <Target size={19} /><span>명중률</span><strong
-        >{Math.round((stats?.accuracy ?? 0) * 100)}%</strong
-      ><small>{stats?.hits ?? 0} / {stats?.shots ?? 0} 공격</small>
-    </article>
-    <article>
-      <Crosshair size={19} /><span>격침</span><strong>{stats?.shipsSunk ?? 0}</strong><small
-        >총 {snapshot.balance.manifest.fleet.length}척 중</small
+      <Target size={19} /><span>{$t('result.accuracy')}</span><strong
+        >{formatNumber(stats?.accuracy ?? 0, {
+          style: 'percent',
+          maximumFractionDigits: 0
+        })}</strong
+      ><small
+        >{$t('result.attacks', {
+          hits: formatNumber(stats?.hits ?? 0),
+          shots: formatNumber(stats?.shots ?? 0)
+        })}</small
       >
     </article>
     <article>
-      <Timer size={19} /><span>작전 시간</span><strong
-        >{formatDuration(snapshot.result?.durationSeconds ?? 0)}</strong
-      ><small>{snapshot.result?.totalTurns ?? 0} 총 턴</small>
+      <Crosshair size={19} /><span>{$t('result.shipsSunk')}</span><strong
+        >{formatNumber(stats?.shipsSunk ?? 0)}</strong
+      ><small
+        >{$t('result.shipsOutOf', {
+          total: formatNumber(snapshot.balance.manifest.fleet.length)
+        })}</small
+      >
     </article>
     <article>
-      <Flag size={19} /><span>시간 초과</span><strong>{stats?.totalTimeouts ?? 0}</strong><small
-        >연속 {snapshot.balance.manifest.consecutiveTimeoutForfeit}회 시 자동 패배</small
+      <Timer size={19} /><span>{$t('result.duration')}</span><strong
+        >{formatDuration(snapshot.result?.durationSeconds ?? 0)}</strong
+      ><small
+        >{$t('result.totalTurns', {
+          turns: formatNumber(snapshot.result?.totalTurns ?? 0)
+        })}</small
+      >
+    </article>
+    <article>
+      <Flag size={19} /><span>{$t('result.timeouts')}</span><strong
+        >{formatNumber(stats?.totalTimeouts ?? 0)}</strong
+      ><small
+        >{$t('result.timeoutForfeit', {
+          count: formatNumber(snapshot.balance.manifest.consecutiveTimeoutForfeit)
+        })}</small
       >
     </article>
   </div>
@@ -133,28 +167,25 @@
     <section class="report-intel" aria-labelledby="report-intel-title">
       <header>
         <div>
-          <small>FINAL INTELLIGENCE / DECLASSIFIED</small>
-          <h2 id="report-intel-title">적 함대 배치 복기</h2>
+          <small>{$t('result.finalIntel')}</small>
+          <h2 id="report-intel-title">{$t('result.replayDeployment')}</h2>
         </div>
-        <span>FOG OF WAR / LIFTED</span>
+        <span>{$t('result.fogLifted')}</span>
       </header>
       <div class="report-intel__layout">
         <GridBoard
           balance={snapshot.balance.manifest}
           mode="own"
-          label="공개된 적 함대 배치"
+          label={$t('result.revealedBoard')}
           ownBoard={snapshot.revealedBoard}
           disabled={true}
         />
         <div class="report-intel__copy">
-          <p>
-            교전 종료와 함께 적 함대의 실제 위치가 공개되었습니다. 공격 기록과 함선의 형태를 겹쳐
-            다음 작전의 추론 근거를 확인하십시오.
-          </p>
+          <p>{$t('result.intelDescription')}</p>
           <div class="report-intel__legend">
-            <span><i class="report-ship"></i> 적 함선</span><span
-              ><i class="report-hit"></i> 명중 지점</span
-            ><span><i class="report-miss"></i> 빗나간 좌표</span>
+            <span><i class="report-ship"></i> {$t('result.enemyShip')}</span><span
+              ><i class="report-hit"></i> {$t('result.hitPoint')}</span
+            ><span><i class="report-miss"></i> {$t('result.missedCoordinate')}</span>
           </div>
         </div>
       </div>
@@ -163,13 +194,15 @@
 
   <div class="result-actions">
     <button class="button button--primary" onclick={onrematch} disabled={rematchRequested}
-      ><RotateCcw size={16} /> {rematchRequested ? '상대 응답 대기 중' : '재대결 요청'}</button
+      ><RotateCcw size={16} />
+      {rematchRequested ? $t('result.awaitingRematch') : $t('result.requestRematch')}</button
     ><button class="button" onclick={shareResult}
-      >{#if shared}<Check size={16} /> 공유 정보 복사됨{:else}<Share2 size={16} /> 결과 공유{/if}</button
+      >{#if shared}<Check size={16} /> {$t('result.shareCopied')}{:else}<Share2 size={16} />
+        {$t('result.share')}{/if}</button
     ><a class="button" href={resolve('/replay/[roomId]', { roomId: snapshot.room.id })}
-      ><Play size={16} /> 전투 복기</a
+      ><Play size={16} /> {$t('result.replay')}</a
     ><button class="button button--ghost" onclick={onlobby}
-      ><ArrowLeft size={16} /> 로비로 복귀</button
+      ><ArrowLeft size={16} /> {$t('result.returnLobby')}</button
     >
   </div>
 </section>

@@ -14,12 +14,13 @@ import {
 } from '$lib/stores';
 import type { ClientEvent, GameSnapshot, ServerEvent } from '$lib/types';
 import { sounds } from '$lib/sound';
+import { message } from '$lib/i18n';
 import {
   acceptWebsocketProtocol,
   isCompatibleGameSnapshot,
   isCompatibleServerEvent,
   SERVER_PROTOCOL_MISMATCH_CODE,
-  SERVER_PROTOCOL_MISMATCH_MESSAGE,
+  serverProtocolMismatchMessage,
   websocketProtocol
 } from '$lib/protocol';
 
@@ -100,7 +101,7 @@ class RealtimeClient {
     if (this.socket && !acceptWebsocketProtocol(this.socket.protocol)) {
       gameError.set({
         code: SERVER_PROTOCOL_MISMATCH_CODE,
-        message: SERVER_PROTOCOL_MISMATCH_MESSAGE,
+        message: serverProtocolMismatchMessage(),
         retryable: false
       });
       this.disconnect();
@@ -155,7 +156,7 @@ class RealtimeClient {
       if (!isCompatibleGameSnapshot(event.payload)) {
         gameError.set({
           code: SERVER_PROTOCOL_MISMATCH_CODE,
-          message: SERVER_PROTOCOL_MISMATCH_MESSAGE,
+          message: serverProtocolMismatchMessage(),
           retryable: false
         });
         this.disconnect();
@@ -170,7 +171,7 @@ class RealtimeClient {
       if (!isCompatibleGameSnapshot(event.payload.snapshot)) {
         gameError.set({
           code: SERVER_PROTOCOL_MISMATCH_CODE,
-          message: SERVER_PROTOCOL_MISMATCH_MESSAGE,
+          message: serverProtocolMismatchMessage(),
           retryable: false
         });
         this.disconnect();
@@ -220,10 +221,12 @@ class RealtimeClient {
         const surrenderedSelf = snapshot.selfPlayerId === event.payload.surrenderedPlayerId;
         const notification = {
           id: `surrender-${event.payload.timestamp}-${snapshot.selfPlayerId}`,
-          title: surrenderedSelf ? '작전 포기 승인' : '적군 항복',
+          title: surrenderedSelf
+            ? message('realtime.surrenderSelfTitle')
+            : message('realtime.surrenderOpponentTitle'),
           message: surrenderedSelf
-            ? '기권이 승인되어 즉시 패배 처리되었습니다.'
-            : '상대가 작전을 포기했습니다.',
+            ? message('realtime.surrenderSelfMessage')
+            : message('realtime.surrenderOpponentMessage'),
           tone: surrenderedSelf ? ('danger' as const) : ('success' as const)
         };
         hudNotifications.update((notifications) => [...notifications, notification].slice(-3));
@@ -235,10 +238,8 @@ class RealtimeClient {
         const ready = event.payload.readyState === 'READY';
         const notification = {
           id: `ready-${event.payload.requestId}`,
-          title: ready ? '작전 준비 완료' : '준비 상태 해제',
-          message: ready
-            ? '준비 상태가 서버에 반영되었습니다.'
-            : '준비를 취소했습니다. 방장의 작전 시작 승인이 잠금 해제되었습니다.',
+          title: ready ? message('realtime.readyTitle') : message('realtime.unreadyTitle'),
+          message: ready ? message('realtime.readyMessage') : message('realtime.unreadyMessage'),
           tone: ready ? ('success' as const) : ('warning' as const)
         };
         hudNotifications.update((notifications) => [...notifications, notification].slice(-3));
@@ -249,8 +250,8 @@ class RealtimeClient {
       if (snapshot?.room.id === event.payload.roomId) {
         const notification = {
           id: `start-${event.payload.requestId}`,
-          title: '작전 개시 승인',
-          message: '서버 검증이 완료되었습니다. 함선 배치 단계로 이동합니다.',
+          title: message('realtime.startTitle'),
+          message: message('realtime.startMessage'),
           tone: 'success' as const
         };
         hudNotifications.update((notifications) => [...notifications, notification].slice(-3));
@@ -281,18 +282,18 @@ class RealtimeClient {
           id: `timeout-${event.payload.gameId}-${event.payload.expiredTurnNumber}`,
           title: automaticDefeat
             ? expiredSelf
-              ? '시간 초과 자동 패배'
-              : '적 작전 지연 종료'
+              ? message('realtime.timeoutDefeatSelfTitle')
+              : message('realtime.timeoutDefeatOpponentTitle')
             : expiredSelf
-              ? '작전 시간 만료'
-              : '상대 시간 만료',
+              ? message('realtime.timeoutSelfTitle')
+              : message('realtime.timeoutOpponentTitle'),
           message: automaticDefeat
             ? expiredSelf
-              ? '3회 연속 시간 초과로 자동 기권 처리되었습니다.'
-              : '상대 지휘관이 3회 연속 시간 초과로 패배했습니다.'
+              ? message('realtime.timeoutDefeatSelfMessage')
+              : message('realtime.timeoutDefeatOpponentMessage')
             : expiredSelf
-              ? '공격 기회가 소멸되어 상대 턴으로 전환됩니다.'
-              : '상대 지휘관의 공격 기회가 소멸했습니다.',
+              ? message('realtime.timeoutSelfMessage')
+              : message('realtime.timeoutOpponentMessage'),
           tone: automaticDefeat || expiredSelf ? ('danger' as const) : ('warning' as const)
         };
         hudNotifications.update((notifications) => [...notifications, notification].slice(-3));

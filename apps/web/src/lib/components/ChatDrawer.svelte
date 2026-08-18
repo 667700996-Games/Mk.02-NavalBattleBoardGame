@@ -14,10 +14,17 @@
     X,
     Zap
   } from '@lucide/svelte';
-  import { api, ApiError } from '$lib/api';
+  import { api } from '$lib/api';
   import { realtime } from '$lib/realtime';
   import { chatHistoryLoaded, chatMessages, chatTyping } from '$lib/stores';
   import { Modal } from '$lib/ui';
+  import {
+    formatDateTime,
+    localizeError,
+    quickCommandLabel,
+    quickCommandMessageKey,
+    t
+  } from '$lib/i18n';
   import InputPrompt from './InputPrompt.svelte';
   import {
     CHAT_EMOJIS,
@@ -146,8 +153,7 @@
       muted = relationship?.muted ?? false;
       blocked = relationship?.blocked ?? false;
     } catch (caught) {
-      safetyNotice =
-        caught instanceof ApiError ? caught.message : '안전 설정을 불러오지 못했습니다.';
+      safetyNotice = localizeError(caught, 'chat.safetyLoadError');
     }
   }
 
@@ -166,8 +172,7 @@
       blocked = relationship.blocked;
       realtime.sync(roomId);
     } catch (caught) {
-      safetyNotice =
-        caught instanceof ApiError ? caught.message : '안전 설정을 변경하지 못했습니다.';
+      safetyNotice = localizeError(caught, 'chat.safetyUpdateError');
     } finally {
       safetyBusy = false;
     }
@@ -186,9 +191,9 @@
       );
       reportSubmitted = true;
       reportDetails = '';
-      safetyNotice = `신고 ${response.report.reportId.slice(0, 8)} 접수 완료`;
+      safetyNotice = $t('chat.reportAccepted', { id: response.report.reportId.slice(0, 8) });
     } catch (caught) {
-      safetyNotice = caught instanceof ApiError ? caught.message : '신고를 접수하지 못했습니다.';
+      safetyNotice = localizeError(caught, 'chat.reportError');
     } finally {
       safetyBusy = false;
     }
@@ -214,11 +219,11 @@
     const message = draft.trim();
     if (!message || readOnly) return;
     if (message.length > 300) {
-      notice = '메시지는 최대 300자까지 입력할 수 있습니다.';
+      notice = $t('chat.messageTooLong');
       return;
     }
     if (message.includes('<') || message.includes('>')) {
-      notice = 'HTML 문법은 채팅에 사용할 수 없습니다.';
+      notice = $t('chat.htmlNotAllowed');
       return;
     }
     if (
@@ -234,7 +239,7 @@
         }
       })
     ) {
-      notice = '실시간 연결이 복구된 뒤 다시 전송해 주세요.';
+      notice = $t('chat.waitForConnection');
       return;
     }
     draft = '';
@@ -265,7 +270,7 @@
       }
     });
     if (!sent) {
-      notice = '실시간 연결이 복구된 뒤 다시 전송해 주세요.';
+      notice = $t('chat.waitForConnection');
       return;
     }
     const next = { type, content, commandId, label };
@@ -280,7 +285,11 @@
   }
 
   const messageLabel = (type: ChatMessageType) =>
-    type === 'QUICK_COMMAND' ? 'QUICK COMMAND' : type === 'EMOJI' ? 'TACTICAL SIGNAL' : '';
+    type === 'QUICK_COMMAND'
+      ? $t('chat.quickCommand')
+      : type === 'EMOJI'
+        ? $t('chat.tacticalSignal')
+        : '';
 
   function handleKeydown(event: KeyboardEvent) {
     if (event.key === 'Enter' && !event.shiftKey) {
@@ -290,10 +299,7 @@
   }
 
   function formatTime(timestamp: string): string {
-    return new Date(timestamp).toLocaleTimeString('ko-KR', {
-      hour: '2-digit',
-      minute: '2-digit'
-    });
+    return formatDateTime(timestamp, { hour: '2-digit', minute: '2-digit' });
   }
 
   onDestroy(() => {
@@ -309,28 +315,33 @@
 
 <div class:chat-shell--open={open} class="chat-shell">
   {#if open}
-    <section class="chat-drawer" aria-label="전술 채팅">
+    <section class="chat-drawer" aria-label={$t('chat.tacticalChat')}>
       <span class="chat-drawer__scan" aria-hidden="true"></span>
       <header>
         <span class="chat-drawer__icon"><MessageSquare size={16} /></span>
         <div>
-          <small>SECURE ROOM CHANNEL</small>
-          <h2>전술 채팅</h2>
+          <small>{$t('chat.secureChannel')}</small>
+          <h2>{$t('chat.tacticalChat')}</h2>
         </div>
         <span class:offline={!online} class="chat-link-status"
-          ><i></i>{online ? 'LIVE' : 'OFFLINE'}</span
+          ><i></i>{online ? $t('chat.live') : $t('chat.offline')}</span
         >
         {#if targetPlayerId}
           <button
             class="ui-icon-button"
             type="button"
             onclick={openSafety}
-            aria-label="플레이어 안전 설정"
+            aria-label={$t('chat.playerSafetySettings')}
           >
             <ShieldAlert size={15} />
           </button>
         {/if}
-        <button class="ui-icon-button" type="button" onclick={toggleDrawer} aria-label="채팅 닫기">
+        <button
+          class="ui-icon-button"
+          type="button"
+          onclick={toggleDrawer}
+          aria-label={$t('chat.close')}
+        >
           <X size={15} />
         </button>
       </header>
@@ -341,16 +352,16 @@
         class="chat-messages"
         role="log"
         tabindex="0"
-        aria-label="채팅 기록"
+        aria-label={$t('chat.history')}
         aria-live="polite"
         aria-relevant="additions"
         onscroll={handleScroll}
       >
         {#if !$chatHistoryLoaded}
-          <div class="chat-loading"><Radio size={18} /><span>보안 채널 동기화 중…</span></div>
+          <div class="chat-loading"><Radio size={18} /><span>{$t('chat.syncing')}</span></div>
         {:else if visibleMessages.length === 0}
           <div class="chat-empty">
-            <MessageSquare size={20} /><span>아직 전송된 메시지가 없습니다.</span>
+            <MessageSquare size={20} /><span>{$t('chat.empty')}</span>
           </div>
         {:else}
           {#each visibleMessages as item (item.messageId)}
@@ -364,15 +375,19 @@
               <div>
                 <strong
                   >{item.type === 'SYSTEM'
-                    ? 'SYSTEM'
+                    ? $t('chat.system')
                     : item.playerId === selfPlayerId
-                      ? 'YOU'
+                      ? $t('chat.you')
                       : item.nickname}</strong
                 >
                 <time datetime={item.timestamp}>{formatTime(item.timestamp)}</time>
               </div>
               {#if messageLabel(item.type)}<small>{messageLabel(item.type)}</small>{/if}
-              <p>{item.content}</p>
+              <p>
+                {item.type === 'QUICK_COMMAND' && item.commandId
+                  ? $t(quickCommandMessageKey(item.commandId))
+                  : item.content}
+              </p>
             </article>
           {/each}
         {/if}
@@ -380,13 +395,15 @@
 
       {#if unread > 0 && !atBottom}
         <button class="new-message-button" type="button" onclick={scrollToBottom}>
-          <ChevronDown size={13} /> 새 메시지 {unread}개
+          <ChevronDown size={13} />
+          {$t('chat.newMessages', { count: unread })}
         </button>
       {/if}
 
       <div class="chat-composer">
         <div class="typing-line" aria-live="polite">
-          {#if $chatTyping?.isTyping}<span><i></i>{$chatTyping.nickname} 입력 중…</span
+          {#if $chatTyping?.isTyping}<span
+              ><i></i>{$t('chat.typing', { player: $chatTyping.nickname })}</span
             >{:else}<InputPrompt context="chat" compact />{/if}
           <em>{draft.length}/300</em>
         </div>
@@ -394,35 +411,35 @@
           <button
             type="button"
             class="chat-action"
-            aria-label="이모지 선택"
+            aria-label={$t('chat.chooseEmoji')}
             disabled={readOnly || !online || actionCooling}
             onclick={() => openActions('emoji')}><Smile size={15} /></button
           >
           <button
             type="button"
             class="chat-action"
-            aria-label="빠른 명령 선택"
+            aria-label={$t('chat.chooseQuickCommand')}
             disabled={readOnly || !online || actionCooling}
             onclick={() => openActions('commands')}><Zap size={15} /></button
           >
           <textarea
             bind:this={messageInput}
             bind:value={draft}
-            aria-label="채팅 메시지"
+            aria-label={$t('chat.message')}
             maxlength="300"
             rows="1"
             placeholder={readOnly
-              ? '작전 종료 · 기록 열람 전용'
+              ? $t('chat.readOnlyPlaceholder')
               : online
-                ? '메시지 입력…'
-                : '연결 복구 대기 중…'}
+                ? $t('chat.messagePlaceholder')
+                : $t('chat.reconnectingPlaceholder')}
             disabled={readOnly || !online}
             oninput={handleInput}
             onkeydown={handleKeydown}></textarea>
           <button
             type="button"
             class="chat-send"
-            aria-label="채팅 전송"
+            aria-label={$t('chat.send')}
             disabled={readOnly || !online || !draft.trim()}
             onclick={sendMessage}><Send size={15} /></button
           >
@@ -436,11 +453,11 @@
       class="chat-toggle"
       type="button"
       onclick={toggleDrawer}
-      aria-label="전술 채팅 열기"
+      aria-label={$t('chat.open')}
     >
       <MessageSquare size={18} />
-      <span>CHAT</span>
-      {#if unread > 0}<strong aria-label={`읽지 않은 메시지 ${unread}개`}
+      <span>{$t('chat.shortLabel')}</span>
+      {#if unread > 0}<strong aria-label={$t('chat.unreadMessages', { count: unread })}
           >{unread > 99 ? '99+' : unread}</strong
         >{/if}
     </button>
@@ -449,31 +466,31 @@
 
 <Modal
   open={showActions}
-  eyebrow="ROOM SIGNAL PROTOCOL"
-  title="전술 신호 선택"
-  description="선택한 신호는 현재 작전실에 즉시 전송됩니다."
+  eyebrow={$t('chat.signalProtocol')}
+  title={$t('chat.chooseSignal')}
+  description={$t('chat.signalDescription')}
   onclose={() => (showActions = false)}
 >
   <div class="signal-picker">
-    <div class="signal-tabs" role="tablist" aria-label="전술 신호 종류">
+    <div class="signal-tabs" role="tablist" aria-label={$t('chat.signalTypes')}>
       <button
         type="button"
         role="tab"
         aria-selected={actionTab === 'commands'}
         class:active={actionTab === 'commands'}
-        onclick={() => (actionTab = 'commands')}><Zap size={14} /> 빠른 명령</button
+        onclick={() => (actionTab = 'commands')}><Zap size={14} /> {$t('chat.quickCommand')}</button
       >
       <button
         type="button"
         role="tab"
         aria-selected={actionTab === 'emoji'}
         class:active={actionTab === 'emoji'}
-        onclick={() => (actionTab = 'emoji')}><Smile size={14} /> 이모지</button
+        onclick={() => (actionTab = 'emoji')}><Smile size={14} /> {$t('chat.emoji')}</button
       >
     </div>
     {#if recentActions.length}
-      <section class="recent-signals" aria-label="최근 사용">
-        <small>RECENT SIGNALS</small>
+      <section class="recent-signals" aria-label={$t('chat.recent')}>
+        <small>{$t('chat.recentSignals')}</small>
         <div>
           {#each recentActions as action (`${action.type}-${action.label}`)}
             <button
@@ -481,7 +498,9 @@
               disabled={actionCooling}
               onclick={() =>
                 sendAction(action.type, action.label, action.content, action.commandId)}
-              >{action.label}</button
+              >{action.type === 'QUICK_COMMAND' && action.commandId
+                ? $t(quickCommandMessageKey(action.commandId))
+                : action.label}</button
             >
           {/each}
         </div>
@@ -493,8 +512,11 @@
           <button
             type="button"
             disabled={actionCooling}
-            onclick={() => sendAction('QUICK_COMMAND', command.label, null, command.id)}
-            ><Zap size={12} /><span>{command.label}</span><small>{command.id}</small></button
+            onclick={() =>
+              sendAction('QUICK_COMMAND', quickCommandLabel(command.id), null, command.id)}
+            ><Zap size={12} /><span>{$t(quickCommandMessageKey(command.id))}</span><small
+              >{command.id}</small
+            ></button
           >
         {/each}
       </div>
@@ -503,36 +525,38 @@
         {#each CHAT_EMOJIS as emoji (emoji)}
           <button
             type="button"
-            aria-label={`${emoji} 이모지 전송`}
+            aria-label={$t('chat.sendEmoji', { emoji })}
             disabled={actionCooling}
             onclick={() => sendAction('EMOJI', emoji, emoji, null)}>{emoji}</button
           >
         {/each}
       </div>
     {/if}
-    {#if actionCooling}<p class="signal-cooldown"><Radio size={12} /> SIGNAL COOLDOWN</p>{/if}
+    {#if actionCooling}<p class="signal-cooldown">
+        <Radio size={12} />
+        {$t('chat.signalCooldown')}
+      </p>{/if}
   </div>
 </Modal>
 
 <Modal
   open={showSafety}
-  eyebrow="PLAYER SAFETY"
-  title={`${targetNickname ?? '상대 플레이어'} 안전 설정`}
-  description="음소거와 차단은 즉시 적용됩니다. 신고에는 현재 방 상태와 최근 대화가 증거로 함께 보존됩니다."
+  eyebrow={$t('chat.playerSafety')}
+  title={$t('chat.safetyTitle', { player: targetNickname ?? $t('chat.opponent') })}
+  description={$t('chat.safetyDescription')}
   onclose={() => (showSafety = false)}
 >
   <div class="safety-panel">
-    <section class="safety-controls" aria-label="플레이어 안전 제어">
+    <section class="safety-controls" aria-label={$t('chat.safetyControls')}>
       <button
         type="button"
         class:active={muted}
         disabled={safetyBusy || blocked}
         onclick={() => updateSafety(!muted, blocked)}
       >
-        {#if muted}<Volume2 size={17} /> 음소거 해제{:else}<VolumeX size={17} /> 음소거{/if}
-        <small
-          >{blocked ? '차단 중에는 음소거가 유지됩니다.' : '채팅과 입력 알림을 숨깁니다.'}</small
-        >
+        {#if muted}<Volume2 size={17} /> {$t('chat.unmute')}{:else}<VolumeX size={17} />
+          {$t('chat.mute')}{/if}
+        <small>{blocked ? $t('chat.muteBlocked') : $t('chat.muteDescription')}</small>
       </button>
       <button
         type="button"
@@ -541,12 +565,8 @@
         onclick={() => updateSafety(blocked ? muted : true, !blocked)}
       >
         <Ban size={17} />
-        {blocked ? '차단 해제' : '플레이어 차단'}
-        <small
-          >{blocked
-            ? '다시 같은 방과 매치에 참가할 수 있습니다.'
-            : '통신과 재매칭을 막습니다.'}</small
-        >
+        {blocked ? $t('chat.unblock') : $t('chat.block')}
+        <small>{blocked ? $t('chat.unblockDescription') : $t('chat.blockDescription')}</small>
       </button>
     </section>
 
@@ -558,34 +578,34 @@
       }}
     >
       <div class="safety-heading">
-        <span><Flag size={15} /> 플레이어 신고</span>
-        <small>4–1000자</small>
+        <span><Flag size={15} /> {$t('chat.reportPlayer')}</span>
+        <small>{$t('chat.reportLength')}</small>
       </div>
       <label>
-        신고 사유
+        {$t('chat.reportReason')}
         <select bind:value={reportCategory} disabled={safetyBusy}>
-          <option value="CHAT">부적절한 채팅</option>
-          <option value="NAME">부적절한 이름</option>
-          <option value="CHEATING">치팅 의심</option>
-          <option value="STALLING">고의 지연</option>
-          <option value="OTHER">기타</option>
+          <option value="CHAT">{$t('reportCategory.CHAT')}</option>
+          <option value="NAME">{$t('reportCategory.NAME')}</option>
+          <option value="CHEATING">{$t('reportCategory.CHEATING')}</option>
+          <option value="STALLING">{$t('reportCategory.STALLING')}</option>
+          <option value="OTHER">{$t('reportCategory.OTHER')}</option>
         </select>
       </label>
       <label>
-        상세 내용
+        {$t('chat.reportDetails')}
         <textarea
           bind:value={reportDetails}
           minlength="4"
           maxlength="1000"
           rows="4"
           disabled={safetyBusy}
-          placeholder="발생한 상황을 구체적으로 적어 주세요."></textarea>
+          placeholder={$t('chat.reportPlaceholder')}></textarea>
       </label>
       <button
         class="safety-submit"
         type="submit"
         disabled={safetyBusy || reportDetails.trim().length < 4}
-        ><Flag size={14} /> {safetyBusy ? '처리 중…' : '증거와 함께 신고 접수'}</button
+        ><Flag size={14} /> {safetyBusy ? $t('common.processing') : $t('chat.submitReport')}</button
       >
     </form>
 

@@ -1,7 +1,8 @@
 <script lang="ts">
   import { Headphones, KeyRound, LockKeyhole, Search, ShieldCheck } from '@lucide/svelte';
   import { resolve } from '$app/paths';
-  import { api, ApiError } from '$lib/api';
+  import { api } from '$lib/api';
+  import { formatDateTime, localizeError, t, type MessageKey } from '$lib/i18n';
   import type { SupportAccountSnapshot } from '$lib/types';
 
   let token = $state('');
@@ -15,9 +16,9 @@
   let acting = $state(false);
   let notice = $state('');
 
-  const formatTime = (value: string) => new Date(value).toLocaleString('ko-KR');
-  const errorMessage = (error: unknown, fallback: string) =>
-    error instanceof ApiError ? `${error.message} (${error.code})` : fallback;
+  const formatTime = (value: string) => formatDateTime(value);
+  const errorMessage = (error: unknown, fallback: MessageKey) =>
+    localizeError(error, fallback, true);
 
   async function findAccount() {
     if (!token.trim() || query.trim().length < 3 || loading) return;
@@ -30,7 +31,7 @@
       reason = '';
       confirmation = '';
     } catch (caught) {
-      notice = errorMessage(caught, '지원 계정을 조회하지 못했습니다.');
+      notice = errorMessage(caught, 'support.lookupError');
     } finally {
       loading = false;
     }
@@ -55,34 +56,36 @@
         reason.trim(),
         selectedSessionId || undefined
       );
-      notice = `${response.action.affectedSessionIds.length}개 세션을 회수하고 감사 이력에 기록했습니다.`;
+      notice = $t('support.revokedNotice', {
+        count: response.action.affectedSessionIds.length
+      });
       result = await api.supportAccount(token.trim(), result.account.id);
       reason = '';
       confirmation = '';
       selectedSessionId = '';
     } catch (caught) {
-      notice = errorMessage(caught, '세션을 회수하지 못했습니다.');
+      notice = errorMessage(caught, 'support.revokeError');
     } finally {
       acting = false;
     }
   }
 </script>
 
-<svelte:head><title>플레이어 지원 운영 · Mk.01</title></svelte:head>
+<svelte:head><title>{$t('support.metaTitle')}</title></svelte:head>
 
 <main class="support-page shell">
   <header class="page-head">
     <div>
-      <p class="eyebrow">PLAYER SUPPORT OPERATIONS</p>
-      <h1 class="page-title">계정 지원 센터</h1>
-      <p>정확한 계정 식별자를 조회하고 침해되거나 분실된 세션을 감사 가능한 방식으로 회수합니다.</p>
+      <p class="eyebrow">{$t('support.eyebrow')}</p>
+      <h1 class="page-title">{$t('support.title')}</h1>
+      <p>{$t('support.description')}</p>
     </div>
     <Headphones size={34} aria-hidden="true" />
   </header>
 
-  <nav class="admin-nav" aria-label="운영 도구">
-    <a aria-current="page" href={resolve('/admin/support')}>고객지원</a>
-    <a href={resolve('/admin/moderation')}>신뢰 및 안전</a>
+  <nav class="admin-nav" aria-label={$t('admin.tools')}>
+    <a aria-current="page" href={resolve('/admin/support')}>{$t('admin.support')}</a>
+    <a href={resolve('/admin/moderation')}>{$t('admin.trustSafety')}</a>
   </nav>
 
   <form
@@ -95,22 +98,25 @@
     <header>
       <LockKeyhole size={20} aria-hidden="true" />
       <div>
-        <h2>운영자 인증 및 정확 검색</h2>
-        <p>토큰은 저장되지 않습니다. 계정 UUID 또는 핸들이 완전히 일치할 때만 결과를 표시합니다.</p>
+        <h2>{$t('support.operatorSearch')}</h2>
+        <p>{$t('support.operatorSearchDescription')}</p>
       </div>
     </header>
-    <label>운영자 ID <input bind:value={operatorId} minlength="2" maxlength="64" required /></label>
+    <label
+      >{$t('support.operatorId')}
+      <input bind:value={operatorId} minlength="2" maxlength="64" required /></label
+    >
     <label>
-      관리 토큰
+      {$t('support.adminToken')}
       <input bind:value={token} type="password" minlength="32" autocomplete="off" required />
     </label>
     <label>
-      계정 UUID 또는 정확한 핸들
+      {$t('support.accountQuery')}
       <input bind:value={query} minlength="3" maxlength="64" autocomplete="off" required />
     </label>
     <button type="submit" disabled={loading || query.trim().length < 3}>
       <Search size={15} aria-hidden="true" />
-      {loading ? '조회 중…' : '지원 계정 조회'}
+      {loading ? $t('support.searching') : $t('support.searchAccount')}
     </button>
   </form>
 
@@ -118,23 +124,23 @@
     <section class="identity panel" aria-labelledby="support-account-heading">
       <header>
         <div>
-          <p class="eyebrow">VERIFIED ACCOUNT</p>
+          <p class="eyebrow">{$t('support.verifiedAccount')}</p>
           <h2 id="support-account-heading">{result.account.handle}</h2>
         </div>
-        <ShieldCheck size={26} aria-label="정확 일치 확인" />
+        <ShieldCheck size={26} aria-label={$t('support.exactMatch')} />
       </header>
       <dl>
         <div>
-          <dt>계정 ID</dt>
+          <dt>{$t('settings.accountId')}</dt>
           <dd>{result.account.id}</dd>
         </div>
         <div>
-          <dt>생성 시각</dt>
+          <dt>{$t('support.createdAt')}</dt>
           <dd>{formatTime(result.account.createdAt)}</dd>
         </div>
         <div>
-          <dt>활성 세션</dt>
-          <dd>{result.sessions.length}개</dd>
+          <dt>{$t('support.activeSessions')}</dt>
+          <dd>{$t('support.sessionCount', { count: result.sessions.length })}</dd>
         </div>
       </dl>
     </section>
@@ -142,28 +148,33 @@
     <div class="support-grid">
       <section class="sessions panel">
         <header>
-          <h2>세션 보안 조치</h2>
+          <h2>{$t('support.sessionSecurity')}</h2>
           <KeyRound size={19} aria-hidden="true" />
         </header>
         {#if result.sessions.length === 0}
-          <p class="empty">현재 회수할 활성 세션이 없습니다.</p>
+          <p class="empty">{$t('support.noActiveSessions')}</p>
         {:else}
           <fieldset>
-            <legend>회수 범위</legend>
+            <legend>{$t('support.revokeScope')}</legend>
             <label class="session-choice">
               <input bind:group={selectedSessionId} type="radio" value="" />
-              <span><strong>모든 활성 세션</strong><small>계정 침해 대응에 사용</small></span>
+              <span
+                ><strong>{$t('support.allActiveSessions')}</strong><small
+                  >{$t('support.compromiseResponse')}</small
+                ></span
+              >
             </label>
             {#each result.sessions as session (session.id)}
               <label class="session-choice">
                 <input bind:group={selectedSessionId} type="radio" value={session.id} />
                 <span>
                   <strong>{session.nickname}</strong>
-                  <small>마지막 활동 {formatTime(session.lastSeenAt)}</small>
+                  <small>{$t('support.lastActive', { time: formatTime(session.lastSeenAt) })}</small
+                  >
                   <small
                     >{session.currentRoomId
-                      ? `활성 방 ${session.currentRoomId}`
-                      : '활성 방 없음'}</small
+                      ? $t('support.activeRoom', { room: session.currentRoomId })
+                      : $t('support.noActiveRoom')}</small
                   >
                 </span>
               </label>
@@ -177,12 +188,12 @@
             }}
           >
             <label>
-              확인된 지원 사유
+              {$t('support.verifiedReason')}
               <textarea bind:value={reason} minlength="8" maxlength="500" rows="3" required
               ></textarea>
             </label>
             <label>
-              위험 동작 확인: <strong>{result.account.handle}</strong> 입력
+              {$t('support.confirmDangerousAction', { handle: result.account.handle })}
               <input bind:value={confirmation} autocomplete="off" required />
             </label>
             <button
@@ -193,7 +204,11 @@
                 confirmation !== result.account.handle}
             >
               <KeyRound size={14} aria-hidden="true" />
-              {acting ? '감사 기록 중…' : selectedSessionId ? '선택 세션 회수' : '모든 세션 회수'}
+              {acting
+                ? $t('support.recordingAudit')
+                : selectedSessionId
+                  ? $t('support.revokeSelected')
+                  : $t('support.revokeAll')}
             </button>
           </form>
         {/if}
@@ -201,18 +216,22 @@
 
       <section class="audit panel" aria-live="polite">
         <header>
-          <h2>지원 감사 이력</h2>
+          <h2>{$t('support.auditHistory')}</h2>
           <span>{result.actions.length}</span>
         </header>
         {#if result.actions.length === 0}
-          <p class="empty">이 계정에 기록된 지원 조치가 없습니다.</p>
+          <p class="empty">{$t('support.noActions')}</p>
         {:else}
           {#each result.actions as action (action.id)}
             <article>
               <strong>{action.action}</strong>
               <small>{action.operatorId} · {formatTime(action.createdAt)}</small>
               <p>{action.reason}</p>
-              <small>{action.affectedSessionIds.length}개 세션 회수</small>
+              <small
+                >{$t('support.sessionsRevoked', {
+                  count: action.affectedSessionIds.length
+                })}</small
+              >
             </article>
           {/each}
         {/if}

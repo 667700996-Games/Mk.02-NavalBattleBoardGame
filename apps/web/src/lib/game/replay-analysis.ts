@@ -3,9 +3,9 @@ import type {
   FinishReason,
   GameReplay,
   GameTimelineEvent,
-  ReplayPlayer,
-  ShipKind
+  ReplayPlayer
 } from '$lib/types';
+import { message, shipMessageKey, type MessageKey, type Translator } from '$lib/i18n';
 
 export interface AccuracyPhase {
   id: 'OPENING' | 'MIDGAME' | 'ENDGAME';
@@ -52,32 +52,33 @@ interface RankedMoment extends DecisiveMoment {
   score: number;
 }
 
-const phaseDefinitions: Array<Pick<AccuracyPhase, 'id' | 'label'>> = [
-  { id: 'OPENING', label: '초반' },
-  { id: 'MIDGAME', label: '중반' },
-  { id: 'ENDGAME', label: '후반' }
+const phaseDefinitions: Array<{ id: AccuracyPhase['id']; key: MessageKey }> = [
+  { id: 'OPENING', key: 'replayAnalysis.phaseOpening' },
+  { id: 'MIDGAME', key: 'replayAnalysis.phaseMidgame' },
+  { id: 'ENDGAME', key: 'replayAnalysis.phaseEndgame' }
 ];
 
-const shipLabels: Record<ShipKind, string> = {
-  CARRIER: '항공모함',
-  BATTLESHIP: '전함',
-  CRUISER: '순양함',
-  SUBMARINE: '잠수함',
-  DESTROYER: '구축함'
-};
-
-const finishLabels: Record<FinishReason, { title: string; action: string }> = {
-  FLEET_DESTROYED: { title: '함대 전멸로 확정된 승부', action: '마지막 함선을 제거했습니다.' },
-  SURRENDER: { title: '기권으로 확정된 승부', action: '상대의 기권으로 승리가 확정됐습니다.' },
+const finishLabelKeys: Record<FinishReason, { title: MessageKey; action: MessageKey }> = {
+  FLEET_DESTROYED: {
+    title: 'replayAnalysis.finishFleetDestroyedTitle',
+    action: 'replayAnalysis.finishFleetDestroyedAction'
+  },
+  SURRENDER: {
+    title: 'replayAnalysis.finishSurrenderTitle',
+    action: 'replayAnalysis.finishSurrenderAction'
+  },
   TURN_TIMEOUT: {
-    title: '누적 시간 초과로 확정된 승부',
-    action: '상대가 세 번째 연속 시간 제한을 넘겼습니다.'
+    title: 'replayAnalysis.finishTurnTimeoutTitle',
+    action: 'replayAnalysis.finishTurnTimeoutAction'
   },
   DISCONNECT_TIMEOUT: {
-    title: '재접속 유예 종료로 확정된 승부',
-    action: '상대가 재접속 제한 시간 안에 복귀하지 못했습니다.'
+    title: 'replayAnalysis.finishDisconnectTitle',
+    action: 'replayAnalysis.finishDisconnectAction'
   },
-  PLAYER_LEFT: { title: '상대 이탈로 확정된 승부', action: '상대가 작전을 이탈했습니다.' }
+  PLAYER_LEFT: {
+    title: 'replayAnalysis.finishPlayerLeftTitle',
+    action: 'replayAnalysis.finishPlayerLeftAction'
+  }
 };
 
 function attacksByPlayer(timeline: GameTimelineEvent[], playerId: string): AttackRecord[] {
@@ -90,8 +91,14 @@ function accuracy(hits: number, shots: number): number {
   return shots === 0 ? 0 : hits / shots;
 }
 
-function phaseAccuracy(attacks: AttackRecord[]): AccuracyPhase[] {
-  const buckets = phaseDefinitions.map((phase) => ({ ...phase, shots: 0, hits: 0, accuracy: 0 }));
+function phaseAccuracy(attacks: AttackRecord[], translate: Translator): AccuracyPhase[] {
+  const buckets = phaseDefinitions.map((phase) => ({
+    id: phase.id,
+    label: translate(phase.key),
+    shots: 0,
+    hits: 0,
+    accuracy: 0
+  }));
   for (const [index, attack] of attacks.entries()) {
     const phaseIndex = Math.min(2, Math.floor((index * 3) / Math.max(attacks.length, 1)));
     const phase = buckets[phaseIndex];
@@ -145,18 +152,18 @@ function followUps(attacks: AttackRecord[]): {
   };
 }
 
-function playerTips(analysis: Omit<ReplayPlayerAnalysis, 'tips'>, replay: GameReplay): string[] {
+function playerTips(
+  analysis: Omit<ReplayPlayerAnalysis, 'tips'>,
+  replay: GameReplay,
+  translate: Translator
+): string[] {
   const tips: string[] = [];
   const percentage = Math.round(analysis.accuracy * 100);
   if (analysis.shots >= 6 && analysis.accuracy < 0.35) {
-    tips.push(
-      `명중률 ${percentage}%입니다. 초반에는 한 칸씩 흩어 쏘기보다 일정한 간격의 탐색 격자를 유지해 후보 해역을 줄이세요.`
-    );
+    tips.push(translate('replayAnalysis.tipLowAccuracy', { percentage }));
   }
   if (analysis.maxMissStreak >= 4) {
-    tips.push(
-      `${analysis.maxMissStreak}연속 빗나감이 있었습니다. 이미 비어 있다고 판정된 줄 주변보다 아직 넓게 남은 해역으로 탐색축을 옮기세요.`
-    );
+    tips.push(translate('replayAnalysis.tipMissStreak', { count: analysis.maxMissStreak }));
   }
   if (
     analysis.followUpRate !== null &&
@@ -164,32 +171,42 @@ function playerTips(analysis: Omit<ReplayPlayerAnalysis, 'tips'>, replay: GameRe
     analysis.followUpRate < 0.6
   ) {
     tips.push(
-      `명중 뒤 인접 추적은 ${analysis.adjacentFollowUps}/${analysis.followUpOpportunities}회였습니다. 격침 전에는 직교 인접 칸으로 함선 방향을 먼저 확인하세요.`
+      translate('replayAnalysis.tipFollowUp', {
+        adjacent: analysis.adjacentFollowUps,
+        opportunities: analysis.followUpOpportunities
+      })
     );
   }
   if (analysis.timeouts > 0) {
-    tips.push(
-      `시간 초과가 ${analysis.timeouts}회 있었습니다. 상대 턴 동안 다음 탐색 좌표와 명중 시 후속 좌표를 함께 준비하세요.`
-    );
+    tips.push(translate('replayAnalysis.tipTimeout', { count: analysis.timeouts }));
   }
   const opening = analysis.phases[0];
   const endgame = analysis.phases[2];
   if (opening.shots >= 2 && endgame.shots >= 2 && opening.accuracy - endgame.accuracy >= 0.2) {
     tips.push(
-      `후반 명중률이 초반보다 ${Math.round((opening.accuracy - endgame.accuracy) * 100)}%p 낮았습니다. 남은 함선 길이와 배제된 행·열을 다시 계산한 뒤 발사하세요.`
+      translate('replayAnalysis.tipLateDrop', {
+        difference: Math.round((opening.accuracy - endgame.accuracy) * 100)
+      })
     );
   }
   if (tips.length === 0) {
     tips.push(
       analysis.won
-        ? `명중률 ${percentage}%와 최대 ${analysis.maxHitStreak}연속 명중의 리듬을 유지했습니다. 다음 교전에서도 탐색과 추적 단계를 분리하세요.`
-        : `큰 전술 누수는 보이지 않았습니다. ${replay.result.totalTurns}턴 기록에서 상대보다 먼저 후보 해역을 줄일 수 있었던 선택을 비교하세요.`
+        ? translate('replayAnalysis.tipWinStable', {
+            percentage,
+            streak: analysis.maxHitStreak
+          })
+        : translate('replayAnalysis.tipLossStable', { turns: replay.result.totalTurns })
     );
   }
   return tips.slice(0, 4);
 }
 
-function analyzePlayer(player: ReplayPlayer, replay: GameReplay): ReplayPlayerAnalysis {
+function analyzePlayer(
+  player: ReplayPlayer,
+  replay: GameReplay,
+  translate: Translator
+): ReplayPlayerAnalysis {
   const attacks = attacksByPlayer(replay.timeline, player.id);
   const hits = attacks.filter((attack) => attack.outcome !== 'MISS').length;
   const shipsSunk = attacks.filter((attack) => attack.outcome === 'SUNK').length;
@@ -208,20 +225,23 @@ function analyzePlayer(player: ReplayPlayer, replay: GameReplay): ReplayPlayerAn
     accuracy: accuracy(hits, attacks.length),
     ...streaks(attacks),
     ...followUps(attacks),
-    phases: phaseAccuracy(attacks)
+    phases: phaseAccuracy(attacks, translate)
   };
-  return { ...base, tips: playerTips(base, replay) };
+  return { ...base, tips: playerTips(base, replay, translate) };
 }
 
 function coordinateLabel(attack: AttackRecord): string {
   return `${String.fromCharCode(65 + attack.coordinate.row)}${attack.coordinate.col + 1}`;
 }
 
-function playerName(replay: GameReplay, playerId: string | null): string {
-  return replay.players.find((player) => player.id === playerId)?.nickname ?? '지휘관';
+function playerName(replay: GameReplay, playerId: string | null, translate: Translator): string {
+  return (
+    replay.players.find((player) => player.id === playerId)?.nickname ??
+    translate('common.commander')
+  );
 }
 
-function rankedMoments(replay: GameReplay): RankedMoment[] {
+function rankedMoments(replay: GameReplay, translate: Translator): RankedMoment[] {
   const moments: RankedMoment[] = [];
   const hitStreaks = new Map<string, number>();
   let hasRecordedFinish = false;
@@ -235,8 +255,11 @@ function rankedMoments(replay: GameReplay): RankedMoment[] {
           playerId: event.payload.winnerId,
           impact: 'CRITICAL',
           score: 100,
-          title: '시간 초과로 확정된 승부',
-          detail: `${playerName(replay, event.payload.expiredPlayerId)} 지휘관의 ${event.payload.consecutiveTimeoutCount}번째 연속 시간 초과로 승부가 끝났습니다.`
+          title: translate('replayAnalysis.timeoutFinishTitle'),
+          detail: translate('replayAnalysis.timeoutFinishDetail', {
+            name: playerName(replay, event.payload.expiredPlayerId, translate),
+            count: event.payload.consecutiveTimeoutCount
+          })
         });
       } else if (event.payload.consecutiveTimeoutCount >= 2) {
         moments.push({
@@ -245,8 +268,11 @@ function rankedMoments(replay: GameReplay): RankedMoment[] {
           playerId: event.payload.expiredPlayerId,
           impact: 'HIGH',
           score: 35,
-          title: '누적된 시간 압박',
-          detail: `${playerName(replay, event.payload.expiredPlayerId)} 지휘관이 ${event.payload.consecutiveTimeoutCount}회 연속 공격 기회를 잃어 다음 시간 초과가 패배 조건이 됐습니다.`
+          title: translate('replayAnalysis.timeoutPressureTitle'),
+          detail: translate('replayAnalysis.timeoutPressureDetail', {
+            name: playerName(replay, event.payload.expiredPlayerId, translate),
+            count: event.payload.consecutiveTimeoutCount
+          })
         });
       }
       continue;
@@ -263,8 +289,14 @@ function rankedMoments(replay: GameReplay): RankedMoment[] {
         playerId: attack.attackerId,
         impact: 'CRITICAL',
         score: 100,
-        title: '승부를 끝낸 일격',
-        detail: `${playerName(replay, attack.attackerId)} 지휘관이 ${coordinateLabel(attack)}에서 ${attack.sunkShip ? shipLabels[attack.sunkShip] : '마지막 함선'}을 격침했습니다.`
+        title: translate('replayAnalysis.finishingStrikeTitle'),
+        detail: translate('replayAnalysis.finishingStrikeDetail', {
+          name: playerName(replay, attack.attackerId, translate),
+          coordinate: coordinateLabel(attack),
+          ship: attack.sunkShip
+            ? translate(shipMessageKey(attack.sunkShip))
+            : translate('replayAnalysis.lastShip')
+        })
       });
     } else if (attack.outcome === 'SUNK') {
       moments.push({
@@ -273,8 +305,14 @@ function rankedMoments(replay: GameReplay): RankedMoment[] {
         playerId: attack.attackerId,
         impact: 'HIGH',
         score: 50 + attack.turnNumber / Math.max(replay.result.totalTurns, 1),
-        title: '전력 균형을 바꾼 격침',
-        detail: `${playerName(replay, attack.attackerId)} 지휘관이 ${coordinateLabel(attack)}에서 ${attack.sunkShip ? shipLabels[attack.sunkShip] : '함선'}을 제거했습니다.`
+        title: translate('replayAnalysis.sunkShiftTitle'),
+        detail: translate('replayAnalysis.sunkShiftDetail', {
+          name: playerName(replay, attack.attackerId, translate),
+          coordinate: coordinateLabel(attack),
+          ship: attack.sunkShip
+            ? translate(shipMessageKey(attack.sunkShip))
+            : translate('replayAnalysis.ship')
+        })
       });
     } else if (nextStreak === 3) {
       moments.push({
@@ -283,30 +321,36 @@ function rankedMoments(replay: GameReplay): RankedMoment[] {
         playerId: attack.attackerId,
         impact: 'MEDIUM',
         score: 25,
-        title: '3연속 명중으로 확보한 주도권',
-        detail: `${playerName(replay, attack.attackerId)} 지휘관이 ${coordinateLabel(attack)}까지 세 번 연속 명중해 탐색을 확정 추적으로 전환했습니다.`
+        title: translate('replayAnalysis.hitStreakTitle'),
+        detail: translate('replayAnalysis.hitStreakDetail', {
+          name: playerName(replay, attack.attackerId, translate),
+          coordinate: coordinateLabel(attack)
+        })
       });
     }
   }
 
   if (!hasRecordedFinish) {
-    const finish = finishLabels[replay.result.finishReason];
+    const finish = finishLabelKeys[replay.result.finishReason];
     moments.push({
       eventIndex: null,
       turnNumber: replay.result.totalTurns,
       playerId: replay.result.winnerId,
       impact: 'CRITICAL',
       score: 100,
-      title: finish.title,
-      detail: `${playerName(replay, replay.result.winnerId)} 지휘관의 승리입니다. ${finish.action}`
+      title: translate(finish.title),
+      detail: translate('replayAnalysis.winnerDetail', {
+        name: playerName(replay, replay.result.winnerId, translate),
+        action: translate(finish.action)
+      })
     });
   }
 
   return moments;
 }
 
-export function analyzeReplay(replay: GameReplay): ReplayAnalysis {
-  const decisiveMoments = rankedMoments(replay)
+export function analyzeReplay(replay: GameReplay, translate: Translator = message): ReplayAnalysis {
+  const decisiveMoments = rankedMoments(replay, translate)
     .sort((left, right) => right.score - left.score || right.turnNumber - left.turnNumber)
     .slice(0, 3)
     .map((moment) => ({
@@ -318,7 +362,7 @@ export function analyzeReplay(replay: GameReplay): ReplayAnalysis {
       detail: moment.detail
     }));
   return {
-    players: replay.players.map((player) => analyzePlayer(player, replay)),
+    players: replay.players.map((player) => analyzePlayer(player, replay, translate)),
     decisiveMoments
   };
 }

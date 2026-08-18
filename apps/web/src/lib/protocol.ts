@@ -1,4 +1,5 @@
 import type { GameSnapshot, RoomStatus, ServerEvent } from '$lib/types';
+import { message } from '$lib/i18n';
 
 export const GAME_PROTOCOL_VERSION = 2;
 export const LEGACY_DEFAULT_PROTOCOL_VERSION = 2;
@@ -123,8 +124,7 @@ export function legacyProtocolCompatibility(): ProtocolCompatibility {
 }
 
 export const SERVER_PROTOCOL_MISMATCH_CODE = 'SERVER_PROTOCOL_MISMATCH';
-export const SERVER_PROTOCOL_MISMATCH_MESSAGE =
-  '게임 클라이언트와 서버 버전이 호환되지 않습니다. 페이지를 새로고침해 최신 버전으로 다시 연결해 주세요.';
+export const serverProtocolMismatchMessage = () => message('protocol.versionMismatch');
 
 const ROOM_STATES = new Set<RoomStatus>([
   'WAITING_FOR_OPPONENT',

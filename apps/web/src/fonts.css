@@ -3,7 +3,7 @@
 :root {
   --font-korean:
     'KLatin', 'K118', 'K117', 'K116', 'K115', 'K114', 'K112', 'K113', 'K119', 'K110', 'K111',
-    'K109', 'K108', 'K105', 'K103', 'K19';
+    'K109', 'K108', 'K105', 'K107', 'K103', 'K19';
 }
 
 @font-face {
@@ -95,6 +95,13 @@
   font-display: swap;
 
   src: url('@fontsource/ibm-plex-sans-kr/files/ibm-plex-sans-kr-105-400-normal.woff2');
+}
+
+@font-face {
+  font-family: 'K107';
+  font-display: swap;
+
+  src: url('@fontsource/ibm-plex-sans-kr/files/ibm-plex-sans-kr-107-400-normal.woff2');
 }
 
 @font-face {
@@ -200,6 +207,13 @@
   font-display: swap;
   font-weight: 700;
   src: url('@fontsource/ibm-plex-sans-kr/files/ibm-plex-sans-kr-105-700-normal.woff2');
+}
+
+@font-face {
+  font-family: 'K107';
+  font-display: swap;
+  font-weight: 700;
+  src: url('@fontsource/ibm-plex-sans-kr/files/ibm-plex-sans-kr-107-700-normal.woff2');
 }
 
 @font-face {
