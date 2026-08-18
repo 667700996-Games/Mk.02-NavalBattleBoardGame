@@ -55,7 +55,10 @@ use crate::{
         ShipKind, ShipPlacement, SocialRelationship, UserSession,
     },
     error::GameError,
-    protocol::{CreateRoomInput, ProtocolError, ServerEvent},
+    protocol::{
+        CreateRoomInput, FunnelFailureReason, FunnelOutcome, FunnelStage, ProtocolError,
+        ServerEvent,
+    },
     rate_limit::FixedWindowRateLimiter,
     store::{
         AccountDeletionScope, AccountDeletionStats, GameHistoryItem, GameStore,
@@ -108,6 +111,8 @@ pub struct ServerMetrics {
     pub integrity_automation: AtomicU64,
     pub integrity_collusion: AtomicU64,
     pub integrity_stalling: AtomicU64,
+    funnel_events: [[AtomicU64; FunnelOutcome::COUNT]; FunnelStage::COUNT],
+    funnel_failures: [AtomicU64; FunnelFailureReason::COUNT],
 }
 
 impl Default for ServerMetrics {
@@ -136,11 +141,25 @@ impl Default for ServerMetrics {
             integrity_automation: AtomicU64::new(0),
             integrity_collusion: AtomicU64::new(0),
             integrity_stalling: AtomicU64::new(0),
+            funnel_events: std::array::from_fn(|_| std::array::from_fn(|_| AtomicU64::new(0))),
+            funnel_failures: std::array::from_fn(|_| AtomicU64::new(0)),
         }
     }
 }
 
 impl ServerMetrics {
+    pub fn record_funnel_event(
+        &self,
+        stage: FunnelStage,
+        outcome: FunnelOutcome,
+        reason: Option<FunnelFailureReason>,
+    ) {
+        self.funnel_events[stage.index()][outcome.index()].fetch_add(1, Ordering::Relaxed);
+        if let Some(reason) = reason {
+            self.funnel_failures[reason.index()].fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
     pub fn render_prometheus(&self, matchmaking: MatchmakingQueueStats) -> String {
         let counter = |name: &str, help: &str, value: &AtomicU64| {
             format!(
@@ -151,7 +170,7 @@ impl ServerMetrics {
         let gauge = |name: &str, help: &str, value: u64| {
             format!("# HELP {name} {help}\n# TYPE {name} gauge\n{name} {value}\n")
         };
-        [
+        let mut output = [
             gauge(
                 "mk01_process_uptime_seconds",
                 "Process uptime in seconds.",
@@ -278,7 +297,33 @@ impl ServerMetrics {
                 matchmaking.oldest_age_seconds,
             ),
         ]
-        .concat()
+        .concat();
+        output.push_str(
+            "# HELP mk01_new_player_funnel_events_total Aggregate onboarding events by fixed stage and outcome.\n\
+# TYPE mk01_new_player_funnel_events_total counter\n",
+        );
+        for stage in FunnelStage::ALL {
+            for outcome in FunnelOutcome::ALL {
+                output.push_str(&format!(
+                    "mk01_new_player_funnel_events_total{{stage=\"{}\",outcome=\"{}\"}} {}\n",
+                    stage.label(),
+                    outcome.label(),
+                    self.funnel_events[stage.index()][outcome.index()].load(Ordering::Relaxed)
+                ));
+            }
+        }
+        output.push_str(
+            "# HELP mk01_new_player_funnel_failures_total Aggregate onboarding failures by fixed reason.\n\
+# TYPE mk01_new_player_funnel_failures_total counter\n",
+        );
+        for reason in FunnelFailureReason::ALL {
+            output.push_str(&format!(
+                "mk01_new_player_funnel_failures_total{{reason=\"{}\"}} {}\n",
+                reason.label(),
+                self.funnel_failures[reason.index()].load(Ordering::Relaxed)
+            ));
+        }
+        output
     }
 }
 

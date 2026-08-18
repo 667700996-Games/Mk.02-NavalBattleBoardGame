@@ -25,7 +25,41 @@ rate-limit totals, local WebSocket connections/events, distributed publish succe
 mutation/version-conflict and authority acquisition/conflict totals, matchmaking
 queue/completion/cancellation totals, current queue depth, oldest queue-entry age, and retention
 deletion totals for sessions, completed rooms, abandoned queue entries, closed moderation cases,
-and integrity signals.
+integrity signals, and the privacy-preserving new-player funnel below.
+
+### New-player funnel
+
+`mk01_new_player_funnel_events_total{stage,outcome}` records the ordered checkpoints
+`landing`, `tutorial_started`, `tutorial_completed`, `session_created`, `lobby_entered`,
+`room_joined`, `placement_completed`, `first_attack`, and `match_completed`. `outcome` is one of
+`reached`, `failed`, or `abandoned`. `mk01_new_player_funnel_failures_total{reason}` splits failures
+into the fixed reasons `network`, `session_creation`, `authentication`, `room_entry`,
+`matchmaking`, `recovery`, `placement`, and `attack`.
+
+These are event counters, not player or account counts. A browser tab emits each reached checkpoint
+once per session-storage lifetime. The landing checkpoint excludes an already authenticated return
+visit; direct invitations can therefore begin at `session_created`. An explicit tutorial exit,
+matchmaking cancellation, pre-result room leave, or browser unload/reload before completion counts
+as abandonment at the furthest reached checkpoint. A later resumed checkpoint remains visible, so
+operators can distinguish interrupted-and-recovered flows from permanent aggregate loss. The
+ingest schema rejects arbitrary labels, unknown fields, player/session IDs, and failed events that
+lack a fixed reason. The global per-IP request limit and 64 KiB body limit protect the anonymous
+endpoint; funnel data must never be used as authoritative billing, ranking, or anti-cheat evidence.
+
+The minimum dashboard has four ordered panels over both 24-hour and 7-day windows:
+
+1. reached volume by stage:
+   `sum by (stage) (increase(mk01_new_player_funnel_events_total{outcome="reached"}[24h]))`;
+2. abandonment volume and rate by stage, dividing `outcome="abandoned"` by reached volume;
+3. failure volume and rate by stage, dividing `outcome="failed"` by reached plus failed attempts;
+4. failure volume by `reason` and deploy annotation.
+
+Open a release-blocking investigation when at least 20 attempts exist in the window and any of
+these holds for 15 minutes: session-creation or room-entry failures exceed 5%, placement-completed
+volume falls below 70% of room-joined volume, or first-attack volume falls below 70% of placement
+volume. Match completion is monitored separately by mode because match duration and voluntary
+surrender make a single global threshold misleading. Compare a candidate with the stable release
+and the same acquisition/channel mix; do not compare raw counters across process restarts.
 
 Minimum paging alerts:
 
@@ -38,7 +72,8 @@ Minimum paging alerts:
 - PostgreSQL replication, disk, connection saturation, or backup age violates provider limits.
 
 Ticket alerts cover a single-instance readiness failure, sustained rate-limit growth, elevated
-version conflicts, bundle-budget regression attempts, and backup age above 12 hours.
+version conflicts, funnel threshold violations, bundle-budget regression attempts, and backup age
+above 12 hours.
 
 The current complete code-split client artifact gates are 320 KB raw JavaScript, 185 KB raw CSS,
 and 1.2 MB WOFF2, with no individual JS/CSS chunk above 100/90 KB. The August 2026 increase from

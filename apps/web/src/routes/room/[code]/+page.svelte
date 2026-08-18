@@ -11,6 +11,7 @@
   import ResultView from '$lib/components/ResultView.svelte';
   import WaitingView from '$lib/components/WaitingView.svelte';
   import { api, ApiError } from '$lib/api';
+  import { trackFunnelAbandoned, trackFunnelFailure, trackFunnelReached } from '$lib/funnel';
   import { realtime } from '$lib/realtime';
   import { sounds } from '$lib/sound';
   import { Button, Modal } from '$lib/ui';
@@ -92,6 +93,7 @@
           return;
         }
         gameSnapshot.set(recovered);
+        trackFunnelReached('room_joined');
         realtime.connect();
         realtime.sync(recovered.room.id);
       } catch (caught) {
@@ -99,6 +101,7 @@
           await goto(resolve('/join/[code]', { code: routeCode }));
           return;
         }
+        trackFunnelFailure('room_joined', 'recovery');
         loadError =
           caught instanceof ApiError ? caught.message : '전장 상태를 불러오지 못했습니다.';
       } finally {
@@ -139,19 +142,30 @@
     if (!attack || attack.requestId === lastSoundRequest) return;
     lastSoundRequest = attack.requestId;
     attackPending = false;
+    if (attack.attackerId === snapshot?.selfPlayerId) trackFunnelReached('first_attack');
     if (attack.outcome === 'MISS') sounds.miss();
     else if (attack.outcome === 'SUNK') sounds.sunk();
     else sounds.hit();
   });
 
   $effect(() => {
+    if (selfPlayer?.placementConfirmed) trackFunnelReached('placement_completed');
     if (snapshot?.room.status === 'FINISHED' && snapshot.result && !resultSoundPlayed) {
+      trackFunnelReached('match_completed');
       resultSoundPlayed = true;
       if (snapshot.result.winnerId === snapshot.selfPlayerId) sounds.victory();
       else sounds.defeat();
     }
     if (selfPlayer?.placementConfirmed) placementSubmitting = false;
     if ($gameError) {
+      if (placementSubmitting) {
+        trackFunnelFailure('placement_completed', 'placement');
+        placementSubmitting = false;
+      }
+      if (attackPending) {
+        trackFunnelFailure('first_attack', 'attack');
+        attackPending = false;
+      }
       readyPending = false;
       startPending = false;
       showStart = false;
@@ -260,6 +274,7 @@
     });
     if (!sent) {
       attackPending = false;
+      trackFunnelFailure('first_attack', 'network');
       gameError.set({
         code: 'CONNECTION_REQUIRED',
         message: '실시간 연결이 복구된 뒤 다시 공격해 주세요.',
@@ -288,6 +303,7 @@
 
   async function leaveRoom() {
     if (!snapshot) return;
+    if (snapshot.room.status !== 'FINISHED') trackFunnelAbandoned();
     try {
       await api.leaveRoom(snapshot.room.id);
     } finally {

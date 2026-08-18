@@ -13,6 +13,7 @@
     Waves
   } from '@lucide/svelte';
   import { api, ApiError } from '$lib/api';
+  import { trackFunnelFailure, trackFunnelReached } from '$lib/funnel';
   import { session } from '$lib/stores';
   import { Badge, Button, Field, Surface } from '$lib/ui';
 
@@ -32,6 +33,7 @@
       existingSession = true;
     } catch {
       existingSession = false;
+      trackFunnelReached('landing');
     }
   });
 
@@ -45,8 +47,10 @@
     try {
       const created = await api.createSession(nickname);
       session.set(created);
+      trackFunnelReached('session_created');
       await goto(resolve('/lobby'));
     } catch (caught) {
+      trackFunnelFailure('session_created', 'session_creation');
       error = caught instanceof ApiError ? caught.message : '지휘관 등록에 실패했습니다.';
     } finally {
       submitting = false;

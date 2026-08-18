@@ -176,6 +176,130 @@ pub struct HealthResponse {
     pub protocol_version: u16,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FunnelStage {
+    Landing,
+    TutorialStarted,
+    TutorialCompleted,
+    SessionCreated,
+    LobbyEntered,
+    RoomJoined,
+    PlacementCompleted,
+    FirstAttack,
+    MatchCompleted,
+}
+
+impl FunnelStage {
+    pub const ALL: [Self; 9] = [
+        Self::Landing,
+        Self::TutorialStarted,
+        Self::TutorialCompleted,
+        Self::SessionCreated,
+        Self::LobbyEntered,
+        Self::RoomJoined,
+        Self::PlacementCompleted,
+        Self::FirstAttack,
+        Self::MatchCompleted,
+    ];
+    pub const COUNT: usize = Self::ALL.len();
+
+    pub const fn index(self) -> usize {
+        self as usize
+    }
+
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Landing => "landing",
+            Self::TutorialStarted => "tutorial_started",
+            Self::TutorialCompleted => "tutorial_completed",
+            Self::SessionCreated => "session_created",
+            Self::LobbyEntered => "lobby_entered",
+            Self::RoomJoined => "room_joined",
+            Self::PlacementCompleted => "placement_completed",
+            Self::FirstAttack => "first_attack",
+            Self::MatchCompleted => "match_completed",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FunnelOutcome {
+    Reached,
+    Failed,
+    Abandoned,
+}
+
+impl FunnelOutcome {
+    pub const ALL: [Self; 3] = [Self::Reached, Self::Failed, Self::Abandoned];
+    pub const COUNT: usize = Self::ALL.len();
+
+    pub const fn index(self) -> usize {
+        self as usize
+    }
+
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Reached => "reached",
+            Self::Failed => "failed",
+            Self::Abandoned => "abandoned",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FunnelFailureReason {
+    Network,
+    SessionCreation,
+    Authentication,
+    RoomEntry,
+    Matchmaking,
+    Recovery,
+    Placement,
+    Attack,
+}
+
+impl FunnelFailureReason {
+    pub const ALL: [Self; 8] = [
+        Self::Network,
+        Self::SessionCreation,
+        Self::Authentication,
+        Self::RoomEntry,
+        Self::Matchmaking,
+        Self::Recovery,
+        Self::Placement,
+        Self::Attack,
+    ];
+    pub const COUNT: usize = Self::ALL.len();
+
+    pub const fn index(self) -> usize {
+        self as usize
+    }
+
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Network => "network",
+            Self::SessionCreation => "session_creation",
+            Self::Authentication => "authentication",
+            Self::RoomEntry => "room_entry",
+            Self::Matchmaking => "matchmaking",
+            Self::Recovery => "recovery",
+            Self::Placement => "placement",
+            Self::Attack => "attack",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct FunnelEventInput {
+    pub stage: FunnelStage,
+    pub outcome: FunnelOutcome,
+    pub reason: Option<FunnelFailureReason>,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RoomReference {

@@ -24,8 +24,8 @@ use crate::{
     protocol::{
         AccountDeletionInput, AccountDeletionResponse, AccountLoginInput, AccountSessionsResponse,
         AccountUpgradeInput, AccountUpgradeResponse, CreatePracticeInput, CreateRoomInput,
-        CreateSessionInput, HealthResponse, IntegritySignalQuery, JoinRoomInput,
-        MatchmakingResponse, ModerationActionInput, ModerationActionResponse,
+        CreateSessionInput, FunnelEventInput, FunnelOutcome, HealthResponse, IntegritySignalQuery,
+        JoinRoomInput, MatchmakingResponse, ModerationActionInput, ModerationActionResponse,
         ModerationReportQuery, PlayerReportInput, PlayerReportResponse, RoomCreatedResponse,
         RoomListResponse, SessionResponse, SocialRelationshipInput, SocialRelationshipsResponse,
     },
@@ -37,6 +37,7 @@ pub fn router() -> Router<AppState> {
         .route("/health", get(health))
         .route("/ready", get(readiness))
         .route("/metrics", get(metrics))
+        .route("/telemetry/funnel", post(record_funnel_event))
         .route("/sessions", post(create_session))
         .route("/accounts/upgrade", post(upgrade_account))
         .route("/accounts/login", post(login_account))
@@ -94,6 +95,21 @@ async fn metrics(State(state): State<AppState>) -> impl IntoResponse {
         )],
         state.metrics.render_prometheus(matchmaking),
     )
+}
+
+async fn record_funnel_event(
+    State(state): State<AppState>,
+    input: Result<Json<FunnelEventInput>, JsonRejection>,
+) -> Result<StatusCode, GameError> {
+    let input = parse_json(input)?;
+    let valid_reason = matches!(input.outcome, FunnelOutcome::Failed) == input.reason.is_some();
+    if !valid_reason {
+        return Err(GameError::InvalidRequest);
+    }
+    state
+        .metrics
+        .record_funnel_event(input.stage, input.outcome, input.reason);
+    Ok(StatusCode::NO_CONTENT)
 }
 
 async fn health(State(state): State<AppState>) -> Json<HealthResponse> {

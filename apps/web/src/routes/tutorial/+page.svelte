@@ -12,6 +12,7 @@
     ShieldCheck
   } from '@lucide/svelte';
   import { preferences, session } from '$lib/stores';
+  import { trackFunnelAbandoned, trackFunnelReached } from '$lib/funnel';
   import { sounds } from '$lib/sound';
   import { Badge, Button, Surface } from '$lib/ui';
 
@@ -51,6 +52,7 @@
   const rows = ['A', 'B', 'C', 'D', 'E'];
 
   onMount(() => {
+    trackFunnelReached('tutorial_started');
     const timer = setInterval(() => {
       if (step === 3) seconds = seconds > 1 ? seconds - 1 : 20;
     }, 1_000);
@@ -80,6 +82,7 @@
 
   async function finish() {
     preferences.update((value) => ({ ...value, tutorialCompleted: true }));
+    trackFunnelReached('tutorial_completed');
     sounds.confirm();
     await goto(resolve($session ? '/lobby' : '/'));
   }
@@ -102,7 +105,10 @@
       <h1 class="page-title">작전 지휘 튜토리얼</h1>
       <p>한 판을 시작하기 전에 핵심 판단과 복구 규칙을 직접 확인합니다.</p>
     </div>
-    <a class="exit-link" href={resolve($session ? '/lobby' : '/')}
+    <a
+      class="exit-link"
+      href={resolve($session ? '/lobby' : '/')}
+      onclick={() => trackFunnelAbandoned('tutorial_started')}
       ><ArrowLeft size={16} /> 나중에 계속</a
     >
   </header>

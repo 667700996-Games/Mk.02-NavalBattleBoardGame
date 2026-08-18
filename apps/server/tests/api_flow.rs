@@ -817,6 +817,81 @@ async fn liveness_readiness_and_security_headers_are_exposed() {
 }
 
 #[tokio::test]
+async fn new_player_funnel_accepts_only_bounded_anonymous_dimensions() {
+    let app = test_app();
+    for event in [
+        json!({ "stage": "landing", "outcome": "reached" }),
+        json!({
+            "stage": "room_joined",
+            "outcome": "failed",
+            "reason": "room_entry"
+        }),
+        json!({ "stage": "tutorial_started", "outcome": "abandoned" }),
+    ] {
+        let response = send(
+            &app,
+            Request::builder()
+                .method("POST")
+                .uri("/api/telemetry/funnel")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(event.to_string()))
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+    }
+
+    for invalid in [
+        json!({ "stage": "landing", "outcome": "failed" }),
+        json!({ "stage": "landing", "outcome": "reached", "reason": "network" }),
+        json!({ "stage": "player-123", "outcome": "reached" }),
+        json!({ "stage": "landing", "outcome": "reached", "playerId": "secret" }),
+    ] {
+        let response = send(
+            &app,
+            Request::builder()
+                .method("POST")
+                .uri("/api/telemetry/funnel")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(invalid.to_string()))
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    let response = send(
+        &app,
+        Request::builder()
+            .uri("/api/metrics")
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    let metrics = String::from_utf8(
+        to_bytes(response.into_body(), 128 * 1024)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap();
+    assert!(
+        metrics.contains(
+            "mk01_new_player_funnel_events_total{stage=\"landing\",outcome=\"reached\"} 1"
+        )
+    );
+    assert!(metrics.contains(
+        "mk01_new_player_funnel_events_total{stage=\"tutorial_started\",outcome=\"abandoned\"} 1"
+    ));
+    assert!(metrics.contains(
+        "mk01_new_player_funnel_events_total{stage=\"room_joined\",outcome=\"failed\"} 1"
+    ));
+    assert!(metrics.contains("mk01_new_player_funnel_failures_total{reason=\"room_entry\"} 1"));
+    assert!(!metrics.contains("playerId"));
+    assert!(!metrics.contains("secret"));
+}
+
+#[tokio::test]
 async fn global_and_session_creation_limits_reject_excess_requests() {
     let global_app = test_app_with_settings(Settings {
         http_requests_per_minute_per_ip: 1,

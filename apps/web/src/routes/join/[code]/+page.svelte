@@ -5,6 +5,7 @@
   import { onMount } from 'svelte';
   import { ArrowRight, KeyRound, Radio } from '@lucide/svelte';
   import { api, ApiError } from '$lib/api';
+  import { trackFunnelFailure, trackFunnelReached } from '$lib/funnel';
   import { gameSnapshot, session } from '$lib/stores';
   import { Button, Field, Surface } from '$lib/ui';
 
@@ -30,15 +31,23 @@
   async function join() {
     joining = true;
     error = '';
+    let sessionCreated = false;
     try {
       if (needsSession) {
         const created = await api.createSession(nickname);
         session.set(created);
+        sessionCreated = true;
+        trackFunnelReached('session_created');
       }
       const snapshot = await api.joinRoom(code);
       gameSnapshot.set(snapshot);
+      trackFunnelReached('room_joined');
       await goto(resolve('/room/[code]', { code: snapshot.room.code }));
     } catch (caught) {
+      trackFunnelFailure(
+        needsSession && !sessionCreated ? 'session_created' : 'room_joined',
+        needsSession && !sessionCreated ? 'session_creation' : 'room_entry'
+      );
       error = caught instanceof ApiError ? caught.message : '초대 채널에 접속하지 못했습니다.';
     } finally {
       joining = false;

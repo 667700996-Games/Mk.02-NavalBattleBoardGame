@@ -17,6 +17,7 @@
     X
   } from '@lucide/svelte';
   import { api, ApiError } from '$lib/api';
+  import { trackFunnelAbandoned, trackFunnelFailure, trackFunnelReached } from '$lib/funnel';
   import { realtime } from '$lib/realtime';
   import { gameSnapshot, session, socketStatus } from '$lib/stores';
   import { Avatar, Badge, Button, Field, Modal, Skeleton, Surface } from '$lib/ui';
@@ -46,6 +47,7 @@
       try {
         const current = await api.currentSession();
         session.set(current);
+        trackFunnelReached('lobby_entered');
         const recovered = await api.recover();
         if (recovered && recovered.room.status !== 'CANCELLED') {
           gameSnapshot.set(recovered);
@@ -75,6 +77,7 @@
           loading = false;
           return;
         }
+        trackFunnelFailure('lobby_entered', 'authentication');
         await goto(resolve('/'));
       }
     })();
@@ -105,8 +108,10 @@
         turnDurationSeconds: gameMode === 'RAPID' ? 30 : turnDurationSeconds
       });
       gameSnapshot.set(response.snapshot);
+      trackFunnelReached('room_joined');
       await goto(resolve('/room/[code]', { code: response.snapshot.room.code }));
     } catch (caught) {
+      trackFunnelFailure('room_joined', 'room_entry');
       error = caught instanceof ApiError ? caught.message : '작전실을 만들지 못했습니다.';
     } finally {
       submitting = false;
@@ -119,8 +124,10 @@
     try {
       const snapshot = await api.joinRoom(code);
       gameSnapshot.set(snapshot);
+      trackFunnelReached('room_joined');
       await goto(resolve('/room/[code]', { code: snapshot.room.code }));
     } catch (caught) {
+      trackFunnelFailure('room_joined', 'room_entry');
       error = caught instanceof ApiError ? caught.message : '작전실에 참가하지 못했습니다.';
     } finally {
       submitting = false;
@@ -130,6 +137,7 @@
   async function toggleMatchmaking() {
     if (matching) {
       await api.cancelMatchmaking();
+      trackFunnelAbandoned('lobby_entered');
       matching = false;
       queuedAt = null;
       return;
@@ -138,12 +146,14 @@
       const response = await api.enqueueMatchmaking();
       if (response.snapshot) {
         gameSnapshot.set(response.snapshot);
+        trackFunnelReached('room_joined');
         await goto(resolve('/room/[code]', { code: response.snapshot.room.code }));
       } else {
         matching = true;
         queuedAt = new Date(response.queuedAt ?? Date.now());
       }
     } catch (caught) {
+      trackFunnelFailure('room_joined', 'matchmaking');
       error = caught instanceof ApiError ? caught.message : '빠른 매칭을 시작하지 못했습니다.';
     }
   }
@@ -154,8 +164,10 @@
     try {
       const snapshot = await api.createPractice(difficulty);
       gameSnapshot.set(snapshot);
+      trackFunnelReached('room_joined');
       await goto(resolve('/room/[code]', { code: snapshot.room.code }));
     } catch (caught) {
+      trackFunnelFailure('room_joined', 'room_entry');
       error = caught instanceof ApiError ? caught.message : 'AI 전술 훈련을 시작하지 못했습니다.';
     } finally {
       practicing = false;
