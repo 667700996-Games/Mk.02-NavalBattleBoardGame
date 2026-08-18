@@ -146,6 +146,25 @@ export interface AccountSession {
   currentRoomId: string | null;
 }
 
+export type SupportActionKind = 'REVOKE_SESSION' | 'REVOKE_ALL_SESSIONS';
+
+export interface SupportAction {
+  id: string;
+  accountId: string;
+  operatorId: string;
+  action: SupportActionKind;
+  reason: string;
+  targetSessionId: string | null;
+  affectedSessionIds: string[];
+  createdAt: string;
+}
+
+export interface SupportAccountSnapshot {
+  account: PlayerAccount;
+  sessions: AccountSession[];
+  actions: SupportAction[];
+}
+
 export interface AccountDeletionStats {
   sessionsDeleted: number;
   rewardsDeleted: number;
@@ -183,6 +202,7 @@ export interface AccountDataExport {
   moderationReports: unknown[];
   moderationActions: unknown[];
   integritySignals: unknown[];
+  supportActions: SupportAction[];
   cacheCopies: string;
   credentialsExcluded: true;
 }

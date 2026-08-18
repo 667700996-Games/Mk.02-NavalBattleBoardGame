@@ -7,6 +7,7 @@
     RotateCcw,
     ShieldAlert
   } from '@lucide/svelte';
+  import { resolve } from '$app/paths';
   import { api, ApiError } from '$lib/api';
   import type {
     IntegritySignal,
@@ -124,6 +125,10 @@
     </div>
     <ShieldAlert size={34} aria-hidden="true" />
   </header>
+  <nav class="admin-nav" aria-label="운영 도구">
+    <a href={resolve('/admin/support')}>고객지원</a>
+    <a aria-current="page" href={resolve('/admin/moderation')}>신뢰 및 안전</a>
+  </nav>
 
   {#if !authenticated}
     <form
@@ -376,6 +381,23 @@
   .page-head p {
     max-width: 720px;
     color: var(--ink-400);
+  }
+  .admin-nav {
+    display: flex;
+    gap: 8px;
+  }
+  .admin-nav a {
+    padding: 8px 12px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    color: var(--ink-400);
+    font: 10px var(--font-display);
+    text-decoration: none;
+  }
+  .admin-nav a[aria-current='page'] {
+    border-color: var(--line-hot);
+    color: var(--cyan-200);
+    background: rgba(40, 223, 232, 0.08);
   }
   .access-panel {
     display: grid;

@@ -1,0 +1,58 @@
+{
+  "schemaVersion": 1,
+  "releaseId": "0123456789ab-1787050800",
+  "artifactManifestDigest": "sha256:replace-with-release-manifest-digest",
+  "environment": "canary",
+  "observedAt": "2026-08-18T12:00:00.000Z",
+  "checks": {
+    "quality": true,
+    "unit": true,
+    "integration": true,
+    "contract": true,
+    "e2e": true,
+    "visual": true,
+    "performance": true,
+    "migrationCompatibility": true,
+    "activeMatchCompatibility": true,
+    "backupFreshness": true
+  },
+  "migration": {
+    "additiveOnly": true,
+    "checksumVerified": true,
+    "stableRestartedAfterCandidate": true
+  },
+  "activeMatches": {
+    "incompatibleSnapshots": 0,
+    "stableCandidateRecovery": true
+  },
+  "promotionFrom": {
+    "environment": "staging",
+    "manifestDigest": "sha256:replace-with-release-manifest-digest"
+  },
+  "approvals": ["release-reviewer-id"],
+  "backup": {
+    "ageSeconds": 300,
+    "restoreDrillAgeDays": 7
+  },
+  "canary": {
+    "holdSeconds": 900,
+    "completedTrafficStepsPercent": [10],
+    "metrics": {
+      "availability": 0.9999,
+      "apiErrorRate": 0.001,
+      "commandP95Milliseconds": 80,
+      "commandP99Milliseconds": 160,
+      "unexpectedDisconnectRate": 0.002,
+      "protocolRejections": 0,
+      "distributedEventFailures": 0,
+      "apiRequests": 2000,
+      "commands": 500,
+      "websockets": 200
+    }
+  },
+  "rollback": {
+    "rehearsed": true,
+    "recoverySeconds": 120,
+    "restoredManifestDigest": "sha256:replace-with-previous-manifest-digest"
+  }
+}

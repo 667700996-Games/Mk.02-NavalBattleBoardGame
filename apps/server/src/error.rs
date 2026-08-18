@@ -90,6 +90,10 @@ pub enum GameError {
     PlayerBlocked,
     #[error("신고 사건을 찾을 수 없습니다.")]
     ReportNotFound,
+    #[error("고객지원 조회 조건과 일치하는 계정을 찾을 수 없습니다.")]
+    SupportAccountNotFound,
+    #[error("회수할 수 있는 계정 세션을 찾을 수 없습니다.")]
+    SupportSessionNotFound,
     #[error("라이브 콘텐츠 리비전을 찾을 수 없습니다.")]
     LiveContentRevisionNotFound,
     #[error(
@@ -155,6 +159,8 @@ impl GameError {
             Self::CapacityReached => "CAPACITY_REACHED",
             Self::PlayerBlocked => "PLAYER_BLOCKED",
             Self::ReportNotFound => "REPORT_NOT_FOUND",
+            Self::SupportAccountNotFound => "SUPPORT_ACCOUNT_NOT_FOUND",
+            Self::SupportSessionNotFound => "SUPPORT_SESSION_NOT_FOUND",
             Self::LiveContentRevisionNotFound => "LIVE_CONTENT_REVISION_NOT_FOUND",
             Self::LiveContentRevisionConflict => "LIVE_CONTENT_REVISION_CONFLICT",
             Self::AccountSuspended => "ACCOUNT_SUSPENDED",
@@ -176,9 +182,11 @@ impl GameError {
             | Self::RankedAccountRequired
             | Self::AccountSuspended
             | Self::AccountBanned => StatusCode::FORBIDDEN,
-            Self::RoomNotFound | Self::ReportNotFound | Self::LiveContentRevisionNotFound => {
-                StatusCode::NOT_FOUND
-            }
+            Self::RoomNotFound
+            | Self::ReportNotFound
+            | Self::SupportAccountNotFound
+            | Self::SupportSessionNotFound
+            | Self::LiveContentRevisionNotFound => StatusCode::NOT_FOUND,
             Self::RoomFull
             | Self::RoomAlreadyStarted
             | Self::AlreadyJoined

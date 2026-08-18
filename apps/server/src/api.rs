@@ -36,7 +36,8 @@ use crate::{
         PublishLiveContentInput, RankedLeaderboardQuery, RankedLeaderboardResponse,
         RankedLeaderboardVisibilityInput, RankedLeaderboardVisibilityResponse,
         RollbackLiveContentInput, RoomCreatedResponse, RoomListResponse, RumMetricInput,
-        SessionResponse, SocialRelationshipInput, SocialRelationshipsResponse,
+        SessionResponse, SocialRelationshipInput, SocialRelationshipsResponse, SupportAccountQuery,
+        SupportActionResponse, SupportSessionRevocationInput,
     },
     store::GameHistoryItem,
 };
@@ -76,6 +77,11 @@ pub fn router() -> Router<AppState> {
         )
         .route("/reports", post(report_player))
         .route("/admin/moderation/reports", get(moderation_reports))
+        .route("/admin/support/accounts", get(support_account))
+        .route(
+            "/admin/support/accounts/{account_id}/sessions/revoke",
+            post(revoke_support_sessions),
+        )
         .route("/admin/integrity/signals", get(integrity_signals))
         .route(
             "/admin/content/revisions",
@@ -477,6 +483,30 @@ async fn moderation_reports(
             .moderation_cases(query.search, query.status, query.before, query.limit)
             .await?,
     ))
+}
+
+async fn support_account(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<SupportAccountQuery>,
+) -> Result<Json<crate::domain::SupportAccountSnapshot>, GameError> {
+    authenticate_operator(&state, &headers, false)?;
+    Ok(Json(state.support_account(query.query).await?))
+}
+
+async fn revoke_support_sessions(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(account_id): Path<Uuid>,
+    input: Result<Json<SupportSessionRevocationInput>, JsonRejection>,
+) -> Result<Json<SupportActionResponse>, GameError> {
+    let input = parse_json(input)?;
+    let operator_id = authenticate_operator(&state, &headers, true)?;
+    Ok(Json(SupportActionResponse {
+        action: state
+            .revoke_support_sessions(account_id, input.session_id, operator_id, input.reason)
+            .await?,
+    }))
 }
 
 async fn integrity_signals(

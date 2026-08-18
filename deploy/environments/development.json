@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "name": "development",
+  "promotionFrom": null,
+  "githubEnvironment": "development",
+  "replicas": 1,
+  "gatewayBind": "127.0.0.1:18081",
+  "trafficPercent": 100,
+  "minimumHoldSeconds": 0,
+  "requiredApprovals": 0,
+  "requiresProductionLikeData": false,
+  "requiredSecrets": [
+    "DATABASE_URL_FILE",
+    "REDIS_URL_FILE",
+    "ADMIN_TOKEN_FILE"
+  ],
+  "publicOriginVariable": "DEVELOPMENT_PUBLIC_ORIGIN"
+}

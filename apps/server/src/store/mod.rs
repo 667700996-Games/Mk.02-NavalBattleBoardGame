@@ -12,8 +12,9 @@ use crate::{
         AccountSession, ActivePenalty, BalancePin, GameResult, GameRoom, IntegritySignal,
         IntegritySignalKind, IntegritySignalPage, LiveContentRevision, MatchmakingCriteria,
         MatchmakingQuality, ModerationAction, ModerationCasePage, NewIntegritySignal,
-        NewModerationAction, NewPlayerReport, PlayerAccount, RankedLeaderboardPage, RankedProfile,
-        ReportStatus, RoomSummary, SocialRelationship, UserSession,
+        NewModerationAction, NewPlayerReport, NewSupportAction, PlayerAccount,
+        RankedLeaderboardPage, RankedProfile, ReportStatus, RoomSummary, SocialRelationship,
+        SupportAccountSnapshot, SupportAction, UserSession,
     },
     error::GameError,
 };
@@ -146,6 +147,14 @@ pub trait GameStore: Send + Sync {
         account_id: Uuid,
         session_id: Uuid,
     ) -> Result<bool, GameError>;
+    async fn support_account(
+        &self,
+        query: &str,
+    ) -> Result<Option<SupportAccountSnapshot>, GameError>;
+    async fn revoke_account_sessions_for_support(
+        &self,
+        request: &NewSupportAction,
+    ) -> Result<SupportAction, GameError>;
     async fn export_account_data(
         &self,
         account_id: Uuid,

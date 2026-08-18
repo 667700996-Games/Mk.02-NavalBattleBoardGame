@@ -11,12 +11,12 @@ use crate::{
         GameRoom, IntegritySignal, IntegritySignalKind, IntegritySignalPage, LiveContentRevision,
         MatchmakingCriteria, MatchmakingPool, ModerationAction, ModerationActionKind,
         ModerationCase, ModerationCasePage, NewIntegritySignal, NewModerationAction,
-        NewPlayerReport, PlayerAccount, PlayerReport, RANKED_LEADERBOARD_MAX_LIMIT,
-        RECENT_OPPONENT_LOOKBACK_MINUTES, RankedLeaderboardEntry, RankedLeaderboardPage,
-        RankedLeaderboardSeason, RankedProfile, RankedStandingRecord, RankedTier, ReportStatus,
-        RoomStatus, RoomSummary, RoomVisibility, SocialRelationship, UserSession,
-        matchmaking_quality, next_season_seed, ranked_match_reward_xp, ranked_placement_reward_xp,
-        ranked_season_key,
+        NewPlayerReport, NewSupportAction, PlayerAccount, PlayerReport,
+        RANKED_LEADERBOARD_MAX_LIMIT, RECENT_OPPONENT_LOOKBACK_MINUTES, RankedLeaderboardEntry,
+        RankedLeaderboardPage, RankedLeaderboardSeason, RankedProfile, RankedStandingRecord,
+        RankedTier, ReportStatus, RoomStatus, RoomSummary, RoomVisibility, SocialRelationship,
+        SupportAccountSnapshot, SupportAction, UserSession, matchmaking_quality, next_season_seed,
+        ranked_match_reward_xp, ranked_placement_reward_xp, ranked_season_key,
     },
     error::GameError,
 };
@@ -71,6 +71,7 @@ pub struct MemoryStore {
     accounts: DashMap<Uuid, (PlayerAccount, String)>,
     account_id_by_handle: DashMap<String, Uuid>,
     account_mutations: Mutex<()>,
+    support_actions: DashMap<Uuid, SupportAction>,
     mission_rewards: DashMap<(Uuid, String, String), u32>,
     live_content_revisions: Mutex<Vec<LiveContentRevision>>,
     social_relationships: DashMap<(Uuid, Uuid), SocialRelationship>,
@@ -495,6 +496,84 @@ impl GameStore for MemoryStore {
         Ok(true)
     }
 
+    async fn support_account(
+        &self,
+        query: &str,
+    ) -> Result<Option<SupportAccountSnapshot>, GameError> {
+        let account_id = Uuid::parse_str(query).ok().or_else(|| {
+            self.account_id_by_handle
+                .get(&query.to_lowercase())
+                .map(|entry| *entry.value())
+        });
+        let Some(account_id) = account_id else {
+            return Ok(None);
+        };
+        let Some(account) = self
+            .accounts
+            .get(&account_id)
+            .map(|entry| entry.value().0.clone())
+        else {
+            return Ok(None);
+        };
+        let sessions = self.sessions_for_account(account_id).await?;
+        let mut actions: Vec<_> = self
+            .support_actions
+            .iter()
+            .filter(|action| action.account_id == account_id)
+            .map(|action| action.value().clone())
+            .collect();
+        actions.sort_by_key(|action| std::cmp::Reverse(action.created_at));
+        Ok(Some(SupportAccountSnapshot {
+            account,
+            sessions,
+            actions,
+        }))
+    }
+
+    async fn revoke_account_sessions_for_support(
+        &self,
+        request: &NewSupportAction,
+    ) -> Result<SupportAction, GameError> {
+        let _guard = self.account_mutations.lock().await;
+        if !self.accounts.contains_key(&request.account_id) {
+            return Err(GameError::SupportAccountNotFound);
+        }
+        let affected_session_ids: Vec<_> = self
+            .session_hash_by_id
+            .iter()
+            .filter_map(|entry| {
+                let id = *entry.key();
+                if request.target_session_id.is_some_and(|target| target != id) {
+                    return None;
+                }
+                self.sessions_by_hash
+                    .get(entry.value())
+                    .is_some_and(|session| session.account_id == Some(request.account_id))
+                    .then_some(id)
+            })
+            .collect();
+        if affected_session_ids.is_empty() {
+            return Err(GameError::SupportSessionNotFound);
+        }
+        for id in &affected_session_ids {
+            if let Some((_, hash)) = self.session_hash_by_id.remove(id) {
+                self.sessions_by_hash.remove(&hash);
+            }
+        }
+        let action = SupportAction {
+            id: request.id,
+            account_id: request.account_id,
+            operator_id: request.operator_id.clone(),
+            action: request.action,
+            reason: request.reason.clone(),
+            target_session_id: request.target_session_id,
+            affected_session_ids,
+            created_at: request.created_at,
+        };
+        self.support_actions.insert(action.id, action.clone());
+        Ok(action)
+    }
+
     async fn export_account_data(
         &self,
         account_id: Uuid,
@@ -566,6 +645,12 @@ impl GameStore for MemoryStore {
             .filter(|signal| identities.contains(&signal.subject_identity_id))
             .map(|signal| signal.value().clone())
             .collect();
+        let support_actions: Vec<_> = self
+            .support_actions
+            .iter()
+            .filter(|action| action.account_id == account_id)
+            .map(|action| action.value().clone())
+            .collect();
         let ranked_rating = self
             .ranked_ratings
             .get(&account_id)
@@ -631,6 +716,7 @@ impl GameStore for MemoryStore {
             "moderationReports": reports,
             "moderationActions": moderation_actions,
             "integritySignals": integrity_signals,
+            "supportActions": support_actions,
             "cacheCopies": "No independent data; Redis room cache follows the authoritative room lifecycle.",
             "credentialsExcluded": true,
         });
@@ -788,6 +874,15 @@ impl GameStore for MemoryStore {
             .collect();
         for signal_id in &signal_ids {
             self.integrity_signals.remove(signal_id);
+        }
+        let support_action_ids: Vec<_> = self
+            .support_actions
+            .iter()
+            .filter(|action| action.account_id == account_id)
+            .map(|action| action.id)
+            .collect();
+        for action_id in support_action_ids {
+            self.support_actions.remove(&action_id);
         }
         self.matchmaking
             .lock()

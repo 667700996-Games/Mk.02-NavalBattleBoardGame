@@ -3,12 +3,12 @@
     "javascript": {
       "extensions": [".js"],
       "perFileBytes": 100000,
-      "totalBytes": 344000
+      "totalBytes": 354000
     },
     "css": {
       "extensions": [".css"],
       "perFileBytes": 90000,
-      "totalBytes": 198500
+      "totalBytes": 201500
     },
     "fonts": {
       "extensions": [".woff2"],
@@ -27,6 +27,14 @@
     }
   },
   "routeEntries": {
+    "/admin/moderation": {
+      "javascriptBytes": 15000,
+      "cssBytes": 8500
+    },
+    "/admin/support": {
+      "javascriptBytes": 10000,
+      "cssBytes": 5000
+    },
     "/replay/[roomId]": {
       "javascriptBytes": 20000,
       "cssBytes": 10500

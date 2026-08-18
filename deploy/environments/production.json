@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "name": "production",
+  "promotionFrom": "canary",
+  "githubEnvironment": "production",
+  "replicas": 3,
+  "gatewayBind": "127.0.0.1:18084",
+  "trafficPercent": 100,
+  "minimumHoldSeconds": 900,
+  "requiredApprovals": 2,
+  "requiresProductionLikeData": true,
+  "requiredSecrets": [
+    "DATABASE_URL_FILE",
+    "REDIS_URL_FILE",
+    "ADMIN_TOKEN_FILE"
+  ],
+  "publicOriginVariable": "PRODUCTION_PUBLIC_ORIGIN"
+}

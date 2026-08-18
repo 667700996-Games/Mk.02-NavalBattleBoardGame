@@ -1,0 +1,118 @@
+name: Promote Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Protected destination environment
+        required: true
+        type: choice
+        options: [development, staging, canary, production]
+      release_run_id:
+        description: Successful Release Artifact workflow run ID
+        required: true
+      evidence_run_id:
+        description: Workflow run ID containing the destination release evidence
+        required: true
+      previous_release_run_id:
+        description: Previous production artifact run ID, required for production rollback
+        required: false
+
+concurrency:
+  group: release-promote-${{ inputs.environment }}
+  cancel-in-progress: false
+
+permissions:
+  actions: read
+  contents: read
+  packages: read
+
+jobs:
+  promote:
+    runs-on: [self-hosted, linux, mk01-deploy]
+    timeout-minutes: 30
+    environment: ${{ inputs.environment }}
+    steps:
+      - name: Download immutable release bundle
+        uses: actions/download-artifact@v6
+        with:
+          name: release-bundle
+          path: ${{ runner.temp }}/incoming/release
+          run-id: ${{ inputs.release_run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Download environment evidence
+        uses: actions/download-artifact@v6
+        with:
+          name: release-evidence-${{ inputs.environment }}
+          path: ${{ runner.temp }}/incoming/evidence
+          run-id: ${{ inputs.evidence_run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Resolve artifact source
+        id: release
+        run: |
+          manifest="${{ runner.temp }}/incoming/release/.artifacts/release-manifest.json"
+          echo "sha=$(jq -er '.source.gitSha' "$manifest")" >> "$GITHUB_OUTPUT"
+          echo "manifest=$manifest" >> "$GITHUB_OUTPUT"
+          evidence="$(find "${{ runner.temp }}/incoming/evidence" -name '*.json' -type f | head -1)"
+          test -n "$evidence"
+          echo "evidence=$evidence" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ steps.release.outputs.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Download previous production rollback bundle
+        if: inputs.environment == 'production'
+        uses: actions/download-artifact@v6
+        with:
+          name: release-bundle
+          path: ${{ runner.temp }}/incoming/previous
+          run-id: ${{ inputs.previous_release_run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: sigstore/cosign-installer@v4.1.2
+        with:
+          cosign-release: v3.0.6
+      - name: Verify keyless image identities
+        env:
+          MANIFEST: ${{ steps.release.outputs.manifest }}
+        run: |
+          identity="https://github.com/${{ github.repository }}/.github/workflows/release-build.yml@refs/.*"
+          issuer="https://token.actions.githubusercontent.com"
+          cosign verify --certificate-identity-regexp "$identity" --certificate-oidc-issuer "$issuer" "$(jq -er '.images.server' "$MANIFEST")"
+          cosign verify --certificate-identity-regexp "$identity" --certificate-oidc-issuer "$issuer" "$(jq -er '.images.web' "$MANIFEST")"
+      - name: Materialize protected runtime secrets
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          REDIS_URL: ${{ secrets.REDIS_URL }}
+          ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
+        run: |
+          umask 077
+          printf '%s' "$DATABASE_URL" > "$RUNNER_TEMP/mk01-database-url"
+          printf '%s' "$REDIS_URL" > "$RUNNER_TEMP/mk01-redis-url"
+          printf '%s' "$ADMIN_TOKEN" > "$RUNNER_TEMP/mk01-admin-token"
+          echo "MK01_DATABASE_URL_FILE=$RUNNER_TEMP/mk01-database-url" >> "$GITHUB_ENV"
+          echo "MK01_REDIS_URL_FILE=$RUNNER_TEMP/mk01-redis-url" >> "$GITHUB_ENV"
+          echo "MK01_ADMIN_TOKEN_FILE=$RUNNER_TEMP/mk01-admin-token" >> "$GITHUB_ENV"
+      - name: Gate and deploy exact image digests
+        env:
+          DEVELOPMENT_PUBLIC_ORIGIN: ${{ vars.PUBLIC_ORIGIN }}
+          STAGING_PUBLIC_ORIGIN: ${{ vars.PUBLIC_ORIGIN }}
+          PRODUCTION_PUBLIC_ORIGIN: ${{ vars.PUBLIC_ORIGIN }}
+          MK01_GATEWAY_IMAGE: ${{ vars.GATEWAY_IMAGE }}
+          MANIFEST: ${{ steps.release.outputs.manifest }}
+          EVIDENCE: ${{ steps.release.outputs.evidence }}
+        run: |
+          previous="$MANIFEST"
+          if [[ "${{ inputs.environment }}" == "production" ]]; then
+            previous="${{ runner.temp }}/incoming/previous/.artifacts/release-manifest.json"
+            test -f "$previous"
+          fi
+          scripts/deploy-release.sh "${{ inputs.environment }}" "$MANIFEST" "$EVIDENCE" "$previous"
+      - uses: actions/upload-artifact@v6
+        with:
+          name: deployment-receipt-${{ inputs.environment }}-${{ inputs.release_run_id }}
+          path: |
+            .artifacts/release-decision-${{ inputs.environment }}.json
+            .artifacts/deployment-${{ inputs.environment }}.json
+          retention-days: 90
+          if-no-files-found: error

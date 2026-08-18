@@ -13,8 +13,8 @@ code-split entry JavaScript and CSS. The current production artifact is:
 
 | Category | Measured bytes | Total budget |
 | --- | ---: | ---: |
-| JavaScript | 343,826 | 344,000 |
-| CSS | 198,328 | 198,500 |
+| JavaScript | 353,327 | 354,000 |
+| CSS | 200,968 | 201,500 |
 | WOFF2 fonts | 505,756 | 1,200,000 |
 | Images | 2,137,055 | 2,200,000 |
 | Audio | 0 | 4,000,000 |
@@ -49,6 +49,13 @@ bytes, so its 20,000 / 10,500 limits remain unchanged. The complete-artifact cei
 measured feature cost at 344,000 / 198,500 bytes. `/stats` remains within its unchanged route cap at
 18,403 / 13,473 bytes. The gameplay journey rose only to 261,414 JavaScript and 146,037 CSS bytes,
 so no runtime transfer or device-tier limit changed.
+
+The isolated player-support console expanded the verified complete artifact from 343,471 to 353,327
+JavaScript bytes and from 196,239 to 200,968 CSS bytes without entering any player route's initial
+transfer. Its entry is measured at 8,954 JavaScript and 4,358 CSS bytes and is capped at 10,000 /
+5,000 bytes. The adjacent moderation console is also made explicit at 14,364 / 8,009 bytes with
+15,000 / 8,500 caps. Complete-artifact ceilings moved only to 354,000 / 201,500 bytes, leaving 673 /
+532 bytes of headroom; player device-tier transfer limits remain unchanged.
 
 ## Runtime gate
 

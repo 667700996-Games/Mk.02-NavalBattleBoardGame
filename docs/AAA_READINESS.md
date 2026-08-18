@@ -136,7 +136,7 @@ The program is complete only when all gates below are satisfied in a production-
   completed during the mixed window. The self-testing migration policy rejects destructive data,
   DDL, defaults, type, RLS, and permission changes and guarantees new migration files invalidate the
   embedded release build. The clean 12-case service run passed in 10.77 seconds, and the encrypted
-  restore drill reapplied all 19 migrations with zero resurrected personal rows.
+  restore drill reapplied all 20 migrations with zero resurrected personal rows.
 
 ## Gate C — Game product and player retention
 
@@ -170,7 +170,7 @@ The program is complete only when all gates below are satisfied in a production-
   season; only active seasons accept queues, and season keys prevent cross-season pairing. The
   PostgreSQL result transaction locks both standings, inserts one room settlement marker, updates
   rating projections, and writes unique match/placement/season rewards atomically. Memory/domain/
-  API tests plus a fresh 19-migration PostgreSQL 16 database and the twelve-test PostgreSQL/Redis
+  API tests plus a fresh 20-migration PostgreSQL 16 database and the thirteen-test PostgreSQL/Redis
   suite prove spoof resistance, idempotent settlement, five placements, rollover rewards, export,
   deletion, restore verification, and mixed-version queue behavior. The stats view exposes the
   active provisional/tier rating and multi-browser E2E covers the player flow.
@@ -198,7 +198,7 @@ The program is complete only when all gates below are satisfied in a production-
   becomes V1 rather than the latest default. Unknown or altered active pins fail before execution or
   persistence. Composite database foreign keys prevent version/checksum reuse, a trigger rejects
   catalog edits/deletes, and restore verification compares catalog, room, game, and result copies.
-  Domain/API tests, a fresh 19-migration PostgreSQL 16 database, the twelve-test PostgreSQL/Redis
+  Domain/API tests, a fresh 20-migration PostgreSQL 16 database, the thirteen-test PostgreSQL/Redis
   suite, and multi-browser full-match replay cover legacy recovery, tampering, immutable history,
   exact UI interpretation, and rollback-safe retention.
 
@@ -323,7 +323,7 @@ The program is complete only when all gates below are satisfied in a production-
   realtime, or global-state modules. The room route continues to delegate waiting, placement,
   battle, result, and chat responsibilities. `architecture:check` now requires all of these modules,
   enforces server/room/route/component limits and presentation dependency direction, and assigns all
-  271 critical files to exactly one owner boundary. Full Rust/web checks, lint, 102 Rust tests, 36 web
+  290 critical files to exactly one owner boundary. Full Rust/web checks, lint, 104 Rust tests, 36 web
   unit tests, a warning-free production build, and the multi-browser/mobile E2E release matrix pass.
 - Evidence: `PROTOCOL_COMPATIBILITY.md` fixes explicit HTTP/WebSocket negotiation, the frozen
   headerless V2 fallback, current-plus-one-prior support, server-first rollout, rollback, a minimum
@@ -336,7 +336,7 @@ The program is complete only when all gates below are satisfied in a production-
   deserializes every frozen command. API and real loopback WebSocket integration tests prove old
   headerless V2, explicit V2 selection, unsupported/malformed rejection, and bounded version
   metrics. A 13th Grafana panel plus a volume-gated rejection alert enforce the canary gate. The
-  complete Rust/web checks, lint, 102 Rust tests, 36 web unit tests, production build, and 33 executed
+  complete Rust/web checks, lint, 104 Rust tests, 36 web unit tests, production build, and 33 executed
   multi-browser/mobile E2E cases passed; all six full-game profiles completed and recovered after
   refresh with the negotiated V2 socket.
 - Evidence: `ARCHITECTURE.md` records the authority/dependency map, runtime flows, seven path
@@ -345,12 +345,12 @@ The program is complete only when all gates below are satisfied in a production-
   protocol/schema/balance/content history. The dated baseline review covers every decision and
   boundary, passes authority/dependency/durability/compatibility/ownership review, and keeps
   `ARCH-001`/`ARCH-002` open with owners and measurable acceptance instead of hiding decomposition
-  debt. The machine-readable ownership policy maps 271 critical files to exactly one boundary and
+  debt. The machine-readable ownership policy maps 290 critical files to exactly one boundary and
   six roles; CODEOWNERS uses a verified GitHub account, while the PR template requires boundary,
   owner, ADR, compatibility, rollback, and independent high-risk review evidence. The executable
   gate rejects uncovered/overlapping ownership, missing ADR/review/CODEOWNERS data, and forbidden
   domain→transport/store, store→transport, or pure browser-game→network/global-state dependencies.
-  CI runs it explicitly and through lint; architecture, full check/lint, 102 Rust tests, and 36 web
+  CI runs it explicitly and through lint; architecture, full check/lint, 104 Rust tests, and 36 web
   unit tests passed.
 
 ### E2. Automated quality gates
@@ -368,8 +368,8 @@ The program is complete only when all gates below are satisfied in a production-
   two Redis-backed instances, recovers an active match through instance replacement, and proves
   PostgreSQL remains authoritative when the optional Redis cache cannot connect. The dedicated CI
   job uses health-checked PostgreSQL 16 and Redis 7 containers, requires both URLs so no test can
-  silently skip, serializes the twelve shared-database cases, and blocks browser and backup jobs.
-  Its post-suite restore verifier checks all 19 migrations and retained snapshots, then uploads a
+  silently skip, serializes the thirteen shared-database cases, and blocks browser and backup jobs.
+  Its post-suite restore verifier checks all 20 migrations and retained snapshots, then uploads a
   90-day JSON evidence artifact. `DISTRIBUTED_INTEGRATION.md` fixes the local reproduction, covered
   boundaries, acceptance rules, and failure triage.
 - Evidence: `config/quality-gates.json` assigns component, WCAG 2.2 AA, desktop/mobile golden,
@@ -396,12 +396,30 @@ The program is complete only when all gates below are satisfied in a production-
 
 ### E3. Release and service operations
 
-- [ ] Separate development, staging, canary, and production environments use reproducible artifacts.
-- [ ] Deployments include preflight, migration safety, canary analysis, rollback, and active-match
+- [x] Separate development, staging, canary, and production environments use reproducible artifacts.
+- [x] Deployments include preflight, migration safety, canary analysis, rollback, and active-match
       compatibility gates.
 - [x] SLOs cover availability, matchmaking latency, command latency, disconnect rate, and recovery.
 - [x] Dashboards, alerts, incident roles, status communication, runbooks, and postmortems exist.
-- [ ] Customer support and moderation tooling can act without direct database access.
+- [x] Customer support and moderation tooling can act without direct database access.
+- Evidence: a protected release-build workflow performs one locked server/web OCI build, emits SPDX
+  SBOMs and GitHub/Sigstore provenance, keyless-signs both image digests, and binds the digests to
+  the Git SHA, commit epoch, migrations, contracts, balance source, and lockfiles in a hashed
+  manifest. Four machine-readable environments form an immutable development→staging→canary→
+  production promotion chain. The executable gate rejects rebuilt artifacts, missing or stale
+  evidence, non-additive migrations, incompatible active snapshots, insufficient samples, SLO or
+  protocol failures, duplicate/missing approvals, stale backup/restore evidence, and an unproven
+  rollback. Deployment runs migrate-only before replacement and confirms gateway readiness and V2;
+  rollback restores the exact prior application digest within 15 minutes without reversing data.
+  Five release-gate tests exercise the successful chain and fail-closed threshold/source-drift paths.
+- Evidence: `/admin/support` performs authenticated exact UUID/handle lookup without credential,
+  token, IP, or device disclosure; a named operator can revoke one or all account sessions only
+  after supplying a bounded reason and exact-handle UI confirmation. The PostgreSQL operation locks
+  the account, deletes only owned sessions, and inserts an append-only audit row in one transaction;
+  direct history edits fail while account privacy deletion cascades the personal audit. Memory API
+  and service-backed PostgreSQL tests cover authorization, lookup, revocation, audit retrieval,
+  immutable history, and deletion. The existing `/admin/moderation` console remains the audited
+  warning, suspension, ban, dismissal, reversal, report, and integrity-signal path.
 - Evidence: product API response-class counters exclude probes, metrics and telemetry; shared
   HTTP/WebSocket command histograms distinguish accepted and rejected work; durable matchmaking
   records both players' queue-to-room latency; socket totals, abnormal closes and connected exposure
@@ -409,8 +427,8 @@ The program is complete only when all gates below are satisfied in a production-
   disconnect boundary and ends after the authoritative save. Unit and API integration tests verify bounded
   Prometheus output, route exclusions, paired wait samples and the reconnect sample. `OPERATIONS.md`
   fixes the objectives, PromQL, minimum samples, and multi-window availability burn-rate gate.
-- Evidence: the provisioned Grafana dashboard contains ten stable SLO/player-experience panels;
-  eleven Prometheus alerts route pages and tickets through versioned Alertmanager policy; and every
+- Evidence: the provisioned Grafana dashboard contains thirteen stable SLO/player-experience panels;
+  fourteen Prometheus alerts route pages and tickets through versioned Alertmanager policy; and every
   alert links to a concrete operations runbook anchor. `INCIDENT_RESPONSE.md` defines severity,
   five owned roles, escalation, evidence, communication cadence and closure. Public status and
   blameless postmortem templates require next-update clocks, confirmed player impact, causal

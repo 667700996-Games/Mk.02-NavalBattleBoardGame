@@ -310,6 +310,7 @@ npm run contract    # Rust/TypeScript 버전·이벤트·생성 매니페스트 
 npm run security:drill # 취약점 대응 역할·타임라인·패치 SLO·증거 검증
 npm run observability:check # 대시보드·경보·라우팅·사고 대응 계약 교차 검증
 npm run quality-gates:check # 8개 품질 스위트의 소유자·임계값·CI·골든·코퍼스 검증
+npm run release:check # 4개 환경·불변 아티팩트·카나리·롤백 정책과 판정기 테스트
 npm run fonts:check # 정적 한국어 글리프의 WOFF2 서브셋·중복·용량 검증
 npx playwright install chromium firefox webkit
 npm run test:a11y   # WCAG 2.2 AA 전체 흐름 + 키보드·라이브 알림 검증
@@ -333,6 +334,10 @@ npm run budget      # JS/CSS/폰트/이미지/오디오 파일·총량 제한과
 표본 수·p75/p95·카나리 중단 기준은 [운영 런북](docs/OPERATIONS.md)을 따릅니다.
 컴포넌트·접근성·비주얼·속성·퍼즈·부하·소크·카오스의 소유 임계값, 위험 기반
 커버리지와 재현 절차는 [자동화 품질 포트폴리오](docs/QUALITY_GATES.md)에 정의합니다.
+단일 빌드 OCI 다이제스트, SBOM·출처 증명·서명, 개발→스테이징→카나리→운영 승격,
+증거 판정과 롤백 절차는 [릴리스 운영 계약](docs/RELEASE_OPERATIONS.md)에 정의합니다.
+계정 세션 회수와 제재 조치는 [고객지원 운영 계약](docs/SUPPORT_OPERATIONS.md)의 제품 API와
+감사 이력을 사용하며 직접 데이터베이스 접속으로 처리하지 않습니다.
 
 운영 백업은 `scripts/backup-postgres.sh`와 `scripts/export-deletion-ledger.sh`를 각각 다른
 수명주기 객체로 저장합니다. 복구 시 `scripts/restore-postgres-drill.sh`는 두 객체의
@@ -361,7 +366,9 @@ DEPLOYMENT_ENV=production STORAGE_MODE=postgres \
 HOST=0.0.0.0 PORT=3000 ORIGIN='https://game.example.com' node apps/web/build
 ```
 
-운영에서는 API와 웹을 같은 HTTPS origin으로 reverse proxy하고 `/api/*`, `/ws`를 Rust 서버로 전달하세요. TLS 종단, 영속 볼륨, PostgreSQL 백업, 로그 수집, 헬스체크를 활성화해야 합니다. 제공된 `compose.yaml`과 `deploy/Caddyfile`은 로컬/단일 호스트 기준이므로 공개 도메인에서는 `PUBLIC_BASE_URL`, `ALLOWED_ORIGINS`, `ORIGIN`, Caddy 주소, 80/443 포트를 해당 도메인으로 변경하세요.
+로컬 개발에는 `compose.yaml`을 사용합니다. 릴리스에서는 소스를 다시 빌드하지 않는
+`deploy/compose.release.yaml`과 보호된 환경 워크플로를 사용하고, 외부 TLS/트래픽 계층이
+각 환경의 루프백 게이트웨이에 승인된 비율만 전달해야 합니다.
 
 ## 알려진 제한
 

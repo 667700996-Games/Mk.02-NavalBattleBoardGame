@@ -12,12 +12,12 @@ use crate::{
         IntegritySignal, IntegritySignalKind, IntegritySignalPage, LiveContentRevision,
         MatchmakingCriteria, MatchmakingPool, MatchmakingRegion, ModerationAction,
         ModerationActionKind, ModerationCase, ModerationCasePage, NewIntegritySignal,
-        NewModerationAction, NewPlayerReport, PlayerAccount, PlayerReport,
+        NewModerationAction, NewPlayerReport, NewSupportAction, PlayerAccount, PlayerReport,
         RANKED_LEADERBOARD_MAX_LIMIT, RECENT_OPPONENT_LOOKBACK_MINUTES, RankedLeaderboardEntry,
         RankedLeaderboardPage, RankedLeaderboardSeason, RankedProfile, RankedStandingRecord,
         RankedTier, ReportCategory, ReportStatus, RoomStatus, RoomSummary, SocialRelationship,
-        UserSession, matchmaking_quality, next_season_seed, ranked_match_reward_xp,
-        ranked_placement_reward_xp, ranked_season_key,
+        SupportAccountSnapshot, SupportAction, SupportActionKind, UserSession, matchmaking_quality,
+        next_season_seed, ranked_match_reward_xp, ranked_placement_reward_xp, ranked_season_key,
     },
     error::GameError,
 };
@@ -28,7 +28,7 @@ use super::{
     RankedRating, RetentionStats, RoomAuthorityLease,
 };
 
-const DELETION_RESURRECTION_COUNT_QUERY: &str = "SELECT (SELECT count(*) FROM player_accounts account JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=account.id) + (SELECT count(*) FROM user_sessions session JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=session.account_id) + (SELECT count(*) FROM progression_reward_ledger reward JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=reward.account_id) + (SELECT count(*) FROM ranked_ratings rating JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=rating.account_id) + (SELECT count(*) FROM ranked_reward_ledger reward JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=reward.account_id) + (SELECT count(*) FROM ranked_season_standings standing JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=standing.account_id) + (SELECT count(*) FROM ranked_match_participants participant JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=participant.account_id) + (SELECT count(*) FROM ranked_leaderboard_snapshot_entries entry JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=entry.account_id) + (SELECT count(*) FROM game_result_participants participant JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=participant.account_id) + (SELECT count(*) FROM game_results result JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=ANY(result.participant_account_ids)) + (SELECT count(*) FROM player_relationships relationship JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=relationship.actor_identity_id OR tombstone.account_id=relationship.target_identity_id) + (SELECT count(*) FROM player_reports report JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=report.reporter_identity_id OR tombstone.account_id=report.target_identity_id) + (SELECT count(*) FROM player_moderation_actions action JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=action.target_identity_id) + (SELECT count(*) FROM integrity_signals signal JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=signal.subject_identity_id)";
+const DELETION_RESURRECTION_COUNT_QUERY: &str = "SELECT (SELECT count(*) FROM player_accounts account JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=account.id) + (SELECT count(*) FROM user_sessions session JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=session.account_id) + (SELECT count(*) FROM progression_reward_ledger reward JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=reward.account_id) + (SELECT count(*) FROM ranked_ratings rating JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=rating.account_id) + (SELECT count(*) FROM ranked_reward_ledger reward JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=reward.account_id) + (SELECT count(*) FROM ranked_season_standings standing JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=standing.account_id) + (SELECT count(*) FROM ranked_match_participants participant JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=participant.account_id) + (SELECT count(*) FROM ranked_leaderboard_snapshot_entries entry JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=entry.account_id) + (SELECT count(*) FROM game_result_participants participant JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=participant.account_id) + (SELECT count(*) FROM game_results result JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=ANY(result.participant_account_ids)) + (SELECT count(*) FROM player_relationships relationship JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=relationship.actor_identity_id OR tombstone.account_id=relationship.target_identity_id) + (SELECT count(*) FROM player_reports report JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=report.reporter_identity_id OR tombstone.account_id=report.target_identity_id) + (SELECT count(*) FROM player_moderation_actions action JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=action.target_identity_id) + (SELECT count(*) FROM integrity_signals signal JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=signal.subject_identity_id) + (SELECT count(*) FROM player_support_actions action JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=action.account_id)";
 const LIVE_CONTENT_ADVISORY_LOCK: i64 = 7_190_120_260;
 const REDIS_INITIAL_CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
 
@@ -1137,6 +1137,142 @@ impl GameStore for PostgresRedisStore {
         Ok(deleted.rows_affected() == 1)
     }
 
+    async fn support_account(
+        &self,
+        query: &str,
+    ) -> Result<Option<SupportAccountSnapshot>, GameError> {
+        let row: Option<(Uuid, String, DateTime<Utc>)> =
+            if let Ok(account_id) = Uuid::parse_str(query) {
+                sqlx::query_as("SELECT id,handle,created_at FROM player_accounts WHERE id=$1")
+                    .bind(account_id)
+                    .fetch_optional(&self.pool)
+                    .await?
+            } else {
+                sqlx::query_as(
+                "SELECT id,handle,created_at FROM player_accounts WHERE lower(handle)=lower($1)",
+            )
+            .bind(query)
+            .fetch_optional(&self.pool)
+            .await?
+            };
+        let Some((id, handle, created_at)) = row else {
+            return Ok(None);
+        };
+        let sessions = self.sessions_for_account(id).await?;
+        let rows: Vec<(
+            Uuid,
+            Uuid,
+            String,
+            String,
+            String,
+            Option<Uuid>,
+            Vec<Uuid>,
+            DateTime<Utc>,
+        )> = sqlx::query_as(
+            "SELECT id,account_id,operator_id,action_type,reason,target_session_id,affected_session_ids,created_at FROM player_support_actions WHERE account_id=$1 ORDER BY created_at DESC,id DESC LIMIT 100",
+        )
+        .bind(id)
+        .fetch_all(&self.pool)
+        .await?;
+        let actions = rows
+            .into_iter()
+            .map(
+                |(
+                    id,
+                    account_id,
+                    operator_id,
+                    action_type,
+                    reason,
+                    target_session_id,
+                    affected_session_ids,
+                    created_at,
+                )| {
+                    let action = match action_type.as_str() {
+                        "REVOKE_SESSION" => SupportActionKind::RevokeSession,
+                        "REVOKE_ALL_SESSIONS" => SupportActionKind::RevokeAllSessions,
+                        _ => return Err(GameError::Internal),
+                    };
+                    Ok(SupportAction {
+                        id,
+                        account_id,
+                        operator_id,
+                        action,
+                        reason,
+                        target_session_id,
+                        affected_session_ids,
+                        created_at,
+                    })
+                },
+            )
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(Some(SupportAccountSnapshot {
+            account: PlayerAccount {
+                id,
+                handle,
+                created_at,
+            },
+            sessions,
+            actions,
+        }))
+    }
+
+    async fn revoke_account_sessions_for_support(
+        &self,
+        request: &NewSupportAction,
+    ) -> Result<SupportAction, GameError> {
+        let mut transaction = self.pool.begin().await?;
+        let account: Option<Uuid> =
+            sqlx::query_scalar("SELECT id FROM player_accounts WHERE id=$1 FOR UPDATE")
+                .bind(request.account_id)
+                .fetch_optional(&mut *transaction)
+                .await?;
+        if account.is_none() {
+            return Err(GameError::SupportAccountNotFound);
+        }
+        let affected_session_ids: Vec<Uuid> = sqlx::query_scalar(
+            "SELECT id FROM user_sessions WHERE account_id=$1 AND ($2::uuid IS NULL OR id=$2) ORDER BY id FOR UPDATE",
+        )
+        .bind(request.account_id)
+        .bind(request.target_session_id)
+        .fetch_all(&mut *transaction)
+        .await?;
+        if affected_session_ids.is_empty() {
+            return Err(GameError::SupportSessionNotFound);
+        }
+        sqlx::query("DELETE FROM user_sessions WHERE id=ANY($1)")
+            .bind(&affected_session_ids)
+            .execute(&mut *transaction)
+            .await?;
+        let action_type = match request.action {
+            SupportActionKind::RevokeSession => "REVOKE_SESSION",
+            SupportActionKind::RevokeAllSessions => "REVOKE_ALL_SESSIONS",
+        };
+        sqlx::query(
+            "INSERT INTO player_support_actions (id,account_id,operator_id,action_type,reason,target_session_id,affected_session_ids,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",
+        )
+        .bind(request.id)
+        .bind(request.account_id)
+        .bind(&request.operator_id)
+        .bind(action_type)
+        .bind(&request.reason)
+        .bind(request.target_session_id)
+        .bind(&affected_session_ids)
+        .bind(request.created_at)
+        .execute(&mut *transaction)
+        .await?;
+        transaction.commit().await?;
+        Ok(SupportAction {
+            id: request.id,
+            account_id: request.account_id,
+            operator_id: request.operator_id.clone(),
+            action: request.action,
+            reason: request.reason.clone(),
+            target_session_id: request.target_session_id,
+            affected_session_ids,
+            created_at: request.created_at,
+        })
+    }
+
     async fn export_account_data(
         &self,
         account_id: Uuid,
@@ -1251,6 +1387,12 @@ impl GameStore for PostgresRedisStore {
         .bind(&identities)
         .fetch_all(&mut *transaction)
         .await?;
+        let support_actions: Vec<serde_json::Value> = sqlx::query_scalar(
+            "SELECT jsonb_build_object('id',id,'operatorId',operator_id,'action',action_type,'reason',reason,'targetSessionId',target_session_id,'affectedSessionIds',affected_session_ids,'createdAt',created_at) FROM player_support_actions WHERE account_id=$1 ORDER BY created_at,id",
+        )
+        .bind(account_id)
+        .fetch_all(&mut *transaction)
+        .await?;
         sqlx::query(
             "INSERT INTO privacy_requests (id,subject_fingerprint,request_type,status,created_at,completed_at) VALUES ($1,$2,'EXPORT','COMPLETED',$3,$3)",
         )
@@ -1278,6 +1420,7 @@ impl GameStore for PostgresRedisStore {
             "moderationReports": reports,
             "moderationActions": moderation_actions,
             "integritySignals": integrity_signals,
+            "supportActions": support_actions,
             "cacheCopies": "No independent data; Redis room cache follows the authoritative room lifecycle.",
             "credentialsExcluded": true,
         }))

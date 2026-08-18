@@ -13,6 +13,7 @@ documented, and no longer than the values below without a legal basis.
 | Account identity and ranked competition |                        Until user deletion | Current rating, seasonal standings, result deltas, rewards, leaderboard preference, and snapshot entries survive session expiry. Account-bound rows cascade with verified deletion; the room settlement marker and empty snapshot shell contain no identity.                                                                                                       |
 | Operational metrics                     |                            Aggregated only | The application endpoint exposes counters, gauges, and histograms without player identifiers. Funnel and real-user performance input accepts only fixed enums and bounded numeric values; it never accepts an account, session, room, request ID, IP, nickname, URL parameter, device model, or free-text label. Infrastructure retention must not exceed 30 days. |
 | Closed moderation cases                 |                     365 days after closure | Reports and their action audit rows are removed together. Open/reviewing cases are retained until resolved; legal holds require a separately audited export before closure.                                                                                                                                                                                        |
+| Account support actions                  |                        Until user deletion | Named-operator session-revocation actions are append-only and included in account export. Account privacy deletion cascades these personal audit rows; aggregate operational counts must not retain the account ID.                                                                                                                                                  |
 | Integrity telemetry                     |            180 days after last observation | Deduplicated anti-cheat signals and evidence are removed by the same hourly worker. Aggregated counters contain no player identity.                                                                                                                                                                                                                                |
 | Privacy request audit                   |                 Operational audit lifetime | Only a random request ID, one-way subject fingerprint, request type, status, and timestamps survive deletion; credentials and account IDs are never written.                                                                                                                                                                                                       |
 | Privacy deletion tombstones             | Backup lifetime + 7 days (42 days minimum) | A random account UUID, request ID, one-way subject fingerprint and deletion time are kept in a separately encrypted deletion ledger solely to prevent resurrection from an older backup. Ledger-object lifecycle deletion is audited after every possibly older backup has expired.                                                                                |
@@ -62,7 +63,7 @@ ranked rating, seasonal standings, per-match deltas, ranked rewards, active or a
 snapshot entries, owned social relationships, submitted/received moderation cases, actions whose
 case or direct target belongs to the account, and integrity signals. Historical participant session
 IDs are recovered from the durable result index, so session expiry does not make history, social,
-room, or moderation identities disappear from the export boundary. The archive explicitly excludes
+  room, moderation, or support identities disappear from the export boundary. The archive explicitly excludes
 session-token hashes and the recovery credential. Redis is only a cache/fan-out layer and has no
 independent account archive.
 
@@ -73,7 +74,7 @@ transaction then:
 
 - removes all account sessions and token hashes, progression and ranked rewards, current rating,
   seasonal standings and ranked participant deltas, social relationships,
-  reports/actions, integrity signals, matchmaking rows, and the account credential;
+  reports/actions, support actions, integrity signals, matchmaking rows, and the account credential;
 - replaces participant session IDs, account mappings, player names, authored chat, and operation
   names in completed records with unlinkable placeholders while preserving aggregate match
   correctness;

@@ -12,9 +12,9 @@ use mk01_server::{
     domain::{
         ConnectionState, Coordinate, DEFAULT_RANKED_RATING, FinishReason, Game, GameMode,
         GameResult, GameRoom, LiveContentRevision, MatchmakingCriteria, MatchmakingRegion,
-        MatchmakingSearchPhase, Orientation, PlayerAccount, PlayerStatistics, RankedMatchContext,
-        RankedTier, RoomStatus, RoomVisibility, ShipKind, ShipPlacement, UserSession, WinType,
-        baseline_live_content, ranked_season_key,
+        MatchmakingSearchPhase, NewSupportAction, Orientation, PlayerAccount, PlayerStatistics,
+        RankedMatchContext, RankedTier, RoomStatus, RoomVisibility, ShipKind, ShipPlacement,
+        SupportActionKind, UserSession, WinType, baseline_live_content, ranked_season_key,
     },
     protocol::{HeartbeatResponse, ServerEvent},
     store::{
@@ -106,6 +106,79 @@ async fn account_session(
         .unwrap()
         .unwrap();
     (session, account)
+}
+
+#[tokio::test]
+async fn postgres_support_actions_revoke_sessions_and_remain_append_only() {
+    let Some((database_url, redis_url)) = integration_urls() else {
+        eprintln!("skipping distributed integration test without TEST_DATABASE_URL/TEST_REDIS_URL");
+        return;
+    };
+    let store = store(&database_url, &redis_url).await;
+    let (session, account) = account_session(&store, "Support database").await;
+
+    let before = store
+        .support_account(&account.handle)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(before.account.id, account.id);
+    assert_eq!(before.sessions.len(), 1);
+    assert!(before.actions.is_empty());
+
+    let action_id = Uuid::new_v4();
+    let action = store
+        .revoke_account_sessions_for_support(&NewSupportAction {
+            id: action_id,
+            account_id: account.id,
+            operator_id: "postgres-support-test".to_string(),
+            action: SupportActionKind::RevokeSession,
+            reason: "Verified compromised device report".to_string(),
+            target_session_id: Some(session.id),
+            created_at: Utc::now(),
+        })
+        .await
+        .unwrap();
+    assert_eq!(action.affected_session_ids, vec![session.id]);
+    assert!(
+        store
+            .session_by_token_hash(&session.token_hash)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    let after = store
+        .support_account(&account.id.to_string())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(after.sessions.is_empty());
+    assert_eq!(after.actions.len(), 1);
+    assert_eq!(after.actions[0].id, action_id);
+
+    let pool = sqlx::PgPool::connect(&database_url).await.unwrap();
+    let update =
+        sqlx::query("UPDATE player_support_actions SET reason='tampered history' WHERE id=$1")
+            .bind(action_id)
+            .execute(&pool)
+            .await;
+    assert!(
+        update.is_err(),
+        "support audit rows must reject direct mutation"
+    );
+
+    sqlx::query("DELETE FROM player_accounts WHERE id=$1")
+        .bind(account.id)
+        .execute(&pool)
+        .await
+        .expect("account privacy cascade must be able to remove support history");
+    let remaining: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM player_support_actions WHERE account_id=$1")
+            .bind(account.id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(remaining, 0);
 }
 
 fn finished_ranked_room(first: &UserSession, second: &UserSession, season_id: &str) -> GameRoom {

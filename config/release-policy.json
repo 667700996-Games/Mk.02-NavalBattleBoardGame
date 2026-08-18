@@ -1,0 +1,63 @@
+{
+  "schemaVersion": 1,
+  "owner": "release-engineering",
+  "environmentOrder": ["development", "staging", "canary", "production"],
+  "sameArtifactAcrossEnvironments": true,
+  "artifact": {
+    "manifestSchemaVersion": 1,
+    "imageDigestPattern": "^[a-z0-9._/-]+@sha256:[a-f0-9]{64}$",
+    "requiredComponents": ["server", "web"],
+    "requiredMaterials": [
+      "migrations",
+      "protocolContracts",
+      "balanceRules",
+      "cargoLock",
+      "packageLock"
+    ],
+    "requiredAttestations": ["sbom", "provenance", "keylessSignature"]
+  },
+  "preflight": {
+    "requiredChecks": [
+      "quality",
+      "unit",
+      "integration",
+      "contract",
+      "e2e",
+      "visual",
+      "performance",
+      "migrationCompatibility",
+      "activeMatchCompatibility",
+      "backupFreshness"
+    ],
+    "migrationPolicy": "expand-contract-forward-fix",
+    "requireStableRestartAfterCandidateMigration": true,
+    "requireZeroIncompatibleActiveSnapshots": true,
+    "maximumEvidenceAgeSeconds": 21600,
+    "maximumBackupAgeSeconds": 43200,
+    "maximumRestoreDrillAgeDays": 90
+  },
+  "canary": {
+    "trafficStepsPercent": [10, 25, 50, 100],
+    "minimumHoldSeconds": 900,
+    "thresholds": {
+      "availabilityMinimum": 0.999,
+      "apiErrorRateMaximum": 0.02,
+      "commandP95MillisecondsMaximum": 250,
+      "commandP99MillisecondsMaximum": 600,
+      "unexpectedDisconnectRateMaximum": 0.02,
+      "protocolRejectionsMaximum": 0,
+      "distributedEventFailuresMaximum": 0
+    },
+    "minimumSamples": {
+      "apiRequests": 1000,
+      "commands": 100,
+      "websockets": 100
+    }
+  },
+  "rollback": {
+    "maximumRecoverySeconds": 900,
+    "applicationBeforeData": true,
+    "requireRehearsal": true,
+    "requirePreviousManifest": true
+  }
+}

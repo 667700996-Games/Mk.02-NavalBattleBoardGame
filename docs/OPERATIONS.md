@@ -300,7 +300,7 @@ non-personal leaderboard snapshot shell, with stricter five-minute RPO and two-m
 gates.
 
 The August 18, 2026 local parity drill verified both SHA-256 sidecars, decrypted the independent GPG
-AES-256 backup and deletion ledger, applied all 19 migrations, and restored into an isolated
+AES-256 backup and deletion ledger, applied all 20 migrations, and restored into an isolated
 database. The latest run reported zero whole seconds for backup age, ledger age, and restore time
 (each under the one-second measurement resolution) against the 300 / 300 / 120-second fixture
 gates. The restored database contained zero accounts, sessions, queue rows, rewards, ratings,

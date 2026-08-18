@@ -10,6 +10,7 @@ mod ranked;
 mod room;
 mod session;
 mod social;
+mod support;
 
 pub use balance::*;
 pub use board::*;
@@ -23,6 +24,7 @@ pub use ranked::*;
 pub use room::*;
 pub use session::*;
 pub use social::*;
+pub use support::*;
 
 use serde::{Deserialize, Serialize};
 

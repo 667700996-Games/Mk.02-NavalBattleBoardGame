@@ -10,7 +10,7 @@ use crate::{
         MatchmakingRegion, MatchmakingSearchWindow, ModerationAction, ModerationActionKind,
         PlayerAccount, PlayerReadyRecord, PlayerReportReceipt, RankedLeaderboardPage,
         ReportCategory, ReportStatus, RoomSummary, RoomVisibility, ShipPlacement,
-        SocialRelationship, SurrenderRecord, TurnExpiredRecord,
+        SocialRelationship, SupportAction, SurrenderRecord, TurnExpiredRecord,
     },
     error::GameError,
 };
@@ -212,6 +212,25 @@ pub struct ModerationActionInput {
 #[serde(rename_all = "camelCase")]
 pub struct ModerationActionResponse {
     pub action: ModerationAction,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SupportAccountQuery {
+    pub query: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SupportSessionRevocationInput {
+    pub session_id: Option<Uuid>,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SupportActionResponse {
+    pub action: SupportAction,
 }
 
 #[derive(Debug, Clone, Deserialize)]

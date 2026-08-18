@@ -55,7 +55,7 @@ rooms and results from the real suite, requires at least one balance catalog ent
 report for 90 days as `postgres-redis-integration-<commit>`.
 
 The August 18, 2026 clean-service parity run passed 12/12 cases in 10.77 seconds. Its verifier
-decoded 19 migrations, 18 sessions, 22 rooms, 16 results, 15 ranked settlements, 30 ranked rewards,
+decoded 20 migrations, 18 sessions, 22 rooms, 16 results, 15 ranked settlements, 30 ranked rewards,
 one balance catalog entry, four privacy requests, three deletion tombstones, and three live-content
 revisions with no orphan, migration, snapshot, or resurrection failure.
 

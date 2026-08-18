@@ -1689,6 +1689,130 @@ async fn ranked_leaderboard_requires_accounts_bounds_queries_and_persists_privac
 }
 
 #[tokio::test]
+async fn support_console_finds_exact_accounts_and_audits_session_revocation() {
+    let app = test_app();
+    let (guest_cookie, _) = create_session(&app, "Support Captain").await;
+    let (account_cookie, upgraded) = upgrade_account(&app, &guest_cookie, "SupportCaptain").await;
+    let account_id = upgraded["account"]["id"].as_str().unwrap();
+
+    let unauthenticated = send(
+        &app,
+        Request::builder()
+            .uri("/api/admin/support/accounts?query=SupportCaptain")
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(unauthenticated.status(), StatusCode::UNAUTHORIZED);
+
+    let lookup = json_body(
+        send(
+            &app,
+            Request::builder()
+                .uri("/api/admin/support/accounts?query=SupportCaptain")
+                .header(
+                    header::AUTHORIZATION,
+                    "Bearer integration-admin-token-32-characters-long",
+                )
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(lookup["account"]["id"], account_id);
+    assert_eq!(lookup["account"]["handle"], "SupportCaptain");
+    assert_eq!(lookup["sessions"].as_array().unwrap().len(), 1);
+    assert!(lookup.get("recoveryKey").is_none());
+    assert!(lookup.get("tokenHash").is_none());
+
+    let missing_operator = send(
+        &app,
+        Request::builder()
+            .method("POST")
+            .uri(format!(
+                "/api/admin/support/accounts/{account_id}/sessions/revoke"
+            ))
+            .header(header::CONTENT_TYPE, "application/json")
+            .header(
+                header::AUTHORIZATION,
+                "Bearer integration-admin-token-32-characters-long",
+            )
+            .body(Body::from(
+                json!({ "reason": "Verified account-recovery request" }).to_string(),
+            ))
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(missing_operator.status(), StatusCode::BAD_REQUEST);
+
+    let revoked = json_body(
+        send(
+            &app,
+            Request::builder()
+                .method("POST")
+                .uri(format!(
+                    "/api/admin/support/accounts/{account_id}/sessions/revoke"
+                ))
+                .header(header::CONTENT_TYPE, "application/json")
+                .header(
+                    header::AUTHORIZATION,
+                    "Bearer integration-admin-token-32-characters-long",
+                )
+                .header("x-operator-id", "player-support-test")
+                .body(Body::from(
+                    json!({ "reason": "Verified account-recovery request" }).to_string(),
+                ))
+                .unwrap(),
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(revoked["action"]["action"], "REVOKE_ALL_SESSIONS");
+    assert_eq!(revoked["action"]["operatorId"], "player-support-test");
+    assert_eq!(
+        revoked["action"]["affectedSessionIds"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+
+    let revoked_session = send(
+        &app,
+        Request::builder()
+            .uri("/api/sessions/current")
+            .header(header::COOKIE, &account_cookie)
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(revoked_session.status(), StatusCode::UNAUTHORIZED);
+
+    let audited = json_body(
+        send(
+            &app,
+            Request::builder()
+                .uri(format!("/api/admin/support/accounts?query={account_id}"))
+                .header(
+                    header::AUTHORIZATION,
+                    "Bearer integration-admin-token-32-characters-long",
+                )
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await,
+    )
+    .await;
+    assert!(audited["sessions"].as_array().unwrap().is_empty());
+    assert_eq!(audited["actions"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        audited["actions"][0]["reason"],
+        "Verified account-recovery request"
+    );
+}
+
+#[tokio::test]
 async fn social_safety_mutes_blocks_reports_and_prevents_future_room_pairing() {
     let app = test_app();
     let (alpha_cookie, _) = create_session(&app, "Safety Alpha").await;

@@ -25,7 +25,8 @@ import type {
   RoomSummary,
   RoomVisibility,
   Session,
-  SocialRelationship
+  SocialRelationship,
+  SupportAccountSnapshot
 } from '$lib/types';
 import {
   acceptProtocolCompatibility,
@@ -223,6 +224,26 @@ export const api = {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'X-Operator-Id': operatorId },
         body: JSON.stringify({ action, reason, durationHours, reversesActionId })
+      }
+    ),
+  supportAccount: (token: string, query: string) =>
+    request<SupportAccountSnapshot>(
+      `/admin/support/accounts?${new URLSearchParams({ query }).toString()}`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    ),
+  revokeSupportSessions: (
+    token: string,
+    operatorId: string,
+    accountId: string,
+    reason: string,
+    sessionId?: string
+  ) =>
+    request<{ action: import('$lib/types').SupportAction }>(
+      `/admin/support/accounts/${encodeURIComponent(accountId)}/sessions/revoke`,
+      {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'X-Operator-Id': operatorId },
+        body: JSON.stringify({ reason, sessionId })
       }
     ),
   listRooms: roomList,

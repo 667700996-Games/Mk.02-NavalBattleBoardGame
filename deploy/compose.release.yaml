@@ -1,0 +1,83 @@
+name: mk01-release
+
+services:
+  server:
+    image: ${MK01_SERVER_IMAGE:?server image must be pinned by digest}
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    environment:
+      DEPLOYMENT_ENV: ${MK01_DEPLOYMENT_ENV:?deployment environment is required}
+      RELEASE_ID: ${MK01_RELEASE_ID:?release id is required}
+      SERVER_HOST: 0.0.0.0
+      SERVER_PORT: 8080
+      STORAGE_MODE: postgres
+      DATABASE_URL_FILE: /run/secrets/database_url
+      REDIS_URL_FILE: /run/secrets/redis_url
+      ADMIN_TOKEN_FILE: /run/secrets/admin_token
+      PUBLIC_BASE_URL: ${MK01_PUBLIC_ORIGIN:?public origin is required}
+      ALLOWED_ORIGINS: ${MK01_PUBLIC_ORIGIN:?public origin is required}
+      SECURE_COOKIES: "true"
+      TRUST_PROXY_HEADERS: "true"
+      DISTRIBUTED_COORDINATION_REQUIRED: "true"
+      RUST_LOG: mk01_server=info,tower_http=info
+    secrets:
+      - database_url
+      - redis_url
+      - admin_token
+    healthcheck:
+      test: ["CMD", "mk01-server", "--healthcheck"]
+      interval: 15s
+      timeout: 5s
+      retries: 4
+      start_period: 20s
+    labels:
+      com.mk01.release.id: ${MK01_RELEASE_ID}
+      com.mk01.release.environment: ${MK01_DEPLOYMENT_ENV}
+
+  web:
+    image: ${MK01_WEB_IMAGE:?web image must be pinned by digest}
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: 3000
+      ORIGIN: ${MK01_PUBLIC_ORIGIN:?public origin is required}
+    depends_on:
+      server:
+        condition: service_healthy
+    labels:
+      com.mk01.release.id: ${MK01_RELEASE_ID}
+      com.mk01.release.environment: ${MK01_DEPLOYMENT_ENV}
+
+  gateway:
+    image: ${MK01_GATEWAY_IMAGE:?gateway image must be pinned by digest}
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /config:size=8m,mode=0700
+      - /data:size=8m,mode=0700
+    ports:
+      - "${MK01_GATEWAY_BIND:?gateway loopback binding is required}:8088"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+    depends_on:
+      web:
+        condition: service_started
+      server:
+        condition: service_healthy
+    labels:
+      com.mk01.release.id: ${MK01_RELEASE_ID}
+      com.mk01.release.environment: ${MK01_DEPLOYMENT_ENV}
+
+secrets:
+  database_url:
+    file: ${MK01_DATABASE_URL_FILE:?database URL secret file is required}
+  redis_url:
+    file: ${MK01_REDIS_URL_FILE:?Redis URL secret file is required}
+  admin_token:
+    file: ${MK01_ADMIN_TOKEN_FILE:?admin token secret file is required}

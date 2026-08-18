@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "name": "staging",
+  "promotionFrom": "development",
+  "githubEnvironment": "staging",
+  "replicas": 2,
+  "gatewayBind": "127.0.0.1:18082",
+  "trafficPercent": 100,
+  "minimumHoldSeconds": 0,
+  "requiredApprovals": 1,
+  "requiresProductionLikeData": true,
+  "requiredSecrets": [
+    "DATABASE_URL_FILE",
+    "REDIS_URL_FILE",
+    "ADMIN_TOKEN_FILE"
+  ],
+  "publicOriginVariable": "STAGING_PUBLIC_ORIGIN"
+}
