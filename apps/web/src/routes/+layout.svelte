@@ -10,6 +10,7 @@
     dismissHudNotification,
     gameError,
     hudNotifications,
+    inputModality,
     preferences,
     session,
     socketStatus
@@ -20,6 +21,27 @@
   let clock = $state('00:00');
 
   onMount(() => {
+    const keyboardKeys = new Set([
+      'Tab',
+      'Enter',
+      ' ',
+      'Escape',
+      'ArrowUp',
+      'ArrowDown',
+      'ArrowLeft',
+      'ArrowRight',
+      'r',
+      'R'
+    ]);
+    const onKeydown = (event: KeyboardEvent) => {
+      if (keyboardKeys.has(event.key)) inputModality.set('keyboard');
+    };
+    const onPointerdown = (event: PointerEvent) => {
+      inputModality.set(event.pointerType === 'touch' ? 'touch' : 'pointer');
+    };
+    inputModality.set(matchMedia('(pointer: coarse)').matches ? 'touch' : 'pointer');
+    window.addEventListener('keydown', onKeydown, true);
+    window.addEventListener('pointerdown', onPointerdown, true);
     const updateClock = () =>
       (clock = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }));
     updateClock();
@@ -28,7 +50,11 @@
       .currentSession()
       .then((current) => session.set(current))
       .catch(() => session.set(null));
-    return () => clearInterval(timer);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener('keydown', onKeydown, true);
+      window.removeEventListener('pointerdown', onPointerdown, true);
+    };
   });
 
   const connectionText = (status: string) =>

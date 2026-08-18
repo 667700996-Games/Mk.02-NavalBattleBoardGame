@@ -2,6 +2,7 @@
   import { onDestroy, onMount } from 'svelte';
   import { Activity, Check, Clock3, Crosshair, Flag, Radio, Waves, X } from '@lucide/svelte';
   import GridBoard from './GridBoard.svelte';
+  import InputPrompt from './InputPrompt.svelte';
   import { sounds } from '$lib/sound';
   import { chatMessages, gameError, lastAttack } from '$lib/stores';
   import { Button, Modal } from '$lib/ui';
@@ -306,6 +307,7 @@
     >
     <span>LINK V{String(snapshot.version).padStart(3, '0')}</span>
   </div>
+  <InputPrompt context="targeting" />
 
   {#if combatEvent}
     <div
@@ -683,6 +685,9 @@
     border-radius: 50%;
     background: var(--safe);
     box-shadow: 0 0 9px currentColor;
+  }
+  .battle > :global(.input-prompt) {
+    margin: 0 4px 10px;
   }
   .signal-dot--active {
     color: var(--tactical);

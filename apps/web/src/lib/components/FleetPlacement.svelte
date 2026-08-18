@@ -2,6 +2,7 @@
   import { untrack } from 'svelte';
   import { Check, Dices, Grip, RotateCw, Trash2 } from '@lucide/svelte';
   import GridBoard from './GridBoard.svelte';
+  import InputPrompt from './InputPrompt.svelte';
   import Vessel from './Vessel.svelte';
   import {
     autoPlaceFleet,
@@ -170,7 +171,7 @@
       <div class="board-toolbar">
         <span
           ><i></i> SECTOR 10 × 10 / {orientation === 'HORIZONTAL' ? '가로 방향' : '세로 방향'}</span
-        ><small>R · 회전 &nbsp; ESC · 선택 해제</small>
+        ><InputPrompt context="placement" compact />
       </div>
       <GridBoard
         mode="placement"
@@ -366,8 +367,8 @@
     background: var(--green-400);
     box-shadow: 0 0 8px var(--green-400);
   }
-  .board-toolbar small {
-    color: #617e8e;
+  .board-toolbar :global(.input-prompt) {
+    max-width: 70%;
   }
   .placement-notice {
     min-height: 18px;
@@ -627,10 +628,6 @@
   .board-toolbar span {
     color: var(--tactical);
     font-size: 10px;
-  }
-  .board-toolbar small {
-    color: var(--ink-500);
-    font-size: 8px;
   }
   .placement-notice {
     min-height: 23px;

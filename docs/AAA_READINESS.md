@@ -120,8 +120,14 @@ The program is complete only when all gates below are satisfied in a production-
 
 - [x] Interactive tutorial teaches placement, targeting, turn timer, fog of war, and rematch.
 - [x] Practice AI offers documented difficulty levels and deterministic test fixtures.
-- [ ] Contextual help and input prompts work on mouse, keyboard, touch, and controller if supported.
+- [x] Contextual help and input prompts work on mouse, keyboard, touch, and controller if supported.
 - [ ] New-player funnel metrics identify failure and abandonment points.
+- Evidence: the shell detects coarse touch, Pointer Events, and navigation keys and retains the most
+  recent modality across route changes. Placement, targeting, and chat show live, contextual mouse,
+  keyboard, or touch instructions; the E2E gate switches all three modalities in every context and
+  verifies the exact actionable prompt. The accessibility and six-profile full-match regressions
+  pass with the prompts rendered. Gamepad/controller input is intentionally not advertised or in
+  the supported-input matrix for this web release.
 
 ### C2. Modes and competition
 

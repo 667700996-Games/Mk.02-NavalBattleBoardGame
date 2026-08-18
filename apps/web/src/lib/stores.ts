@@ -10,10 +10,12 @@ import type {
 } from '$lib/types';
 
 export type SocketStatus = 'idle' | 'connecting' | 'online' | 'reconnecting' | 'offline';
+export type InputModality = 'pointer' | 'keyboard' | 'touch';
 
 export const session = writable<Session | null>(null);
 export const gameSnapshot = writable<GameSnapshot | null>(null);
 export const socketStatus = writable<SocketStatus>('idle');
+export const inputModality = writable<InputModality>('pointer');
 export const lastAttack = writable<AttackRecord | null>(null);
 export const gameError = writable<ProtocolError | null>(null);
 export const chatMessages = writable<ChatMessage[]>([]);

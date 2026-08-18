@@ -18,6 +18,7 @@
   import { realtime } from '$lib/realtime';
   import { chatHistoryLoaded, chatMessages, chatTyping } from '$lib/stores';
   import { Modal } from '$lib/ui';
+  import InputPrompt from './InputPrompt.svelte';
   import {
     CHAT_EMOJIS,
     QUICK_COMMANDS,
@@ -385,9 +386,8 @@
 
       <div class="chat-composer">
         <div class="typing-line" aria-live="polite">
-          {#if $chatTyping?.isTyping}<span><i></i>{$chatTyping.nickname} 입력 중…</span>{:else}<span
-              >ENTER 전송 · SHIFT+ENTER 줄바꿈</span
-            >{/if}
+          {#if $chatTyping?.isTyping}<span><i></i>{$chatTyping.nickname} 입력 중…</span
+            >{:else}<InputPrompt context="chat" compact />{/if}
           <em>{draft.length}/300</em>
         </div>
         <div class="chat-input-row">
@@ -869,6 +869,10 @@
     background: var(--cyan-300);
     box-shadow: 0 0 6px var(--cyan-300);
     animation: pulse 700ms infinite;
+  }
+  .typing-line :global(.input-prompt) {
+    min-width: 0;
+    color: var(--ink-500);
   }
   .typing-line em {
     font-style: normal;
