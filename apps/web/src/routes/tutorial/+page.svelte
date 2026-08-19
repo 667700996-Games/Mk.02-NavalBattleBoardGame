@@ -256,10 +256,9 @@
   </section>
 
   <footer class="tutorial-actions">
-    <Button variant="ghost" onclick={() => move(step - 1)} disabled={step === 0}
+    <Button variant="secondary" onclick={() => move(step - 1)} disabled={step === 0}
       ><ArrowLeft size={16} /> {$t('tutorial.previous')}</Button
     >
-    <span>{step + 1} / {lessons.length}</span>
     {#if step < lessons.length - 1}
       <Button variant="primary" onclick={() => move(step + 1)}
         >{$t('tutorial.next')} <ArrowRight size={16} /></Button
@@ -597,17 +596,11 @@
     font-size: 10px;
   }
   .tutorial-actions {
-    display: grid;
-    grid-template-columns: 1fr auto 1fr;
+    display: flex;
     align-items: center;
+    justify-content: space-between;
+    gap: 24px;
     margin-top: 20px;
-  }
-  .tutorial-actions > :last-child {
-    justify-self: end;
-  }
-  .tutorial-actions > span {
-    color: var(--ink-500);
-    font: 700 10px var(--font-display);
   }
   @keyframes pulse-danger {
     to {
@@ -653,12 +646,6 @@
     .target-grid button {
       width: 42px;
       height: 42px;
-    }
-    .tutorial-actions {
-      grid-template-columns: 1fr 1fr;
-    }
-    .tutorial-actions > span {
-      display: none;
     }
   }
   :global(html[data-motion='reduced']) .timer-ring.critical {
