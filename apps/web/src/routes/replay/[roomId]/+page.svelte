@@ -139,13 +139,13 @@
     </div>
     <div class="replay-heading-actions">
       <div>
-        <button class="button button--ghost" onclick={copyReplayLink}
+        <button class="button" onclick={copyReplayLink}
           >{#if linkStatus === 'copied'}<Check size={16} /> {$t('common.copied')}{:else}<Link2
               size={16}
             />
             {$t('replay.copyLink')}{/if}</button
         >
-        <a class="button button--ghost" href={resolve('/stats')}
+        <a class="button" href={resolve('/stats')}
           ><ArrowLeft size={16} /> {$t('replay.battleRecords')}</a
         >
       </div>

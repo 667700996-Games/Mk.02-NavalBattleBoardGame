@@ -556,7 +556,7 @@
   onclose={() => (showSurrender = false)}
 >
   <div class="surrender-modal-actions">
-    <Button variant="ghost" full onclick={() => (showSurrender = false)}
+    <Button variant="secondary" full onclick={() => (showSurrender = false)}
       >{$t('battle.cancel')}</Button
     ><Button
       variant="danger"

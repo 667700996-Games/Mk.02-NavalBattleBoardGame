@@ -322,7 +322,7 @@
     <time>V{snapshot.roomVersion}</time>
   </div>
 
-  <Button variant="ghost" size="sm" class="leave-button" onclick={onleave}>
+  <Button variant="secondary" size="sm" class="leave-button" onclick={onleave}>
     <LogOut size={15} />
     {$t('waiting.leave')}
   </Button>

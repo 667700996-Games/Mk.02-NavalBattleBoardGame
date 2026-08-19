@@ -75,7 +75,7 @@
 <main class="spectator-page">
   <div class="spectator-shell">
     <header class="spectator-header">
-      <Button variant="ghost" size="sm" onclick={() => goto(resolve('/lobby'))}>
+      <Button variant="secondary" size="sm" onclick={() => goto(resolve('/lobby'))}>
         <ArrowLeft size={16} />
         {$t('spectator.backToLobby')}
       </Button>

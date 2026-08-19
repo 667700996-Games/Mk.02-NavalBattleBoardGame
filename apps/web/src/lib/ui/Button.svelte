@@ -4,7 +4,7 @@
 
   interface Props {
     children?: Snippet;
-    variant?: 'primary' | 'secondary' | 'ghost' | 'outline' | 'danger' | 'success';
+    variant?: 'primary' | 'secondary' | 'outline' | 'danger' | 'success';
     size?: 'sm' | 'md' | 'lg';
     type?: 'button' | 'submit' | 'reset';
     href?: string;

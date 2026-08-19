@@ -625,13 +625,6 @@ p {
   background: linear-gradient(180deg, rgba(25, 111, 82, 0.64), rgba(11, 61, 47, 0.72));
 }
 
-.button--ghost,
-.ui-button--ghost {
-  border-color: transparent;
-  background: transparent;
-  box-shadow: none;
-}
-
 .ui-button--outline {
   border-color: rgba(54, 214, 225, 0.42);
   color: var(--cyan-200);

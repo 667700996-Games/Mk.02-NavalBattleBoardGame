@@ -481,7 +481,8 @@
   onclose={() => (showStart = false)}
 >
   <div class="start-modal-actions">
-    <Button variant="ghost" full onclick={() => (showStart = false)}>{$t('room.cancel')}</Button>
+    <Button variant="secondary" full onclick={() => (showStart = false)}>{$t('room.cancel')}</Button
+    >
     <Button
       variant="primary"
       full

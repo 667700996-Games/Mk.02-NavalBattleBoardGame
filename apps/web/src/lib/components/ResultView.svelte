@@ -201,7 +201,7 @@
         {$t('result.share')}{/if}</button
     ><a class="button" href={resolve('/replay/[roomId]', { roomId: snapshot.room.id })}
       ><Play size={16} /> {$t('result.replay')}</a
-    ><button class="button button--ghost" onclick={onlobby}
+    ><button class="button" onclick={onlobby}
       ><ArrowLeft size={16} /> {$t('result.returnLobby')}</button
     >
   </div>

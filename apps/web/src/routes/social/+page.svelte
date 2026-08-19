@@ -25,7 +25,7 @@
 
 <main class="social-page shell">
   <nav aria-label={$t('social.navigation')}>
-    <Button variant="ghost" onclick={() => goto(resolve('/lobby'))}
+    <Button variant="secondary" onclick={() => goto(resolve('/lobby'))}
       ><ArrowLeft size={17} /> {$t('social.backToLobby')}</Button
     >
   </nav>
