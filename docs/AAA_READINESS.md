@@ -143,7 +143,7 @@ The program is complete only when all gates below are satisfied in a production-
 
 ### C1. First-time experience and practice
 
-- [x] Interactive tutorial teaches placement, targeting, turn timer, fog of war, and rematch.
+- [x] Interactive tutorial teaches placement, targeting, turn timer, fog of war, and recovery.
 - [x] Practice AI offers documented difficulty levels and deterministic test fixtures.
 - [x] Contextual help and input prompts work on mouse, keyboard, touch, and controller if supported.
 - [x] New-player funnel metrics identify failure and abandonment points.

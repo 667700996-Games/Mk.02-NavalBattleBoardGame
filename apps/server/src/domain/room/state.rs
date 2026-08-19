@@ -22,7 +22,6 @@ impl GameRoom {
         self.placement_started_at = None;
         self.ready_resolutions.clear();
         self.start_resolutions.clear();
-        self.rematch_requests.clear();
         self.disconnected_deadlines.clear();
         for player in &mut self.players {
             player.ready_state = PlayerReadyState::NotReady;

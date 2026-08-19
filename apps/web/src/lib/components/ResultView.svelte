@@ -7,7 +7,6 @@
     Flag,
     Medal,
     Play,
-    RotateCcw,
     Share2,
     Target,
     Timer,
@@ -19,10 +18,9 @@
 
   interface Props {
     snapshot: GameSnapshot;
-    onrematch: () => void;
     onlobby: () => void;
   }
-  let { snapshot, onrematch, onlobby }: Props = $props();
+  let { snapshot, onlobby }: Props = $props();
   let won = $derived(snapshot.result?.winnerId === snapshot.selfPlayerId);
   let stats = $derived(
     snapshot.result?.players.find((player) => player.playerId === snapshot.selfPlayerId)
@@ -30,7 +28,6 @@
   let opponentStats = $derived(
     snapshot.result?.players.find((player) => player.playerId !== snapshot.selfPlayerId)
   );
-  let rematchRequested = $derived(snapshot.rematchRequestedBy.includes(snapshot.selfPlayerId));
   let operationStatusKey = $derived<MessageKey>(
     won ? 'result.operationComplete' : 'result.operationFailed'
   );
@@ -193,10 +190,7 @@
   {/if}
 
   <div class="result-actions">
-    <button class="button button--primary" onclick={onrematch} disabled={rematchRequested}
-      ><RotateCcw size={16} />
-      {rematchRequested ? $t('result.awaitingRematch') : $t('result.requestRematch')}</button
-    ><button class="button" onclick={shareResult}
+    <button class="button" onclick={shareResult}
       >{#if shared}<Check size={16} /> {$t('result.shareCopied')}{:else}<Share2 size={16} />
         {$t('result.share')}{/if}</button
     ><a class="button" href={resolve('/replay/[roomId]', { roomId: snapshot.room.id })}

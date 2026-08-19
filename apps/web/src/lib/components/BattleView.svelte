@@ -325,187 +325,195 @@
   </div>
   <InputPrompt context="targeting" />
 
-  {#if fireSequence}
-    <div
-      class:fire-sequence--fire={fireSequence.stage === 'FIRE'}
-      class="fire-sequence"
-      role="status"
-      aria-live="polite"
-    >
-      <span class="fire-sequence__reticle"><Crosshair size={22} /></span>
-      <div>
-        <small
-          >{$t('battle.sector', { coordinate: coordinateLabel(fireSequence.coordinate) })}</small
-        >
-        <strong
-          >{fireSequence.stage === 'LOCK'
-            ? $t('battle.targetLock')
-            : $t('battle.fireControl')}</strong
-        >
-      </div>
-      <span class="fire-sequence__ticks"><i></i><i></i><i></i></span>
-    </div>
-  {/if}
-
-  <div class="battle-grid">
-    <section
-      class="board-panel board-panel--friendly panel"
-      aria-labelledby="friendly-waters-title"
-    >
-      <div class="board-panel__heading">
-        <div>
-          <span>{$t('battle.friendlyWaters')}</span>
-          <h2 id="friendly-waters-title">{$t('battle.friendlyBoard')}</h2>
-        </div>
-        <em
-          >{$t('battle.attacksReceived', {
-            count: formatNumber(snapshot.ownBoard?.attacksReceived.length ?? 0)
-          })}</em
-        >
-      </div>
-      <div class="board-readout">
-        <span><i class="signal-dot signal-dot--safe"></i>{$t('battle.ownFleetVisible')}</span
-        ><strong>{$t('battle.shieldArray')}</strong>
-      </div>
-      <GridBoard
-        balance={snapshot.balance.manifest}
-        mode="own"
-        label={$t('battle.friendlyBoardLabel')}
-        ownBoard={snapshot.ownBoard}
-        disabled={true}
-      />
-      <div class="board-legend">
-        <span><i class="legend-ship"></i> {$t('battle.ship')}</span><span
-          ><i class="legend-hit"></i> {$t('battle.damaged')}</span
-        ><span><i class="legend-sunk"></i> {$t('battle.sunk')}</span>
-      </div>
-    </section>
-
-    <section class="board-panel board-panel--hostile panel" aria-labelledby="hostile-waters-title">
-      <div class="board-panel__heading">
-        <div>
-          <span>{$t('battle.hostileWaters')}</span>
-          <h2 id="hostile-waters-title">{$t('battle.targetBoard')}</h2>
-        </div>
-        <em
-          >{$t('battle.searched', {
-            count: formatNumber(snapshot.targetBoard?.attacks.length ?? 0)
-          })}</em
-        >
-      </div>
-      <div class="board-readout">
-        <span><i class="signal-dot signal-dot--active"></i>{$t('battle.unknownContacts')}</span
-        ><strong>{myTurn ? $t('battle.targetingEnabled') : $t('battle.sonarListening')}</strong>
-      </div>
-      <GridBoard
-        balance={snapshot.balance.manifest}
-        mode="target"
-        label={$t('battle.targetBoardLabel')}
-        targetBoard={snapshot.targetBoard}
-        {selected}
-        interactive={myTurn && !pending && !fireSequence}
-        {disabled}
-        oncell={choose}
-      />
-      <div class="board-legend">
-        <span><i class="legend-miss"></i> {$t('board.miss')}</span><span
-          ><i class="legend-hit"></i> {$t('board.hit')}</span
-        ><span><i class="legend-sunk"></i> {$t('board.sunk')}</span>
-      </div>
-    </section>
-
-    <aside class="fire-control panel" aria-label={$t('battle.fireControlAria')}>
-      <div class="fire-control__title">
-        <Crosshair size={17} />
-        <div>
-          <small>{$t('battle.fireControlCode')}</small><strong>{$t('battle.fireControl')}</strong>
-        </div>
-      </div>
-      <div class:coordinate-lock--active={selected} class="coordinate-lock">
-        <small>{$t('battle.targetLock')}</small><strong
-          >{selected ? coordinateLabel(selected) : '— —'}</strong
-        ><span>{selected ? $t('battle.reticleReady') : $t('battle.selectCoordinate')}</span>
-      </div>
-      <button
-        class="button button--primary button--wide fire-button"
-        disabled={!canFire}
-        onclick={fire}
+  <div class="battle-stage">
+    {#if fireSequence}
+      <div
+        class:fire-sequence--fire={fireSequence.stage === 'FIRE'}
+        class="fire-sequence"
+        role="status"
+        aria-live="polite"
       >
-        {#if pending}<span class="mini-spinner"></span>
-          {$t('battle.awaitingResult')}{:else}<Crosshair size={17} />
-          {$t('battle.executeAttack')}{/if}
-      </button>
-      {#if selected}<button class="clear-selection" onclick={() => (selected = null)}
-          ><X size={13} /> {$t('battle.clearSelection')}</button
-        >{/if}
-
-      <div class="enemy-fleet">
-        <small>{$t('battle.enemyFleetStatus')}</small>
-        {#each balanceFleet as ship (ship.kind)}
-          <div class:sunk={sunkShips.has(ship.kind)}>
-            <span>{$t(shipMessageKey(ship.kind))}</span><span class="mini-ship"
-              ><Vessel
-                kind={ship.kind}
-                state={sunkShips.has(ship.kind) ? 'sunk' : 'docked'}
-              /></span
-            >{#if sunkShips.has(ship.kind)}<Check size={13} />{:else}<em>{$t('battle.unknown')}</em
-              >{/if}
-          </div>
-        {/each}
-      </div>
-      <div class="commanders">
+        <span class="fire-sequence__reticle"><Crosshair size={22} /></span>
         <div>
-          <span class="online-dot"></span><small>{$t('battle.you')}</small><strong
-            >{me?.nickname}</strong
+          <small
+            >{$t('battle.sector', { coordinate: coordinateLabel(fireSequence.coordinate) })}</small
+          >
+          <strong
+            >{fireSequence.stage === 'LOCK'
+              ? $t('battle.targetLock')
+              : $t('battle.fireControl')}</strong
           >
         </div>
-        <div>
-          <span class:offline-dot={opponent?.connectionState !== 'ONLINE'} class="online-dot"
-          ></span><small>{$t('battle.opponent')}</small><strong>{opponent?.nickname}</strong>
-        </div>
+        <span class="fire-sequence__ticks"><i></i><i></i><i></i></span>
       </div>
-    </aside>
+    {/if}
 
-    <section class="battle-log panel" aria-labelledby="battle-log-title">
-      <header>
-        <div class="battle-log__signal"><Activity size={16} /></div>
-        <div>
-          <small>{$t('battle.tacticalEventStream')}</small>
-          <h2 id="battle-log-title">{$t('battle.log')}</h2>
+    <div class="battle-grid">
+      <section
+        class="board-panel board-panel--friendly panel"
+        aria-labelledby="friendly-waters-title"
+      >
+        <div class="board-panel__heading">
+          <div>
+            <span>{$t('battle.friendlyWaters')}</span>
+            <h2 id="friendly-waters-title">{$t('battle.friendlyBoard')}</h2>
+          </div>
+          <em
+            >{$t('battle.attacksReceived', {
+              count: formatNumber(snapshot.ownBoard?.attacksReceived.length ?? 0)
+            })}</em
+          >
         </div>
-        <span
-          >{$t('battle.liveVersion', { version: String(snapshot.version).padStart(3, '0') })}</span
+        <div class="board-readout">
+          <span><i class="signal-dot signal-dot--safe"></i>{$t('battle.ownFleetVisible')}</span
+          ><strong>{$t('battle.shieldArray')}</strong>
+        </div>
+        <GridBoard
+          balance={snapshot.balance.manifest}
+          mode="own"
+          label={$t('battle.friendlyBoardLabel')}
+          ownBoard={snapshot.ownBoard}
+          disabled={true}
+        />
+        <div class="board-legend">
+          <span><i class="legend-ship"></i> {$t('battle.ship')}</span><span
+            ><i class="legend-hit"></i> {$t('battle.damaged')}</span
+          ><span><i class="legend-sunk"></i> {$t('battle.sunk')}</span>
+        </div>
+      </section>
+
+      <section
+        class="board-panel board-panel--hostile panel"
+        aria-labelledby="hostile-waters-title"
+      >
+        <div class="board-panel__heading">
+          <div>
+            <span>{$t('battle.hostileWaters')}</span>
+            <h2 id="hostile-waters-title">{$t('battle.targetBoard')}</h2>
+          </div>
+          <em
+            >{$t('battle.searched', {
+              count: formatNumber(snapshot.targetBoard?.attacks.length ?? 0)
+            })}</em
+          >
+        </div>
+        <div class="board-readout">
+          <span><i class="signal-dot signal-dot--active"></i>{$t('battle.unknownContacts')}</span
+          ><strong>{myTurn ? $t('battle.targetingEnabled') : $t('battle.sonarListening')}</strong>
+        </div>
+        <GridBoard
+          balance={snapshot.balance.manifest}
+          mode="target"
+          label={$t('battle.targetBoardLabel')}
+          targetBoard={snapshot.targetBoard}
+          {selected}
+          interactive={myTurn && !pending && !fireSequence}
+          {disabled}
+          oncell={choose}
+        />
+        <div class="board-legend">
+          <span><i class="legend-miss"></i> {$t('board.miss')}</span><span
+            ><i class="legend-hit"></i> {$t('board.hit')}</span
+          ><span><i class="legend-sunk"></i> {$t('board.sunk')}</span>
+        </div>
+      </section>
+
+      <aside class="fire-control panel" aria-label={$t('battle.fireControlAria')}>
+        <div class="fire-control__title">
+          <Crosshair size={17} />
+          <div>
+            <small>{$t('battle.fireControlCode')}</small><strong>{$t('battle.fireControl')}</strong>
+          </div>
+        </div>
+        <div class:coordinate-lock--active={selected} class="coordinate-lock">
+          <small>{$t('battle.targetLock')}</small><strong
+            >{selected ? coordinateLabel(selected) : '— —'}</strong
+          ><span>{selected ? $t('battle.reticleReady') : $t('battle.selectCoordinate')}</span>
+        </div>
+        <button
+          class="button button--primary button--wide fire-button"
+          disabled={!canFire}
+          onclick={fire}
         >
-      </header>
-      {#if battleLog.length || systemLog.length}
-        <ol>
-          {#each systemLog as entry (entry.messageId)}<li class="log-system">
-              <span>SYS</span><Activity size={14} /><strong>{$t('battle.systemEvent')}</strong><em
-                >{entry.content}</em
-              >
-            </li>{/each}
-          {#each battleLog as entry (coordinateKey(entry.coordinate))}<li
-              class:log-hit={entry.outcome !== 'MISS'}
-              class:log-sunk={entry.outcome === 'SUNK'}
+          {#if pending}<span class="mini-spinner"></span>
+            {$t('battle.awaitingResult')}{:else}<Crosshair size={17} />
+            {$t('battle.executeAttack')}{/if}
+        </button>
+        {#if selected}<button class="clear-selection" onclick={() => (selected = null)}
+            ><X size={13} /> {$t('battle.clearSelection')}</button
+          >{/if}
+
+        <div class="enemy-fleet">
+          <small>{$t('battle.enemyFleetStatus')}</small>
+          {#each balanceFleet as ship (ship.kind)}
+            <div class:sunk={sunkShips.has(ship.kind)}>
+              <span>{$t(shipMessageKey(ship.kind))}</span><span class="mini-ship"
+                ><Vessel
+                  kind={ship.kind}
+                  state={sunkShips.has(ship.kind) ? 'sunk' : 'docked'}
+                /></span
+              >{#if sunkShips.has(ship.kind)}<Check size={13} />{:else}<em
+                  >{$t('battle.unknown')}</em
+                >{/if}
+            </div>
+          {/each}
+        </div>
+        <div class="commanders">
+          <div>
+            <span class="online-dot"></span><small>{$t('battle.you')}</small><strong
+              >{me?.nickname}</strong
             >
-              <span>{String(entry.sequence).padStart(2, '0')}</span
-              >{#if entry.outcome === 'MISS'}<Waves size={14} />{:else}<Crosshair
-                  size={14}
-                />{/if}<strong
-                >{$t('battle.sector', { coordinate: coordinateLabel(entry.coordinate) })}</strong
-              ><em
-                >{entry.outcome === 'MISS'
-                  ? $t('board.miss')
-                  : entry.outcome === 'HIT'
-                    ? $t('board.hit')
-                    : $t('battle.shipSunk', {
-                        ship: entry.sunkShip ? shipName(entry.sunkShip) : $t('battle.ship')
-                      })}</em
+          </div>
+          <div>
+            <span class:offline-dot={opponent?.connectionState !== 'ONLINE'} class="online-dot"
+            ></span><small>{$t('battle.opponent')}</small><strong>{opponent?.nickname}</strong>
+          </div>
+        </div>
+      </aside>
+
+      <section class="battle-log panel" aria-labelledby="battle-log-title">
+        <header>
+          <div class="battle-log__signal"><Activity size={16} /></div>
+          <div>
+            <small>{$t('battle.tacticalEventStream')}</small>
+            <h2 id="battle-log-title">{$t('battle.log')}</h2>
+          </div>
+          <span
+            >{$t('battle.liveVersion', {
+              version: String(snapshot.version).padStart(3, '0')
+            })}</span
+          >
+        </header>
+        {#if battleLog.length || systemLog.length}
+          <ol>
+            {#each systemLog as entry (entry.messageId)}<li class="log-system">
+                <span>SYS</span><Activity size={14} /><strong>{$t('battle.systemEvent')}</strong><em
+                  >{entry.content}</em
+                >
+              </li>{/each}
+            {#each battleLog as entry (coordinateKey(entry.coordinate))}<li
+                class:log-hit={entry.outcome !== 'MISS'}
+                class:log-sunk={entry.outcome === 'SUNK'}
               >
-            </li>{/each}
-        </ol>
-      {:else}<p>{$t('battle.awaitingFire')}</p>{/if}
-    </section>
+                <span>{String(entry.sequence).padStart(2, '0')}</span
+                >{#if entry.outcome === 'MISS'}<Waves size={14} />{:else}<Crosshair
+                    size={14}
+                  />{/if}<strong
+                  >{$t('battle.sector', { coordinate: coordinateLabel(entry.coordinate) })}</strong
+                ><em
+                  >{entry.outcome === 'MISS'
+                    ? $t('board.miss')
+                    : entry.outcome === 'HIT'
+                      ? $t('board.hit')
+                      : $t('battle.shipSunk', {
+                          ship: entry.sunkShip ? shipName(entry.sunkShip) : $t('battle.ship')
+                        })}</em
+                >
+              </li>{/each}
+          </ol>
+        {:else}<p>{$t('battle.awaitingFire')}</p>{/if}
+      </section>
+    </div>
   </div>
 </section>
 
@@ -722,6 +730,9 @@
   }
   .signal-dot--safe {
     color: var(--safe);
+  }
+  .battle-stage {
+    position: relative;
   }
   .battle-grid {
     display: grid;
@@ -1083,14 +1094,15 @@
     will-change: transform, opacity;
   }
   .fire-sequence {
-    position: relative;
+    position: absolute;
+    inset: -4px 0 auto;
     z-index: 8;
     display: grid;
     grid-template-columns: auto 1fr auto;
     align-items: center;
     gap: 12px;
     width: min(390px, 100%);
-    margin: -4px auto 8px;
+    margin: 0 auto;
     padding: 10px 13px;
     border: 1px solid rgba(83, 233, 232, 0.52);
     border-left: 3px solid var(--tactical);
@@ -1098,6 +1110,7 @@
     box-shadow:
       0 12px 34px rgba(0, 0, 0, 0.28),
       0 0 22px rgba(83, 233, 232, 0.08);
+    pointer-events: none;
     animation: fire-sequence-in 150ms var(--ease-out) both;
   }
   .fire-sequence__reticle {

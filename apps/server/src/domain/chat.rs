@@ -1,10 +1,18 @@
 use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use uuid::Uuid;
 
 pub const MAX_CHAT_MESSAGE_CHARS: usize = 300;
 pub const MAX_CHAT_HISTORY: usize = 100;
 pub const ALLOWED_EMOJIS: [&str; 10] = ["👍", "👏", "😅", "😮", "🔥", "🎯", "🚢", "💥", "🫡", "🤝"];
+
+fn deserialize_quick_command_id<'de, D>(deserializer: D) -> Result<Option<QuickCommandId>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = Option::<String>::deserialize(deserializer)?;
+    Ok(value.and_then(|value| QuickCommandId::from_wire(&value)))
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ChatMessageType {
@@ -27,19 +35,17 @@ pub enum QuickCommandId {
     NiceShot,
     Lucky,
     GoFirst,
-    Rematch,
     ThankYou,
 }
 
 impl QuickCommandId {
-    pub const ALL: [Self; 8] = [
+    pub const ALL: [Self; 7] = [
         Self::GoodGame,
         Self::WaitAMoment,
         Self::Ready,
         Self::NiceShot,
         Self::Lucky,
         Self::GoFirst,
-        Self::Rematch,
         Self::ThankYou,
     ];
 
@@ -51,7 +57,6 @@ impl QuickCommandId {
             Self::NiceShot => "나이스 샷",
             Self::Lucky => "운이 좋았군요",
             Self::GoFirst => "제가 먼저 가겠습니다",
-            Self::Rematch => "다시 한 판?",
             Self::ThankYou => "감사합니다",
         }
     }
@@ -70,7 +75,6 @@ impl QuickCommandId {
             Self::NiceShot => "NICE_SHOT",
             Self::Lucky => "LUCKY",
             Self::GoFirst => "GO_FIRST",
-            Self::Rematch => "REMATCH",
             Self::ThankYou => "THANK_YOU",
         }
     }
@@ -88,7 +92,7 @@ pub struct ChatMessage {
     pub timestamp: DateTime<Utc>,
     #[serde(rename = "type", alias = "kind")]
     pub message_type: ChatMessageType,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_quick_command_id")]
     pub command_id: Option<QuickCommandId>,
 }
 

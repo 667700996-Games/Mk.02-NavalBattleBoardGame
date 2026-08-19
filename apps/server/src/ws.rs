@@ -550,22 +550,6 @@ async fn handle_event(
             }
             .await
         }
-        ClientEvent::GameRematch(input) => {
-            async {
-                let room_ref = state.room(input.room_id).await?;
-                let mut room = room_ref.lock().await;
-                let accepted = room.request_rematch(session.id)?;
-                state.save_room(&mut room).await?;
-                state
-                    .broadcast_snapshots(&room, SnapshotEvent::RoomUpdated)
-                    .await;
-                if accepted {
-                    state.cancel_turn_expiry(room.id);
-                }
-                Ok(())
-            }
-            .await
-        }
         ClientEvent::GameSync(input) => {
             async {
                 let room_ref = state.room(input.room_id).await?;
@@ -692,7 +676,6 @@ fn integrity_event_context(event: &ClientEvent) -> (Option<Uuid>, &'static str) 
         ClientEvent::GameSurrender(input) => (Some(input.room_id), "game:surrender"),
         ClientEvent::ChatSend(input) => (Some(input.room_id), "chat:send"),
         ClientEvent::ChatTyping(input) => (Some(input.room_id), "chat:typing"),
-        ClientEvent::GameRematch(input) => (Some(input.room_id), "game:rematch"),
         ClientEvent::GameSync(input) => (Some(input.room_id), "game:sync"),
         ClientEvent::Heartbeat(_) => (None, "heartbeat"),
     }
@@ -748,25 +731,25 @@ mod tests {
     }
 
     #[test]
-    fn websocket_protocol_negotiation_supports_headerless_v2_and_rejects_unknown_versions() {
+    fn websocket_protocol_negotiation_supports_headerless_v3_and_rejects_unknown_versions() {
         let mut headers = HeaderMap::new();
         assert_eq!(
             negotiate_websocket_protocol(&headers).unwrap(),
-            (NegotiatedProtocol(2), None)
+            (NegotiatedProtocol(3), None)
         );
 
         headers.insert(
             SEC_WEBSOCKET_PROTOCOL,
-            HeaderValue::from_static("mk01.v3, mk01.v2"),
+            HeaderValue::from_static("mk01.v2, mk01.v3"),
         );
         assert_eq!(
             negotiate_websocket_protocol(&headers).unwrap(),
-            (NegotiatedProtocol(2), Some("mk01.v2"))
+            (NegotiatedProtocol(3), Some("mk01.v3"))
         );
 
         headers.insert(
             SEC_WEBSOCKET_PROTOCOL,
-            HeaderValue::from_static("mk01.v1, mk01.v3"),
+            HeaderValue::from_static("mk01.v1, mk01.v4"),
         );
         assert_eq!(
             negotiate_websocket_protocol(&headers).unwrap_err(),

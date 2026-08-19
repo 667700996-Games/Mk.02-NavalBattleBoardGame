@@ -38,6 +38,8 @@ export function sourceMaterials() {
     protocolContracts: material("protocolContracts", [
       "contracts/protocol-v2.client-fixtures.json",
       "contracts/protocol-v2.events.json",
+      "contracts/protocol-v3.client-fixtures.json",
+      "contracts/protocol-v3.events.json",
     ]),
     balanceRules: material("balanceRules", [
       "apps/server/src/domain/balance.rs",

@@ -1,9 +1,9 @@
 import type { GameSnapshot, RoomStatus, ServerEvent, SpectatorSnapshot } from '$lib/types';
 import { message } from '$lib/i18n';
 
-export const GAME_PROTOCOL_VERSION = 2;
-export const LEGACY_DEFAULT_PROTOCOL_VERSION = 2;
-export const MIN_SUPPORTED_PROTOCOL_VERSION = 2;
+export const GAME_PROTOCOL_VERSION = 3;
+export const LEGACY_DEFAULT_PROTOCOL_VERSION = 3;
+export const MIN_SUPPORTED_PROTOCOL_VERSION = 3;
 export const MAX_SUPPORTED_PROTOCOL_VERSION = GAME_PROTOCOL_VERSION;
 export const PROTOCOL_COMPATIBILITY_WINDOW_DAYS = 30;
 export const PROTOCOL_VERSION_HEADER = 'x-mk01-protocol-version';

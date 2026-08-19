@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
@@ -161,7 +161,6 @@ pub struct GameRoom {
     #[serde(default)]
     pub placement_started_at: Option<DateTime<Utc>>,
     pub disconnected_deadlines: HashMap<Uuid, DateTime<Utc>>,
-    pub rematch_requests: HashSet<Uuid>,
     #[serde(default)]
     pub chat_messages: Vec<ChatMessage>,
     #[serde(default)]
@@ -221,7 +220,6 @@ impl GameRoom {
             updated_at: now,
             placement_started_at: None,
             disconnected_deadlines: HashMap::new(),
-            rematch_requests: HashSet::new(),
             chat_messages: Vec::new(),
             ready_resolutions: HashMap::new(),
             start_resolutions: HashMap::new(),
@@ -672,35 +670,6 @@ impl GameRoom {
             ));
         }
         Ok((record, false))
-    }
-
-    pub fn request_rematch(&mut self, session_id: Uuid) -> Result<bool, GameError> {
-        if self.status != RoomStatus::Finished {
-            return Err(GameError::InvalidState);
-        }
-        let player_id = self.player_for_session(session_id)?.id;
-        self.rematch_requests.insert(player_id);
-        let accepted = self.rematch_requests.len() == 2;
-        if accepted {
-            self.game = None;
-            self.game_id = None;
-            self.placement_started_at = None;
-            self.pending_placements.clear();
-            self.rematch_requests.clear();
-            self.ready_resolutions.clear();
-            self.start_resolutions.clear();
-            for player in &mut self.players {
-                player.placement_confirmed = false;
-                player.ready_state = PlayerReadyState::NotReady;
-                player.ready_at = None;
-            }
-            self.status = RoomStatus::WaitingForReady;
-        }
-        self.bump();
-        if accepted {
-            self.push_system_message("재대결이 승인되었습니다. 양 지휘관의 준비를 기다립니다.");
-        }
-        Ok(accepted)
     }
 
     pub fn surrender(

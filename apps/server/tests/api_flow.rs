@@ -972,7 +972,7 @@ async fn liveness_readiness_and_security_headers_are_exposed() {
 }
 
 #[tokio::test]
-async fn protocol_window_accepts_headerless_v2_and_rejects_unsupported_clients() {
+async fn protocol_window_accepts_headerless_v3_and_rejects_unsupported_clients() {
     let state = AppState::with_store(test_settings(), Arc::new(MemoryStore::default()));
     let app = build_router(state.clone());
     let legacy_response = send(
@@ -1019,7 +1019,7 @@ async fn protocol_window_accepts_headerless_v2_and_rejects_unsupported_clients()
     .await;
     assert_eq!(explicit_response.status(), StatusCode::OK);
 
-    for unsupported in ["1", "3", "invalid"] {
+    for unsupported in ["1", "2", "4", "invalid"] {
         let response = send(
             &app,
             Request::builder()
@@ -1048,12 +1048,12 @@ async fn protocol_window_accepts_headerless_v2_and_rejects_unsupported_clients()
             .metrics
             .protocol_http_rejections
             .load(Ordering::Relaxed),
-        3
+        4
     );
 }
 
 #[tokio::test]
-async fn websocket_handshake_supports_old_and_new_v2_clients_and_rejects_v3_only() {
+async fn websocket_handshake_supports_headerless_and_explicit_v3_clients() {
     let state = AppState::with_store(test_settings(), Arc::new(MemoryStore::default()));
     let app = build_router(state.clone());
     let (cookie, _) = create_session(&app, "Protocol Captain").await;
@@ -1097,17 +1097,17 @@ async fn websocket_handshake_supports_old_and_new_v2_clients_and_rejects_v3_only
     );
     legacy_socket.close(None).await.unwrap();
 
-    let (mut v2_socket, v2_response) = connect_async(request(Some("mk01.v3, mk01.v2")))
+    let (mut v3_socket, v3_response) = connect_async(request(Some("mk01.v2, mk01.v3")))
         .await
         .unwrap();
-    assert_eq!(v2_response.status(), StatusCode::SWITCHING_PROTOCOLS);
+    assert_eq!(v3_response.status(), StatusCode::SWITCHING_PROTOCOLS);
     assert_eq!(
-        v2_response.headers()[header::SEC_WEBSOCKET_PROTOCOL],
-        "mk01.v2"
+        v3_response.headers()[header::SEC_WEBSOCKET_PROTOCOL],
+        "mk01.v3"
     );
-    v2_socket.close(None).await.unwrap();
+    v3_socket.close(None).await.unwrap();
 
-    let error = connect_async(request(Some("mk01.v3"))).await.unwrap_err();
+    let error = connect_async(request(Some("mk01.v2"))).await.unwrap_err();
     let WebSocketError::Http(response) = error else {
         panic!("expected an HTTP protocol rejection, got {error}");
     };

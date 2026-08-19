@@ -46,6 +46,7 @@ pub fn negotiate_protocol_version(requested: Option<u16>) -> Result<NegotiatedPr
 pub const fn websocket_subprotocol(version: u16) -> Option<&'static str> {
     match version {
         2 => Some("mk01.v2"),
+        3 => Some("mk01.v3"),
         _ => None,
     }
 }
@@ -757,8 +758,6 @@ pub enum ClientEvent {
     ChatSend(ChatSendInput),
     #[serde(rename = "chat:typing")]
     ChatTyping(ChatTypingInput),
-    #[serde(rename = "game:rematch")]
-    GameRematch(RoomReference),
     #[serde(rename = "game:sync")]
     GameSync(RoomReference),
     #[serde(rename = "heartbeat")]
@@ -884,7 +883,30 @@ pub struct MatchmakingTicket {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::ChatMessageType;
+    use crate::domain::{ChatMessageType, QuickCommandId};
+
+    #[test]
+    fn retired_rematch_commands_are_rejected() {
+        let rematch = serde_json::json!({
+            "type": "game:rematch",
+            "payload": { "roomId": Uuid::new_v4() }
+        });
+        assert!(serde_json::from_value::<ClientEvent>(rematch).is_err());
+        assert_eq!(QuickCommandId::from_wire("REMATCH"), None);
+
+        let historic_message: ChatMessage = serde_json::from_value(serde_json::json!({
+            "messageId": Uuid::new_v4(),
+            "roomId": Uuid::new_v4(),
+            "playerId": Uuid::new_v4(),
+            "nickname": "Legacy Captain",
+            "content": "다시 한 판?",
+            "timestamp": Utc::now(),
+            "type": "QUICK_COMMAND",
+            "commandId": "REMATCH"
+        }))
+        .unwrap();
+        assert_eq!(historic_message.command_id, None);
+    }
 
     #[test]
     fn every_supported_frozen_client_remains_accepted_during_the_release_window() {

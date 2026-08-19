@@ -8,8 +8,10 @@ release.
 
 ## Current baseline and invariants
 
-- The current and headerless legacy baseline is V2. HTTP uses `x-mk01-protocol-version: 2` and
-  WebSocket uses `Sec-WebSocket-Protocol: mk01.v2` when the client can negotiate explicitly.
+- The current and headerless legacy baseline is V3. HTTP uses `x-mk01-protocol-version: 3` and
+  WebSocket uses `Sec-WebSocket-Protocol: mk01.v3` when the client can negotiate explicitly.
+- Frozen V2 artifacts remain checksummed as historical evidence, but V2 is no longer in the active
+  compatibility window after removal of the explicit rematch command and snapshot state.
 - `GET /api/protocol` reports `currentVersion`, the inclusive minimum/maximum range, the headerless
   default, the minimum compatibility-window days, and bounded capability identifiers.
 - Every `/api/*` response, including a protocol rejection, reports the selected, minimum, maximum,
@@ -27,15 +29,15 @@ release.
 
 ## Required mixed-release matrix
 
-| Client | Server | Expected result |
-| --- | --- | --- |
-| Stable pre-negotiation V2 | Candidate supporting V2 | Headerless HTTP and WebSocket select the frozen V2 behavior; the WebSocket response may omit a subprotocol. |
-| Current V2 | Stable pre-negotiation V2 | Missing response headers, a 404 from `/api/protocol`, and an empty selected WebSocket subprotocol use the frozen V2 fallback. Snapshot and event runtime validation still reject anything other than V2. |
-| Current V2 | Candidate supporting V2 | HTTP selects V2 and WebSocket echoes `mk01.v2`; capabilities come only from bounded server metadata. |
-| V2 | Future V3 server advertising `[2,3]` | Explicit V2 remains selected even though the descriptor's current version is V3. The V2 serializer/deserializer and active-match interpretation remain pinned. |
-| Unsupported or malformed | Any release | HTTP/WebSocket handshake fails with 426 before authentication state or gameplay state changes. |
+| Client                    | Server                               | Expected result                                                                                                                                                                                          |
+| ------------------------- | ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Stable pre-negotiation V3 | Candidate supporting V3              | Headerless HTTP and WebSocket select the frozen V3 behavior; the WebSocket response may omit a subprotocol.                                                                                              |
+| Current V3                | Stable pre-negotiation V3            | Missing response headers, a 404 from `/api/protocol`, and an empty selected WebSocket subprotocol use the frozen V3 fallback. Snapshot and event runtime validation still reject anything other than V3. |
+| Current V3                | Candidate supporting V3              | HTTP selects V3 and WebSocket echoes `mk01.v3`; capabilities come only from bounded server metadata.                                                                                                     |
+| V3                        | Future V4 server advertising `[3,4]` | Explicit V3 remains selected even though the descriptor's current version is V4. The V3 serializer/deserializer and active-match interpretation remain pinned.                                           |
+| Unsupported or malformed  | Any release                          | HTTP/WebSocket handshake fails with 426 before authentication state or gameplay state changes.                                                                                                           |
 
-An empty negotiation response is accepted only because V2 was already the deployed frozen contract
+An empty negotiation response is accepted only because V3 is the deployed frozen contract
 before negotiation was introduced. No later protocol may create a second implicit fallback.
 
 ## Change classification
@@ -61,10 +63,10 @@ new protocol version; never edit or delete a frozen manifest or fixture. `npm ru
 4. every supported version has one fixture for each of its frozen client events and all of those
    fixtures still deserialize through the candidate Rust server.
 
-When V3 is introduced, first add V3 artifacts and keep V2 fixtures. The server's connection entry is
+When V4 is introduced, first add V4 artifacts and keep V3 fixtures. The server's connection entry is
 already pinned to its negotiated version; any breaking server event must add an explicit
-per-connection V2 adapter on both local and distributed delivery paths before `maximum` becomes 3.
-The stable V2 web artifact must be run against that candidate output. Merely storing the negotiated
+per-connection V3 adapter on both local and distributed delivery paths before `maximum` becomes 4.
+The stable V3 web artifact must be run against that candidate output. Merely storing the negotiated
 number is not evidence that an adapter exists.
 
 ## Release, rollback, and retirement
@@ -97,8 +99,8 @@ the matrix without adding identity labels.
 ```sh
 npm run contract
 cargo test -p mk01-server protocol::tests::every_supported_frozen_client_remains_accepted_during_the_release_window -- --exact
-cargo test -p mk01-server --test api_flow protocol_window_accepts_headerless_v2_and_rejects_unsupported_clients -- --exact
-cargo test -p mk01-server --test api_flow websocket_handshake_supports_old_and_new_v2_clients_and_rejects_v3_only -- --exact
+cargo test -p mk01-server --test api_flow protocol_window_accepts_headerless_v3_and_rejects_unsupported_clients -- --exact
+cargo test -p mk01-server --test api_flow websocket_handshake_supports_headerless_and_explicit_v3_clients -- --exact
 npm --workspace @mk01/web run test:unit -- src/lib/protocol.test.ts
 npm run test:distributed
 npm run test:e2e

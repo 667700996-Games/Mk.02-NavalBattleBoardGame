@@ -320,11 +320,6 @@
       await goto(resolve('/lobby'));
     }
   }
-
-  function rematch() {
-    if (!snapshot) return;
-    realtime.send({ type: 'game:rematch', payload: { roomId: snapshot.room.id } });
-  }
 </script>
 
 <svelte:head><title>{snapshot?.room.name ?? $t('room.connectingTitle')} · Mk.01</title></svelte:head
@@ -436,7 +431,7 @@
           <span>{$t('room.reportCompiling')}</span>
         </section>
       {/if}
-      <ResultView {snapshot} onrematch={rematch} onlobby={leaveRoom} />
+      <ResultView {snapshot} onlobby={leaveRoom} />
     {:else if snapshot.room.status === 'CANCELLED'}
       <section class="load-error panel">
         <WifiOff size={34} />

@@ -1,0 +1,110 @@
+[
+  {
+    "type": "attack:fire",
+    "payload": {
+      "requestId": "00000000-0000-4000-8000-000000000001",
+      "roomId": "00000000-0000-4000-8000-000000000002",
+      "playerId": "00000000-0000-4000-8000-000000000003",
+      "coordinate": { "row": 4, "col": 7 },
+      "expectedVersion": 12,
+      "turnNumber": 3
+    }
+  },
+  {
+    "type": "chat:send",
+    "payload": {
+      "roomId": "00000000-0000-4000-8000-000000000002",
+      "clientMessageId": "00000000-0000-4000-8000-000000000004",
+      "type": "TEXT",
+      "content": "Stable V3 transmission",
+      "commandId": null
+    }
+  },
+  {
+    "type": "chat:typing",
+    "payload": {
+      "roomId": "00000000-0000-4000-8000-000000000002",
+      "isTyping": true
+    }
+  },
+  {
+    "type": "game:start",
+    "payload": {
+      "requestId": "00000000-0000-4000-8000-000000000005",
+      "roomId": "00000000-0000-4000-8000-000000000002",
+      "playerId": "00000000-0000-4000-8000-000000000003",
+      "roomVersion": 8
+    }
+  },
+  {
+    "type": "game:surrender",
+    "payload": {
+      "roomId": "00000000-0000-4000-8000-000000000002",
+      "playerId": "00000000-0000-4000-8000-000000000003"
+    }
+  },
+  {
+    "type": "game:sync",
+    "payload": { "roomId": "00000000-0000-4000-8000-000000000002" }
+  },
+  {
+    "type": "heartbeat",
+    "payload": { "clientTime": "2026-08-19T10:30:00Z" }
+  },
+  {
+    "type": "player:ready",
+    "payload": {
+      "requestId": "00000000-0000-4000-8000-000000000006",
+      "roomId": "00000000-0000-4000-8000-000000000002",
+      "playerId": "00000000-0000-4000-8000-000000000003"
+    }
+  },
+  {
+    "type": "player:unready",
+    "payload": {
+      "requestId": "00000000-0000-4000-8000-000000000007",
+      "roomId": "00000000-0000-4000-8000-000000000002",
+      "playerId": "00000000-0000-4000-8000-000000000003"
+    }
+  },
+  {
+    "type": "room:create",
+    "payload": { "name": "Stable V3 operation", "visibility": "PRIVATE" }
+  },
+  {
+    "type": "room:join",
+    "payload": { "code": "V3TEST" }
+  },
+  {
+    "type": "room:leave",
+    "payload": { "roomId": "00000000-0000-4000-8000-000000000002" }
+  },
+  {
+    "type": "ships:confirm",
+    "payload": {
+      "roomId": "00000000-0000-4000-8000-000000000002",
+      "playerId": "00000000-0000-4000-8000-000000000003",
+      "placements": [
+        {
+          "kind": "CARRIER",
+          "origin": { "row": 0, "col": 0 },
+          "orientation": "HORIZONTAL"
+        }
+      ]
+    }
+  },
+  {
+    "type": "ships:place",
+    "payload": {
+      "roomId": "00000000-0000-4000-8000-000000000002",
+      "playerId": "00000000-0000-4000-8000-000000000003",
+      "placements": [
+        {
+          "kind": "CARRIER",
+          "origin": { "row": 0, "col": 0 },
+          "orientation": "HORIZONTAL"
+        }
+      ]
+    }
+  }
+]

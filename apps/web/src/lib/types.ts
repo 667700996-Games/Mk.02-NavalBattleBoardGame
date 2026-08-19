@@ -34,14 +34,7 @@ export type FinishReason =
 export type WinType = 'NORMAL_VICTORY' | 'SURRENDER' | 'DISCONNECT' | 'TIMEOUT';
 export type ChatMessageType = 'TEXT' | 'QUICK_COMMAND' | 'EMOJI' | 'SYSTEM';
 export type QuickCommandId =
-  | 'GOOD_GAME'
-  | 'WAIT_A_MOMENT'
-  | 'READY'
-  | 'NICE_SHOT'
-  | 'LUCKY'
-  | 'GO_FIRST'
-  | 'REMATCH'
-  | 'THANK_YOU';
+  'GOOD_GAME' | 'WAIT_A_MOMENT' | 'READY' | 'NICE_SHOT' | 'LUCKY' | 'GO_FIRST' | 'THANK_YOU';
 
 export interface Coordinate {
   row: number;
@@ -642,7 +635,6 @@ export interface GameSnapshot {
   currentPlayerId: string | null;
   result: GameResult | null;
   reconnectDeadline: string | null;
-  rematchRequestedBy: string[];
   placement: ShipPlacement[] | null;
   placementStartedAt: string | null;
   gameStartedAt: string | null;
@@ -804,7 +796,6 @@ export type ClientEvent =
       };
     }
   | { type: 'chat:typing'; payload: { roomId: string; isTyping: boolean } }
-  | { type: 'game:rematch'; payload: { roomId: string } }
   | { type: 'game:sync'; payload: { roomId: string } }
   | { type: 'heartbeat'; payload: { clientTime: string } };
 
@@ -861,7 +852,6 @@ export const QUICK_COMMANDS: ReadonlyArray<{ id: QuickCommandId }> = [
   { id: 'NICE_SHOT' },
   { id: 'LUCKY' },
   { id: 'GO_FIRST' },
-  { id: 'REMATCH' },
   { id: 'THANK_YOU' }
 ] as const;
 

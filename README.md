@@ -18,7 +18,7 @@
 - 방 단위 실시간 전술 채팅, 타입화된 빠른 명령·Unicode 이모지, 입력 중 표시, 최근 100개 메시지 복구
 - 서버 UTC 기준 전체 작전 시간과 턴 마감, 시간 초과 턴 자동 교대와 3회 연속 초과 자동 패배
 - `NORMAL`/`SURRENDER`/`DISCONNECT`/`TIMEOUT` 종료 원인과 시간 초과 통계 기록
-- 재경기, 승패·명중률·턴·플레이 시간 통계, 전투 기록
+- 승패·명중률·턴·플레이 시간 통계, 전투 기록
 - 결과 원장에서 결정적으로 계산하는 XP·레벨·계급·업적과 일간/주간 임무
 - 계정·임무·기간 유일 키로 중복 지급을 막는 거래형 XP 보상 원장
 - 예약 활성화·범위 검증·기능 차단·원자적 리비전·감사 이력·롤백을 갖춘 시즌/이벤트 운영
@@ -83,7 +83,6 @@ WAITING_FOR_OPPONENT
   → FINISHED
 
 대기실/배치/전투 → CANCELLED  (정책에 따른 방 종료)
-FINISHED → WAITING_FOR_READY   (두 명 모두 재경기 동의)
 ```
 
 `readyState`는 대기실 준비, `placementConfirmed`는 함선 배치 확정을 표현합니다. 두 플레이어가 준비되면 상태만 `READY_TO_START`가 되며 게임 객체나 배치 단계는 생성되지 않습니다. `game:start`와 `player:unready`는 같은 방 단위 Tokio 잠금에서 직렬화되므로 먼저 승인된 유효 전이 하나만 성공합니다. 연결 끊김은 별도 방 상태를 만들지 않고 각 플레이어의 `connectionState`로 표현합니다.
@@ -236,7 +235,6 @@ POSTGRES_PASSWORD='replace-this-local-password' docker compose up --build
 | `game:surrender`  | `roomId`, `playerId`                                                             |
 | `chat:send`       | `roomId`, `clientMessageId`, `type`, `content`, `commandId`                      |
 | `chat:typing`     | `roomId`, `isTyping`                                                             |
-| `game:rematch`    | `roomId`                                                                         |
 | `game:sync`       | `roomId`                                                                         |
 | `heartbeat`       | `clientTime`                                                                     |
 
@@ -263,11 +261,11 @@ POSTGRES_PASSWORD='replace-this-local-password' docker compose up --build
 | `heartbeat`                                 | 연결 생존 확인                                  |
 | `error`                                     | `code`, 사용자 메시지, `retryable`, `requestId` |
 
-`room:updated`/`game:snapshot`은 `protocolVersion`, `roomId`, `roomState`, `hostPlayerId`, `players`, `canStartGame`, `roomVersion`, `gameId`, `serverTimestamp`를 포함합니다. 현재 계약 버전은 `2`이며 `/api/health`와 `/api/rooms`에서도 같은 버전을 제공합니다. 플레이어 공개 상태에는 `role`, `readyState`, `connectionState`, `joinedAt`, `readyAt`이 포함되지만 세션 토큰과 `sessionId`는 포함되지 않습니다. `canStartGame`은 UI 힌트일 뿐이며 서버는 방장·인원·양쪽 준비·연결·상태·버전·중복 요청을 잠금 안에서 다시 검증합니다.
+`room:updated`/`game:snapshot`은 `protocolVersion`, `roomId`, `roomState`, `hostPlayerId`, `players`, `canStartGame`, `roomVersion`, `gameId`, `serverTimestamp`를 포함합니다. 현재 계약 버전은 `3`이며 `/api/health`와 `/api/rooms`에서도 같은 버전을 제공합니다. 플레이어 공개 상태에는 `role`, `readyState`, `connectionState`, `joinedAt`, `readyAt`이 포함되지만 세션 토큰과 `sessionId`는 포함되지 않습니다. `canStartGame`은 UI 힌트일 뿐이며 서버는 방장·인원·양쪽 준비·연결·상태·버전·중복 요청을 잠금 안에서 다시 검증합니다.
 
 `row`/`col`은 0–9입니다. `ships:place`는 항공모함·전함·순양함·잠수함·구축함을 각각 한 번씩 정확히 포함해야 합니다. 확정 시 같은 배치를 다시 보내며 서버 저장본과 일치해야 합니다. 서버는 세션으로 실제 `playerId`와 방장 ID를 다시 확인하며, 준비·시작·공격·채팅 UUID가 중복되면 기존 결과만 재전송합니다. 공격은 현재 `turnNumber`와 서버 마감 시각을 모두 통과해야 합니다.
 
-채팅 `type`은 클라이언트가 보낼 수 있는 `TEXT`, `QUICK_COMMAND`, `EMOJI`와 서버 전용 `SYSTEM`으로 나뉩니다. 빠른 명령은 `GOOD_GAME`, `WAIT_A_MOMENT`, `READY`, `NICE_SHOT`, `LUCKY`, `GO_FIRST`, `REMATCH`, `THANK_YOU` ID만 허용하고 표시 문구는 서버가 결정합니다. 이모지는 저장소의 공유 허용 목록에 있는 Unicode 값만 받습니다. `chat:send`와 `chat:typing`은 현재 방 멤버에게만 전달됩니다.
+채팅 `type`은 클라이언트가 보낼 수 있는 `TEXT`, `QUICK_COMMAND`, `EMOJI`와 서버 전용 `SYSTEM`으로 나뉩니다. 빠른 명령은 `GOOD_GAME`, `WAIT_A_MOMENT`, `READY`, `NICE_SHOT`, `LUCKY`, `GO_FIRST`, `THANK_YOU` ID만 허용하고 표시 문구는 서버가 결정합니다. 이모지는 저장소의 공유 허용 목록에 있는 Unicode 값만 받습니다. `chat:send`와 `chat:typing`은 현재 방 멤버에게만 전달됩니다.
 
 `turn:started`, `turn:changed`, `game:timer-sync`는 `gameId`, `turnNumber`, `activePlayerId`, `gameStartedAt`, `turnStartedAt`, `turnDeadlineAt`, `turnDurationSeconds`, `serverTimestamp`를 제공합니다. 클라이언트는 절대 마감 시각과 서버 시각 오차로 화면만 계산하며, 만료와 승패는 서버 스케줄러만 확정합니다.
 
