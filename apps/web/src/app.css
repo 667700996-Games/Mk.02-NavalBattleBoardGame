@@ -1172,6 +1172,15 @@ p {
   background: rgba(240, 72, 94, 0.09);
 }
 
+.ui-toast--warning {
+  border-color: rgba(237, 181, 82, 0.34);
+}
+
+.ui-toast--warning .ui-toast__icon {
+  color: var(--amber-400);
+  background: rgba(237, 181, 82, 0.09);
+}
+
 .ui-toast--success .ui-toast__icon {
   color: var(--green-400);
   background: rgba(32, 199, 143, 0.09);

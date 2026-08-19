@@ -12,7 +12,7 @@ import {
   socketStatus,
   type SocketStatus
 } from '$lib/stores';
-import type { ClientEvent, GameSnapshot, ServerEvent } from '$lib/types';
+import { coordinateLabel, type ClientEvent, type GameSnapshot, type ServerEvent } from '$lib/types';
 import { sounds } from '$lib/sound';
 import { message } from '$lib/i18n';
 import {
@@ -180,6 +180,36 @@ class RealtimeClient {
       this.applySnapshot(event.payload.snapshot);
     } else if (event.type === 'attack:result' || event.type === 'ship:sunk') {
       lastAttack.set(event.payload);
+      const snapshot = get(gameSnapshot);
+      if (
+        event.type === 'attack:result' &&
+        snapshot &&
+        (event.payload.attackerId === snapshot.selfPlayerId ||
+          event.payload.targetId === snapshot.selfPlayerId)
+      ) {
+        const attackedBySelf = event.payload.attackerId === snapshot.selfPlayerId;
+        const notification = {
+          id: `attack-${event.payload.requestId}-${snapshot.selfPlayerId}`,
+          title: attackedBySelf
+            ? message('realtime.attackSelfTitle')
+            : message('realtime.attackOpponentTitle'),
+          message: message('realtime.attackResultMessage', {
+            coordinate: coordinateLabel(event.payload.coordinate),
+            outcome: message(`attackOutcome.${event.payload.outcome}`)
+          }),
+          tone: attackedBySelf
+            ? event.payload.outcome === 'MISS'
+              ? ('info' as const)
+              : ('success' as const)
+            : event.payload.outcome === 'SUNK'
+              ? ('danger' as const)
+              : event.payload.outcome === 'HIT'
+                ? ('warning' as const)
+                : ('info' as const)
+        };
+        hudNotifications.update((notifications) => [...notifications, notification].slice(-3));
+        setTimeout(() => dismissHudNotification(notification.id), 2_800);
+      }
     } else if (event.type === 'chat:history') {
       const roomId = get(gameSnapshot)?.room.id;
       if (roomId === event.payload.roomId) {

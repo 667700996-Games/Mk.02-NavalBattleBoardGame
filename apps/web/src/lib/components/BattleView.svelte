@@ -12,7 +12,6 @@
     coordinateKey,
     coordinateLabel,
     fleetForBalance,
-    type AttackOutcome,
     type Coordinate,
     type GameSnapshot
   } from '$lib/types';
@@ -38,17 +37,15 @@
   let showSurrender = $state(false);
   let clientNow = $state(Date.now());
   let timerAnnouncement = $state('');
-  let combatEvent = $state<{ outcome: AttackOutcome; coordinate: Coordinate } | null>(null);
   let fireSequence = $state<{
     coordinate: Coordinate;
-    stage: 'LOCK' | 'FIRE' | 'IMPACT';
+    stage: 'LOCK' | 'FIRE';
   } | null>(null);
   let turnPulse = $state(false);
   let announcedTurn = 0;
   let announcedSeconds: number[] = [];
   let seenAttackRequest = '';
   let clockTimer: ReturnType<typeof setInterval> | null = null;
-  let impactTimer: ReturnType<typeof setTimeout> | null = null;
   let fireTimer: ReturnType<typeof setTimeout> | null = null;
   let turnPulseTimer: ReturnType<typeof setTimeout> | null = null;
   let observedTurnPlayer = '';
@@ -165,18 +162,12 @@
     const attack = $lastAttack;
     if (!attack || attack.requestId === seenAttackRequest) return;
     seenAttackRequest = attack.requestId;
-    combatEvent = { outcome: attack.outcome, coordinate: attack.coordinate };
     if (
       fireSequence &&
       coordinateKey(fireSequence.coordinate) === coordinateKey(attack.coordinate)
     ) {
-      fireSequence = { ...fireSequence, stage: 'IMPACT' };
-      setTimeout(() => {
-        fireSequence = null;
-      }, 520);
+      fireSequence = null;
     }
-    if (impactTimer) clearTimeout(impactTimer);
-    impactTimer = setTimeout(() => (combatEvent = null), 760);
   });
 
   $effect(() => {
@@ -228,7 +219,6 @@
 
   onDestroy(() => {
     if (clockTimer) clearInterval(clockTimer);
-    if (impactTimer) clearTimeout(impactTimer);
     if (fireTimer) clearTimeout(fireTimer);
     if (turnPulseTimer) clearTimeout(turnPulseTimer);
   });
@@ -335,36 +325,9 @@
   </div>
   <InputPrompt context="targeting" />
 
-  {#if combatEvent}
-    <div
-      class:combat-event--miss={combatEvent.outcome === 'MISS'}
-      class:combat-event--hit={combatEvent.outcome !== 'MISS'}
-      class:combat-event--sunk={combatEvent.outcome === 'SUNK'}
-      class="combat-event"
-      role="status"
-      aria-live="polite"
-    >
-      <span class="combat-event__signal"><Crosshair size={15} /></span>
-      <div>
-        <small
-          >{$t('battle.lastAction', {
-            coordinate: coordinateLabel(combatEvent.coordinate)
-          })}</small
-        ><strong
-          >{combatEvent.outcome === 'MISS'
-            ? $t('battle.noContact')
-            : combatEvent.outcome === 'HIT'
-              ? $t('battle.hitConfirmed')
-              : $t('battle.vesselDestroyed')}</strong
-        >
-      </div>
-    </div>
-  {/if}
-
   {#if fireSequence}
     <div
       class:fire-sequence--fire={fireSequence.stage === 'FIRE'}
-      class:fire-sequence--impact={fireSequence.stage === 'IMPACT'}
       class="fire-sequence"
       role="status"
       aria-live="polite"
@@ -377,9 +340,7 @@
         <strong
           >{fireSequence.stage === 'LOCK'
             ? $t('battle.targetLock')
-            : fireSequence.stage === 'FIRE'
-              ? $t('battle.fireControl')
-              : $t('battle.impactConfirmed')}</strong
+            : $t('battle.fireControl')}</strong
         >
       </div>
       <span class="fire-sequence__ticks"><i></i><i></i><i></i></span>
@@ -761,52 +722,6 @@
   }
   .signal-dot--safe {
     color: var(--safe);
-  }
-  .combat-event {
-    position: absolute;
-    z-index: 5;
-    top: 72px;
-    left: 50%;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    min-width: 260px;
-    padding: 9px 12px;
-    border: 1px solid rgba(129, 205, 224, 0.32);
-    background: rgba(3, 16, 23, 0.96);
-    box-shadow: 0 14px 34px rgba(0, 0, 0, 0.3);
-    transform: translateX(-50%);
-    animation: event-in 180ms var(--ease-out) both;
-  }
-  .combat-event__signal {
-    display: grid;
-    width: 28px;
-    height: 28px;
-    place-items: center;
-    color: var(--tactical);
-    border: 1px solid currentColor;
-    border-radius: 50%;
-  }
-  .combat-event small {
-    display: block;
-    color: var(--ink-400);
-    font: 600 8px var(--font-display);
-    letter-spacing: 0.12em;
-  }
-  .combat-event strong {
-    display: block;
-    margin-top: 2px;
-    color: var(--ink-100);
-    font: 700 14px var(--font-display);
-    letter-spacing: 0.08em;
-  }
-  .combat-event--hit .combat-event__signal,
-  .combat-event--hit strong {
-    color: #ffb76d;
-  }
-  .combat-event--sunk .combat-event__signal,
-  .combat-event--sunk strong {
-    color: var(--critical);
   }
   .battle-grid {
     display: grid;
@@ -1229,15 +1144,6 @@
   .fire-sequence--fire .fire-sequence__reticle {
     color: var(--orange-400);
   }
-  .fire-sequence--impact {
-    border-color: rgba(255, 114, 128, 0.68);
-    border-left-color: var(--critical);
-    background: linear-gradient(90deg, rgba(92, 27, 39, 0.96), rgba(24, 13, 20, 0.94));
-  }
-  .fire-sequence--impact .fire-sequence__reticle {
-    color: var(--critical);
-    animation: fire-impact 320ms ease-out both;
-  }
   @keyframes command-shift {
     from {
       transform: translateY(-2px);
@@ -1260,25 +1166,9 @@
       opacity: 0.58;
     }
   }
-  @keyframes fire-impact {
-    50% {
-      transform: scale(1.28);
-      opacity: 0.62;
-    }
-  }
   @keyframes timer-pulse {
     50% {
       opacity: 0.68;
-    }
-  }
-  @keyframes event-in {
-    from {
-      opacity: 0;
-      transform: translate(-50%, -8px);
-    }
-    to {
-      opacity: 1;
-      transform: translate(-50%, 0);
     }
   }
   @media (max-width: 1120px) {
@@ -1353,10 +1243,6 @@
     .battle-log li {
       min-width: 148px;
     }
-    .combat-event {
-      top: 116px;
-      min-width: min(280px, calc(100vw - 36px));
-    }
   }
   @media (max-width: 620px) {
     .surrender-modal-actions {
@@ -1386,11 +1272,6 @@
     }
     .board-readout {
       font-size: 7px;
-    }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .combat-event {
-      animation: none;
     }
   }
 </style>
