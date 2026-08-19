@@ -16,7 +16,7 @@
   import GridBoard from '$lib/components/GridBoard.svelte';
   import { api } from '$lib/api';
   import { analyzeReplay } from '$lib/game/replay-analysis';
-  import { localizeError, shipName, t } from '$lib/i18n';
+  import { localizeError, t } from '$lib/i18n';
   import {
     type CellAttackSnapshot,
     type GameReplay,
@@ -210,30 +210,6 @@
           onclick={() => (step += 1)}><ChevronRight size={18} /></button
         >
       </div>
-    </section>
-
-    <section class="balance-record panel" aria-labelledby="balance-record-title">
-      <header>
-        <h2 id="balance-record-title">{$t('replay.verifiedBalance')}</h2>
-        <strong>{$t('replay.pinVerified', { version: replay.balance.rulesetVersion })}</strong>
-      </header>
-      <p>
-        {$t('replay.balanceSummary', {
-          board: replay.balance.manifest.boardSize,
-          fleet: replay.balance.manifest.fleet.length,
-          rapid: replay.balance.manifest.rapidTurnDurationSeconds,
-          maximum: replay.balance.manifest.maximumTurnDurationSeconds,
-          timeouts: replay.balance.manifest.consecutiveTimeoutForfeit
-        })}
-      </p>
-      <p>
-        {$t('replay.fleet')} ·
-        {#each replay.balance.manifest.fleet as ship, index (ship.kind)}
-          <span>{$t('replay.shipCells', { ship: shipName(ship.kind), cells: ship.cells })}</span
-          >{index < replay.balance.manifest.fleet.length - 1 ? ' · ' : ''}
-        {/each}
-      </p>
-      <code title={replay.balance.checksum}>SHA-256 {replay.balance.checksum}</code>
     </section>
 
     <section class="replay-boards" aria-label={$t('replay.revealedFleets')}>
@@ -500,27 +476,6 @@
   .replay-controls input {
     width: 100%;
     accent-color: var(--cyan-300);
-  }
-  .balance-record {
-    margin-top: 14px;
-  }
-  .balance-record > header {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: space-between;
-    gap: 8px;
-  }
-  .balance-record h2,
-  .balance-record p {
-    margin: 0;
-  }
-  .balance-record p,
-  .balance-record code {
-    color: var(--ink-400);
-    font-size: 9px;
-  }
-  .balance-record code {
-    overflow-wrap: anywhere;
   }
   .replay-boards {
     display: grid;
