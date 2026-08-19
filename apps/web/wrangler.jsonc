@@ -29,6 +29,14 @@
       {
         "name": "RATE_LIMITS",
         "class_name": "EdgeRateLimitDurableObject"
+      },
+      {
+        "name": "PROGRESSION",
+        "class_name": "ProgressionDurableObject"
+      },
+      {
+        "name": "MATCHMAKING",
+        "class_name": "MatchmakingDurableObject"
       }
     ]
   },
@@ -40,6 +48,14 @@
     {
       "tag": "v2",
       "new_sqlite_classes": ["EdgeRateLimitDurableObject"]
+    },
+    {
+      "tag": "v3",
+      "new_sqlite_classes": ["ProgressionDurableObject"]
+    },
+    {
+      "tag": "v4",
+      "new_sqlite_classes": ["MatchmakingDurableObject"]
     }
   ]
 }

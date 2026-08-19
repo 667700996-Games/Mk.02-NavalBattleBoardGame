@@ -88,6 +88,15 @@ test('Cloudflare account upgrade rotates credentials and supports login and remo
     (sessions.body as { sessions: Array<{ id: string }> }).sessions.map((item) => item.id)
   ).toEqual(expect.arrayContaining([firstSessionId, secondSessionId]));
 
+  const exported = await api(second, '/accounts/export');
+  expect(exported.status).toBe(200);
+  expect(exported.body).toMatchObject({
+    formatVersion: 1,
+    credentialsExcluded: true,
+    account: { id: account.id, handle }
+  });
+  expect(JSON.stringify(exported.body)).not.toMatch(/recoveryKey|tokenHash|recoveryKeyHash/);
+
   expect(
     (await api(second, `/accounts/sessions/${firstSessionId}`, { method: 'DELETE' })).status
   ).toBe(204);
@@ -101,8 +110,33 @@ test('Cloudflare account upgrade rotates credentials and supports login and remo
     )
     .toBe(true);
   expect((await api(first, '/sessions/current')).status).toBe(401);
-  expect((await api(second, '/sessions/current', { method: 'DELETE' })).status).toBe(204);
+
+  const wrongRecoveryKey = `${recoveryKey.slice(0, -1)}${recoveryKey.endsWith('A') ? 'B' : 'A'}`;
+  expect(
+    (
+      await api(second, '/accounts', {
+        method: 'DELETE',
+        body: { recoveryKey: wrongRecoveryKey, confirmation: 'DELETE' }
+      })
+    ).status
+  ).toBe(401);
+  const deletion = await api(second, '/accounts', {
+    method: 'DELETE',
+    body: { recoveryKey, confirmation: 'DELETE' }
+  });
+  expect(deletion.status).toBe(200);
+  expect(deletion.body).toMatchObject({
+    stats: { sessionsDeleted: 1, roomsAnonymized: 1 }
+  });
   expect((await api(second, '/sessions/current')).status).toBe(401);
+  expect(
+    (
+      await api(second, '/accounts/login', {
+        method: 'POST',
+        body: { accountId: account.id, recoveryKey }
+      })
+    ).status
+  ).toBe(401);
 
   await firstContext.close();
   await secondContext.close();

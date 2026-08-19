@@ -3,6 +3,8 @@ import type {
   GameRoomDurableObject,
   LobbyDurableObject,
   EdgeRateLimitDurableObject,
+  ProgressionDurableObject,
+  MatchmakingDurableObject,
 } from "./objects";
 
 export interface WorkerEnv {
@@ -11,4 +13,6 @@ export interface WorkerEnv {
   LOBBY: DurableObjectNamespace<LobbyDurableObject>;
   GAME_ROOMS: DurableObjectNamespace<GameRoomDurableObject>;
   RATE_LIMITS: DurableObjectNamespace<EdgeRateLimitDurableObject>;
+  PROGRESSION: DurableObjectNamespace<ProgressionDurableObject>;
+  MATCHMAKING: DurableObjectNamespace<MatchmakingDurableObject>;
 }

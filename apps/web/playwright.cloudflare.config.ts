@@ -5,7 +5,8 @@ const origin = `http://127.0.0.1:${port}`;
 
 export default defineConfig({
   testDir: './e2e',
-  testMatch: /(?:cloudflare-account|full-game|chat-surrender)\.spec\.ts/,
+  testMatch:
+    /(?:cloudflare-account|cloudflare-matchmaking|full-game|chat-surrender|spectating|ranked-matchmaking|input-prompts)\.spec\.ts/,
   timeout: 180_000,
   fullyParallel: false,
   workers: 1,

@@ -57,6 +57,16 @@ export type RoomStatus =
 export type RoomVisibility = "PUBLIC" | "PRIVATE";
 export type GameMode = "CLASSIC" | "RAPID" | "SALVO";
 export type AiDifficulty = "RECRUIT" | "OFFICER" | "ADMIRAL";
+export type MatchmakingPool = "CASUAL" | "RANKED";
+export type MatchmakingRegion =
+  | "AUTO"
+  | "KOREA"
+  | "JAPAN"
+  | "SOUTHEAST_ASIA"
+  | "NORTH_AMERICA_WEST"
+  | "NORTH_AMERICA_EAST"
+  | "EUROPE";
+export type MatchmakingSearchPhase = "EXACT" | "REGIONAL" | "GLOBAL";
 export type ConnectionState = "ONLINE" | "RECONNECTING" | "OFFLINE";
 export type PlayerReadyState = "NOT_READY" | "READY";
 export type ShipKind = (typeof FLEET)[number]["kind"];
@@ -228,11 +238,12 @@ export interface InternalRoom {
   practiceDifficulty?: AiDifficulty | null;
   matchmakingQuality?: MatchmakingQuality | null;
   rankedMatch?: { seasonId: string; contentRevision: number } | null;
+  resultProjectionPending?: boolean;
 }
 
 export interface MatchmakingQuality {
-  pool: "CASUAL" | "RANKED";
-  phase: "EXACT" | "REGIONAL" | "GLOBAL";
+  pool: MatchmakingPool;
+  phase: MatchmakingSearchPhase;
   ratingDelta: number;
   maxReportedLatencyMs: number;
   partySize: number;
@@ -240,6 +251,22 @@ export interface MatchmakingQuality {
   rematchRelaxed: boolean;
   sharedWaitSeconds: number;
   waitSkewSeconds: number;
+}
+
+export interface MatchmakingSearchWindow {
+  phase: MatchmakingSearchPhase;
+  ratingDelta: number;
+  maxLatencyMs: number;
+  elapsedSeconds: number;
+}
+
+export interface MatchmakingTicket {
+  pool: MatchmakingPool;
+  region: MatchmakingRegion;
+  reportedLatencyMs: number;
+  rating: number | null;
+  partySize: number;
+  searchWindow: MatchmakingSearchWindow;
 }
 
 export interface ReplayTurnExpiration {
@@ -344,6 +371,11 @@ const ERROR_MESSAGES = {
   DUPLICATE_NICKNAME: "같은 닉네임을 사용 중인 플레이어가 있습니다.",
   ACCOUNT_HANDLE_TAKEN: "이 계정 핸들은 이미 사용 중입니다.",
   UNAUTHORIZED: "인증 세션이 없거나 만료되었습니다.",
+  RANKED_ACCOUNT_REQUIRED:
+    "랭크 매칭은 계정으로 로그인한 지휘관만 이용할 수 있습니다.",
+  SOCIAL_ACCOUNT_REQUIRED:
+    "소셜 기능은 계정으로 로그인한 지휘관만 이용할 수 있습니다.",
+  PLAYER_BLOCKED: "차단된 지휘관과는 이 작업을 수행할 수 없습니다.",
   SERVER_PROTOCOL_MISMATCH:
     "이 클라이언트 프로토콜 버전은 현재 릴리스 창에서 지원되지 않습니다.",
   INVALID_REQUEST: "요청 형식이 올바르지 않습니다.",
@@ -384,6 +416,7 @@ export function protocolError(
 
 export function statusForError(code: ErrorCode): number {
   if (code === "UNAUTHORIZED") return 401;
+  if (code === "RANKED_ACCOUNT_REQUIRED") return 403;
   if (code === "SERVER_PROTOCOL_MISMATCH") return 426;
   if (code === "ROOM_NOT_FOUND") return 404;
   if (

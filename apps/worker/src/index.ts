@@ -5,6 +5,9 @@ import { AccountDurableObject } from "./objects/account";
 import { GameRoomDurableObject } from "./objects/room";
 import { LobbyDurableObject } from "./objects/lobby";
 import { EdgeRateLimitDurableObject } from "./objects/rate-limit";
+import { ProgressionDurableObject } from "./objects/progression";
+import { MatchmakingDurableObject } from "./objects/matchmaking";
+import { baselineLiveContentView } from "./objects/progression";
 import {
   BALANCE,
   DomainError,
@@ -40,6 +43,8 @@ export {
   EdgeRateLimitDurableObject,
   GameRoomDurableObject,
   LobbyDurableObject,
+  ProgressionDurableObject,
+  MatchmakingDurableObject,
 };
 
 const SESSION_TTL_SECONDS = 30 * 24 * 60 * 60;
@@ -118,6 +123,117 @@ async function api(request: Request, env: WorkerEnv): Promise<Response> {
   if (request.method === "POST" && path === "/accounts/login") {
     return loginAccount(request, env);
   }
+  if (request.method === "GET" && path === "/profile") {
+    const session = await authenticate(request, env);
+    return json(
+      await internalJson(
+        progression(env).fetch(
+          internalRequest("/profile", {
+            identityId: session.accountId ?? session.id,
+            accountId: session.accountId,
+            handle: session.nickname,
+            now: new Date().toISOString(),
+          }),
+        ),
+      ),
+    );
+  }
+  if (request.method === "GET" && path === "/content/live") {
+    return json(baselineLiveContentView(new Date().toISOString()));
+  }
+  if (request.method === "GET" && path === "/leaderboards/ranked") {
+    const session = await authenticate(request, env);
+    if (!session.accountId) throw new DomainError("RANKED_ACCOUNT_REQUIRED");
+    const limitValue = url.searchParams.get("limit");
+    return json(
+      await internalJson(
+        progression(env).fetch(
+          internalRequest("/ranked/leaderboard", {
+            accountId: session.accountId,
+            seasonId: url.searchParams.get("seasonId"),
+            cursor: url.searchParams.get("cursor"),
+            limit: limitValue === null ? 20 : Number(limitValue),
+            now: new Date().toISOString(),
+          }),
+        ),
+      ),
+    );
+  }
+  if (request.method === "PUT" && path === "/profile/leaderboard-visibility") {
+    const session = await authenticate(request, env);
+    if (!session.accountId) throw new DomainError("RANKED_ACCOUNT_REQUIRED");
+    const body = await bodyObject(request);
+    return json(
+      await internalJson(
+        progression(env).fetch(
+          internalRequest("/ranked/visibility", {
+            accountId: session.accountId,
+            visible: body.visible,
+          }),
+        ),
+      ),
+    );
+  }
+  const missionMatch =
+    request.method === "POST"
+      ? path.match(/^\/profile\/missions\/([^/]+)\/claim$/)
+      : null;
+  if (missionMatch) {
+    const session = await authenticate(request, env);
+    if (!session.accountId) throw new DomainError("UNAUTHORIZED");
+    return json(
+      await internalJson(
+        progression(env).fetch(
+          internalRequest("/missions/claim", {
+            identityId: session.accountId,
+            accountId: session.accountId,
+            handle: session.nickname,
+            missionId: decodeURIComponent(missionMatch[1]),
+            now: new Date().toISOString(),
+          }),
+        ),
+      ),
+    );
+  }
+  if (request.method === "GET" && path === "/accounts/export") {
+    const token = requireToken(request);
+    const session = await authenticate(request, env);
+    if (!session.accountId) throw new DomainError("UNAUTHORIZED");
+    return json(
+      await internalJson(
+        accounts(env).fetch(
+          internalRequest("/accounts/export", {
+            tokenHash: await sha256(token),
+            requestId: crypto.randomUUID(),
+            generatedAt: new Date().toISOString(),
+          }),
+        ),
+      ),
+    );
+  }
+  if (request.method === "DELETE" && path === "/accounts") {
+    const token = requireToken(request);
+    const session = await authenticate(request, env);
+    if (!session.accountId) throw new DomainError("UNAUTHORIZED");
+    const body = await bodyObject(request);
+    const recoveryKey = requireString(body.recoveryKey);
+    if (!/^[A-Za-z0-9_-]{43}$/.test(recoveryKey))
+      throw new DomainError("INVALID_REQUEST");
+    const result = await internalJson(
+      accounts(env).fetch(
+        internalRequest("/accounts/delete", {
+          tokenHash: await sha256(token),
+          recoveryKeyHash: await sha256(recoveryKey),
+          confirmation: body.confirmation,
+          requestId: crypto.randomUUID(),
+          deletedAt: new Date().toISOString(),
+        }),
+      ),
+    );
+    return json(result, 200, {
+      "set-cookie": expiredSessionCookie(request.url),
+    });
+  }
   if (request.method === "GET" && path === "/accounts/sessions") {
     const token = requireToken(request);
     await authenticate(request, env);
@@ -162,6 +278,8 @@ async function api(request: Request, env: WorkerEnv): Promise<Response> {
   }
   if (request.method === "POST" && path === "/rooms")
     return createRoomRoute(request, env);
+  if (request.method === "POST" && path === "/practice")
+    return createPracticeRoute(request, env);
   if (request.method === "POST" && path === "/rooms/join")
     return joinRoomRoute(request, env);
 
@@ -198,6 +316,18 @@ async function api(request: Request, env: WorkerEnv): Promise<Response> {
     if (!session.currentRoomId) return json(null);
     return proxyRoomSnapshot(env, session.currentRoomId, session);
   }
+  if (request.method === "GET" && path === "/games/history") {
+    const session = await authenticate(request, env);
+    return json(
+      await internalJson(
+        progression(env).fetch(
+          internalRequest("/history", {
+            identityId: session.accountId ?? session.id,
+          }),
+        ),
+      ),
+    );
+  }
   if (request.method === "GET" && path === "/games/spectatable") {
     await authenticate(request, env);
     return json(
@@ -231,6 +361,23 @@ async function api(request: Request, env: WorkerEnv): Promise<Response> {
         ),
       ),
     );
+  }
+
+  if (request.method === "POST" && path === "/matchmaking") {
+    return enqueueMatchmaking(request, env, false);
+  }
+  if (request.method === "POST" && path === "/matchmaking/ranked") {
+    return enqueueMatchmaking(request, env, true);
+  }
+  if (request.method === "DELETE" && path === "/matchmaking") {
+    const session = await authenticate(request, env);
+    await internalJson(
+      matchmaking(env).fetch(
+        internalRequest("/cancel", { sessionId: session.id }),
+      ),
+      204,
+    );
+    return noContent();
   }
 
   return json(
@@ -311,6 +458,16 @@ async function upgradeAccount(
         now: new Date().toISOString(),
       }),
     ),
+  );
+  await internalJson(
+    progression(env).fetch(
+      internalRequest("/identities/migrate", {
+        sourceId: session.id,
+        accountId: result.account.id,
+        handle: result.account.handle,
+      }),
+    ),
+    204,
   );
   return json(
     {
@@ -403,6 +560,60 @@ async function createRoomRoute(
   );
 }
 
+async function createPracticeRoute(
+  request: Request,
+  env: WorkerEnv,
+): Promise<Response> {
+  const token = requireToken(request);
+  const session = await authenticate(request, env);
+  if (session.currentRoomId) throw new DomainError("ALREADY_JOINED");
+  const body = await bodyObject(request);
+  const difficulty = requireString(body.difficulty);
+  if (!["RECRUIT", "OFFICER", "ADMIRAL"].includes(difficulty))
+    throw new DomainError("INVALID_REQUEST");
+  const roomId = crypto.randomUUID();
+  const now = new Date();
+  const aiSession: SessionRecord = {
+    id: crypto.randomUUID(),
+    accountId: null,
+    nickname: `MK-AI ${difficulty}`,
+    tokenHash: await sha256(randomSecret()),
+    createdAt: now.toISOString(),
+    lastSeenAt: now.toISOString(),
+    currentRoomId: roomId,
+    expiresAt: new Date(
+      now.getTime() + SESSION_TTL_SECONDS * 1_000,
+    ).toISOString(),
+  };
+  let snapshot: unknown | null = null;
+  for (let attempt = 0; attempt < 5 && !snapshot; attempt += 1) {
+    try {
+      const result = await internalJson<{ snapshot: unknown }>(
+        room(env, roomId).fetch(
+          internalRequest("/create-practice", {
+            roomId,
+            code: inviteCode(),
+            difficulty,
+            session,
+            playerId: crypto.randomUUID(),
+            aiSession,
+            aiPlayerId: crypto.randomUUID(),
+            now: now.toISOString(),
+          }),
+        ),
+        201,
+      );
+      snapshot = result.snapshot;
+    } catch (error) {
+      if (!(error instanceof DomainError) || error.code !== "INVALID_STATE")
+        throw error;
+    }
+  }
+  if (!snapshot) throw new DomainError("INTERNAL_ERROR");
+  await updateSessionRoom(env, token, roomId);
+  return json(snapshot, 201);
+}
+
 async function joinRoomRoute(
   request: Request,
   env: WorkerEnv,
@@ -427,6 +638,111 @@ async function joinRoomRoute(
   );
   await updateSessionRoom(env, token, lookup.roomId);
   return json(result.snapshot);
+}
+
+async function enqueueMatchmaking(
+  request: Request,
+  env: WorkerEnv,
+  ranked: boolean,
+): Promise<Response> {
+  const session = await authenticate(request, env);
+  const now = new Date().toISOString();
+  let input: Record<string, unknown>;
+  if (ranked) {
+    if (!session.accountId) throw new DomainError("RANKED_ACCOUNT_REQUIRED");
+    const body = await bodyObject(request);
+    if (
+      Object.keys(body).some(
+        (key) => !["pool", "region", "latencyMs"].includes(key),
+      ) ||
+      body.pool !== "RANKED"
+    ) {
+      throw new DomainError("INVALID_REQUEST");
+    }
+    const region = requireString(body.region);
+    const latencyMs = Number(body.latencyMs);
+    if (
+      ![
+        "KOREA",
+        "JAPAN",
+        "SOUTHEAST_ASIA",
+        "NORTH_AMERICA_WEST",
+        "NORTH_AMERICA_EAST",
+        "EUROPE",
+      ].includes(region) ||
+      !Number.isInteger(latencyMs) ||
+      latencyMs < 1 ||
+      latencyMs > 300
+    ) {
+      throw new DomainError("INVALID_REQUEST");
+    }
+    const content = baselineLiveContentView(now);
+    if (content.season.status !== "ACTIVE")
+      throw new DomainError("INVALID_STATE");
+    const profile = await internalJson<{ rating: number }>(
+      progression(env).fetch(
+        internalRequest("/ranked/profile", {
+          accountId: session.accountId,
+          handle: session.nickname,
+          now,
+        }),
+      ),
+    );
+    input = {
+      session,
+      pool: "RANKED",
+      region,
+      latencyMs,
+      rating: profile.rating,
+      seasonId: content.season.id,
+      contentRevision: content.revision,
+      now,
+    };
+  } else {
+    const text = await request.text();
+    if (text.length) throw new DomainError("INVALID_REQUEST");
+    input = {
+      session,
+      pool: "CASUAL",
+      region: "AUTO",
+      latencyMs: 0,
+      rating: null,
+      seasonId: null,
+      contentRevision: null,
+      now,
+    };
+  }
+  if (session.currentRoomId) {
+    const snapshot = await internalJson(
+      room(env, session.currentRoomId).fetch(
+        internalRequest("/snapshot", { sessionId: session.id, now }),
+      ),
+    );
+    return json({
+      queued: false,
+      queuedAt: null,
+      ticket: {
+        pool: input.pool,
+        region: input.region,
+        reportedLatencyMs: input.latencyMs,
+        rating: input.rating,
+        partySize: 1,
+        searchWindow: {
+          phase: "EXACT",
+          ratingDelta: 100,
+          maxLatencyMs: 120,
+          elapsedSeconds: 0,
+        },
+      },
+      matchQuality: null,
+      snapshot,
+    });
+  }
+  return json(
+    await internalJson(
+      matchmaking(env).fetch(internalRequest("/enqueue", input)),
+    ),
+  );
 }
 
 async function websocket(request: Request, env: WorkerEnv): Promise<Response> {
@@ -533,6 +849,12 @@ async function disconnectRevokedSession(
   env: WorkerEnv,
   revoked: RevokedSession,
 ): Promise<void> {
+  await internalJson(
+    matchmaking(env).fetch(
+      internalRequest("/cancel", { sessionId: revoked.sessionId }),
+    ),
+    204,
+  );
   if (!revoked.roomId) return;
   await internalJson(
     room(env, revoked.roomId).fetch(
@@ -589,6 +911,14 @@ function lobby(env: WorkerEnv) {
 
 function room(env: WorkerEnv, roomId: string) {
   return env.GAME_ROOMS.get(env.GAME_ROOMS.idFromName(roomId));
+}
+
+function progression(env: WorkerEnv) {
+  return env.PROGRESSION.get(env.PROGRESSION.idFromName(GLOBAL_OBJECT_ID));
+}
+
+function matchmaking(env: WorkerEnv) {
+  return env.MATCHMAKING.get(env.MATCHMAKING.idFromName(GLOBAL_OBJECT_ID));
 }
 
 async function internalJson<T = unknown>(

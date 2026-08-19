@@ -151,7 +151,7 @@ function auditFrames(page: Page, violations: string[]) {
 test('two isolated browser sessions complete a secure game and recover after refresh', async ({
   browser,
   browserName
-}, testInfo) => {
+}) => {
   const firstContext: BrowserContext = await browser.newContext(
     browserName === 'chromium' ? { permissions: ['clipboard-read', 'clipboard-write'] } : undefined
   );
@@ -229,14 +229,6 @@ test('two isolated browser sessions complete a secure game and recover after ref
   const secondWon = await second.getByRole('heading', { name: '작전 승리' }).isVisible();
   expect(firstWon).not.toBe(secondWon);
   expect(violations).toEqual([]);
-
-  // The Cloudflare Phase 1 runtime intentionally stops at the complete live-game contract.
-  // Replay, progression, and durable history are covered by the later persistence phase.
-  if (testInfo.config.metadata.runtime === 'cloudflare') {
-    await firstContext.close();
-    await secondContext.close();
-    return;
-  }
 
   await first.getByRole('link', { name: '전투 복기' }).click();
   await expect(first.getByRole('heading', { name: '전투 복기' })).toBeVisible();

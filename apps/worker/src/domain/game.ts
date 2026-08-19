@@ -5,6 +5,7 @@ import {
   PROTOCOL_VERSION,
   type AttackOutcome,
   type AttackRecord,
+  type AiDifficulty,
   type ChatMessage,
   type ChatMessageType,
   type Coordinate,
@@ -60,6 +61,34 @@ export interface CreateRoomCommand {
   playerId: string;
   now: string;
 }
+
+const PRACTICE_FLEET: ShipPlacement[] = [
+  {
+    kind: "CARRIER",
+    origin: { row: 0, col: 0 },
+    orientation: "HORIZONTAL",
+  },
+  {
+    kind: "BATTLESHIP",
+    origin: { row: 2, col: 0 },
+    orientation: "HORIZONTAL",
+  },
+  {
+    kind: "CRUISER",
+    origin: { row: 4, col: 0 },
+    orientation: "HORIZONTAL",
+  },
+  {
+    kind: "SUBMARINE",
+    origin: { row: 6, col: 0 },
+    orientation: "HORIZONTAL",
+  },
+  {
+    kind: "DESTROYER",
+    origin: { row: 8, col: 0 },
+    orientation: "HORIZONTAL",
+  },
+];
 
 export function validateNickname(nickname: unknown): string {
   if (typeof nickname !== "string") throw new DomainError("INVALID_NICKNAME");
@@ -157,10 +186,67 @@ export function createRoom(command: CreateRoomCommand): InternalRoom {
     practiceDifficulty: null,
     matchmakingQuality: null,
     rankedMatch: null,
+    resultProjectionPending: false,
   };
   pushSystemMessage(
     room,
     `${host.nickname} 지휘관이 작전실에 입장했습니다.`,
+    command.now,
+  );
+  return room;
+}
+
+export function createPracticeRoom(
+  command: CreateRoomCommand,
+  difficulty: AiDifficulty,
+  aiSession: SessionRecord,
+  aiPlayerId: string,
+): InternalRoom {
+  if (!["RECRUIT", "OFFICER", "ADMIRAL"].includes(difficulty)) {
+    throw new DomainError("INVALID_REQUEST");
+  }
+  const room = createRoom(command);
+  joinRoom(room, aiSession, aiPlayerId, command.now);
+  const ai = playerForSession(room, aiSession.id);
+  ai.kind = "AI";
+  room.practiceDifficulty = difficulty;
+  setLobbyReady(
+    room,
+    command.session.id,
+    crypto.randomUUID(),
+    room.hostPlayerId,
+    true,
+    command.now,
+  );
+  setLobbyReady(
+    room,
+    aiSession.id,
+    crypto.randomUUID(),
+    ai.id,
+    true,
+    command.now,
+  );
+  startPlacement(
+    room,
+    command.session.id,
+    crypto.randomUUID(),
+    room.hostPlayerId,
+    room.version,
+    crypto.randomUUID(),
+    command.now,
+  );
+  placeShips(room, aiSession.id, PRACTICE_FLEET, command.now);
+  confirmPlacement(
+    room,
+    aiSession.id,
+    PRACTICE_FLEET,
+    60,
+    room.hostPlayerId,
+    command.now,
+  );
+  pushSystemMessage(
+    room,
+    `AI training opponent connected at ${difficulty} difficulty.`,
     command.now,
   );
   return room;
@@ -538,6 +624,61 @@ export function fire(
     );
   }
   return { record, duplicate: false };
+}
+
+export function selectAiCoordinate(
+  room: InternalRoom,
+  aiPlayerId: string,
+): Coordinate | null {
+  const game = room.game;
+  if (!game) return null;
+  const used = new Set(
+    game.attacks
+      .filter((attack) => attack.attackerId === aiPlayerId)
+      .map((attack) => `${attack.coordinate.row}:${attack.coordinate.col}`),
+  );
+  const difficulty = room.practiceDifficulty ?? "RECRUIT";
+  if (difficulty !== "RECRUIT") {
+    for (const attack of [...game.attacks].reverse()) {
+      if (attack.attackerId !== aiPlayerId || attack.outcome !== "HIT")
+        continue;
+      for (const [rowOffset, colOffset] of [
+        [-1, 0],
+        [0, 1],
+        [1, 0],
+        [0, -1],
+      ] as const) {
+        const row = attack.coordinate.row + rowOffset;
+        const col = attack.coordinate.col + colOffset;
+        if (
+          row >= 0 &&
+          row < BALANCE.manifest.boardSize &&
+          col >= 0 &&
+          col < BALANCE.manifest.boardSize &&
+          !used.has(`${row}:${col}`)
+        ) {
+          return { row, col };
+        }
+      }
+    }
+  }
+  let candidates: Coordinate[] = [];
+  for (let row = 0; row < BALANCE.manifest.boardSize; row += 1) {
+    for (let col = 0; col < BALANCE.manifest.boardSize; col += 1) {
+      if (!used.has(`${row}:${col}`)) candidates.push({ row, col });
+    }
+  }
+  if (difficulty === "ADMIRAL") {
+    const parity = candidates.filter(({ row, col }) => (row + col) % 2 === 0);
+    if (parity.length) candidates = parity;
+  }
+  if (!candidates.length) return null;
+  const roomSeed = [...room.id].reduce(
+    (seed, character) => (seed * 33 + character.charCodeAt(0)) >>> 0,
+    5381,
+  );
+  const index = (roomSeed + Math.imul(game.turnNumber, 2_654_435_761)) >>> 0;
+  return candidates[index % candidates.length] ?? null;
 }
 
 export function surrender(
@@ -1267,6 +1408,7 @@ function finishGame(
     finishReason,
     winType,
   };
+  room.resultProjectionPending = true;
 }
 
 function appendChat(

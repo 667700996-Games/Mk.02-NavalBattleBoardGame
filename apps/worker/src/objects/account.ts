@@ -6,6 +6,7 @@ import {
 } from "../domain/protocol";
 import {
   bodyObject,
+  internalRequest,
   json,
   noContent,
   requireString,
@@ -17,9 +18,22 @@ interface AccountState {
   sessions: Record<string, SessionRecord>;
   accounts: Record<string, PlayerAccount>;
   handles: Record<string, string>;
+  identities: Record<
+    string,
+    {
+      accountId: string | null;
+      nickname: string;
+      currentRoomId: string | null;
+    }
+  >;
 }
 
-const EMPTY_STATE: AccountState = { sessions: {}, accounts: {}, handles: {} };
+const EMPTY_STATE: AccountState = {
+  sessions: {},
+  accounts: {},
+  handles: {},
+  identities: {},
+};
 
 export class AccountDurableObject extends DurableObject<WorkerEnv> {
   async fetch(request: Request): Promise<Response> {
@@ -37,6 +51,12 @@ export class AccountDurableObject extends DurableObject<WorkerEnv> {
       if (request.method === "POST" && url.pathname === "/sessions/delete") {
         return await this.deleteSession(await bodyObject(request));
       }
+      if (
+        request.method === "POST" &&
+        url.pathname === "/sessions/identities"
+      ) {
+        return await this.sessionIdentities(await bodyObject(request));
+      }
       if (request.method === "POST" && url.pathname === "/sessions/room") {
         return await this.updateRoom(await bodyObject(request));
       }
@@ -51,6 +71,21 @@ export class AccountDurableObject extends DurableObject<WorkerEnv> {
       }
       if (request.method === "POST" && url.pathname === "/accounts/login") {
         return await this.login(await bodyObject(request));
+      }
+      if (request.method === "POST" && url.pathname === "/accounts/lookup") {
+        return await this.lookupAccount(await bodyObject(request));
+      }
+      if (request.method === "POST" && url.pathname === "/accounts/presence") {
+        return await this.accountPresence(await bodyObject(request));
+      }
+      if (request.method === "POST" && url.pathname === "/accounts/export") {
+        return await this.exportCore(await bodyObject(request));
+      }
+      if (request.method === "POST" && url.pathname === "/accounts/verify") {
+        return await this.verifyAccount(await bodyObject(request));
+      }
+      if (request.method === "POST" && url.pathname === "/accounts/delete") {
+        return await this.deleteAccount(await bodyObject(request));
       }
       if (request.method === "POST" && url.pathname === "/accounts/sessions") {
         return await this.accountSessions(await bodyObject(request));
@@ -80,6 +115,11 @@ export class AccountDurableObject extends DurableObject<WorkerEnv> {
     const session = sessionFromInput(input);
     await this.mutate((state) => {
       state.sessions[session.tokenHash] = session;
+      state.identities[session.id] = {
+        accountId: session.accountId,
+        nickname: session.nickname,
+        currentRoomId: session.currentRoomId,
+      };
     });
     return json(session, 201);
   }
@@ -125,8 +165,30 @@ export class AccountDurableObject extends DurableObject<WorkerEnv> {
       const session = state.sessions[tokenHash];
       if (!session) throw new DomainError("UNAUTHORIZED");
       session.currentRoomId = roomId;
+      state.identities[session.id] = {
+        accountId: session.accountId,
+        nickname: session.nickname,
+        currentRoomId: roomId,
+      };
     });
     return noContent();
+  }
+
+  private async sessionIdentities(
+    input: Record<string, unknown>,
+  ): Promise<Response> {
+    if (!Array.isArray(input.sessionIds))
+      throw new DomainError("INVALID_REQUEST");
+    const sessionIds = input.sessionIds.map(requireUuid);
+    const state = await this.read();
+    return json({
+      identities: sessionIds.map((sessionId) => ({
+        sessionId,
+        accountId: state.identities[sessionId]?.accountId ?? null,
+        nickname: state.identities[sessionId]?.nickname ?? "Deleted Commander",
+        currentRoomId: state.identities[sessionId]?.currentRoomId ?? null,
+      })),
+    });
   }
 
   private async updateRoomBySessionId(
@@ -140,6 +202,11 @@ export class AccountDurableObject extends DurableObject<WorkerEnv> {
       );
       if (!session) throw new DomainError("UNAUTHORIZED");
       session.currentRoomId = roomId;
+      state.identities[session.id] = {
+        accountId: session.accountId,
+        nickname: session.nickname,
+        currentRoomId: roomId,
+      };
     });
     return noContent();
   }
@@ -172,6 +239,11 @@ export class AccountDurableObject extends DurableObject<WorkerEnv> {
       state.sessions[nextTokenHash] = session;
       state.accounts[accountId] = account;
       state.handles[handle.toLocaleLowerCase()] = accountId;
+      state.identities[session.id] = {
+        accountId,
+        nickname: handle,
+        currentRoomId: session.currentRoomId,
+      };
       response = {
         account: structuredClone(account),
         session: structuredClone(session),
@@ -181,18 +253,74 @@ export class AccountDurableObject extends DurableObject<WorkerEnv> {
     return json(response);
   }
 
+  private async lookupAccount(
+    input: Record<string, unknown>,
+  ): Promise<Response> {
+    const state = await this.read();
+    const accountId =
+      input.accountId === undefined
+        ? state.handles[requireString(input.handle).trim().toLocaleLowerCase()]
+        : requireUuid(input.accountId);
+    const account = accountId ? state.accounts[accountId] : undefined;
+    if (!account) throw new DomainError("INVALID_REQUEST");
+    return json({
+      id: account.id,
+      handle: account.handle,
+      createdAt: account.createdAt,
+    });
+  }
+
+  private async accountPresence(
+    input: Record<string, unknown>,
+  ): Promise<Response> {
+    if (!Array.isArray(input.accountIds))
+      throw new DomainError("INVALID_REQUEST");
+    const accountIds = input.accountIds.map(requireUuid);
+    const now = requireString(input.now);
+    const state = await this.read();
+    return json({
+      presences: accountIds.map((accountId) => {
+        const sessions = Object.values(state.sessions).filter(
+          (session) =>
+            session.accountId === accountId &&
+            Date.parse(session.expiresAt) > Date.parse(now),
+        );
+        const currentRoomId =
+          sessions.find((session) => session.currentRoomId)?.currentRoomId ??
+          null;
+        return {
+          accountId,
+          presence: currentRoomId
+            ? "IN_GAME"
+            : sessions.length
+              ? "ONLINE"
+              : "OFFLINE",
+          currentRoomId,
+        };
+      }),
+    });
+  }
+
   private async login(input: Record<string, unknown>): Promise<Response> {
     const accountId = requireUuid(input.accountId);
     const recoveryKeyHash = requireString(input.recoveryKeyHash);
     const session = sessionFromInput(input);
     await this.mutate((state) => {
       const account = state.accounts[accountId];
-      if (!account || account.recoveryKeyHash !== recoveryKeyHash) {
+      if (
+        !account ||
+        !constantTimeEqual(account.recoveryKeyHash, recoveryKeyHash)
+      ) {
         throw new DomainError("UNAUTHORIZED");
       }
       session.accountId = account.id;
       session.nickname = account.handle;
       state.sessions[session.tokenHash] = session;
+      state.identities[session.id] = {
+        accountId: account.id,
+        nickname: account.handle,
+        currentRoomId: session.currentRoomId,
+      };
     });
     return json(session, 201);
   }
@@ -215,6 +343,214 @@ export class AccountDurableObject extends DurableObject<WorkerEnv> {
           lastSeenAt: session.lastSeenAt,
           currentRoomId: session.currentRoomId,
         })),
+    });
+  }
+
+  private async exportCore(input: Record<string, unknown>): Promise<Response> {
+    const tokenHash = requireString(input.tokenHash);
+    const state = await this.read();
+    const current = state.sessions[tokenHash];
+    if (!current?.accountId) throw new DomainError("UNAUTHORIZED");
+    const account = state.accounts[current.accountId];
+    if (!account) throw new DomainError("UNAUTHORIZED");
+    const progression = this.env.PROGRESSION.get(
+      this.env.PROGRESSION.idFromName("global-v1"),
+    );
+    const progressionData = await responseJson<{
+      gameHistory: unknown[];
+      progressionRewards: unknown[];
+      rankedRating: unknown;
+      rankedStandings: unknown[];
+      rankedMatchResults: unknown[];
+      rankedRewards: unknown[];
+      leaderboardVisible: boolean;
+    }>(
+      progression.fetch(
+        internalRequest("/export", {
+          identityId: account.id,
+          accountId: account.id,
+        }),
+      ),
+    );
+    return json({
+      formatVersion: 1,
+      requestId: requireUuid(input.requestId),
+      generatedAt: requireString(input.generatedAt),
+      account: {
+        id: account.id,
+        handle: account.handle,
+        createdAt: account.createdAt,
+      },
+      sessions: accountSessionViews(state, account.id),
+      ...progressionData,
+      socialRelationships: [],
+      moderationReports: [],
+      moderationActions: [],
+      integritySignals: [],
+      supportActions: [],
+      cacheCopies: "SQLite-backed Durable Objects storage only",
+      credentialsExcluded: true,
+    });
+  }
+
+  private async verifyAccount(
+    input: Record<string, unknown>,
+  ): Promise<Response> {
+    const tokenHash = requireString(input.tokenHash);
+    const recoveryKeyHash = requireString(input.recoveryKeyHash);
+    const state = await this.read();
+    const current = state.sessions[tokenHash];
+    if (!current?.accountId) throw new DomainError("UNAUTHORIZED");
+    const account = state.accounts[current.accountId];
+    if (
+      !account ||
+      !constantTimeEqual(account.recoveryKeyHash, recoveryKeyHash)
+    ) {
+      throw new DomainError("UNAUTHORIZED");
+    }
+    return json({
+      accountId: account.id,
+      sessions: accountSessionViews(state, account.id),
+    });
+  }
+
+  private async deleteAccount(
+    input: Record<string, unknown>,
+  ): Promise<Response> {
+    const tokenHash = requireString(input.tokenHash);
+    const recoveryKeyHash = requireString(input.recoveryKeyHash);
+    if (input.confirmation !== "DELETE")
+      throw new DomainError("INVALID_REQUEST");
+    const requestId = requireUuid(input.requestId);
+    const deletedAt = requireString(input.deletedAt);
+    const verifiedState = await this.read();
+    const verifiedSession = verifiedState.sessions[tokenHash];
+    const verifiedAccount = verifiedSession?.accountId
+      ? verifiedState.accounts[verifiedSession.accountId]
+      : null;
+    if (
+      !verifiedAccount ||
+      !constantTimeEqual(verifiedAccount.recoveryKeyHash, recoveryKeyHash)
+    ) {
+      throw new DomainError("UNAUTHORIZED");
+    }
+    return this.ctx.blockConcurrencyWhile(async () => {
+      const state = await this.read();
+      const current = state.sessions[tokenHash];
+      if (!current?.accountId) throw new DomainError("UNAUTHORIZED");
+      const account = state.accounts[current.accountId];
+      if (
+        !account ||
+        !constantTimeEqual(account.recoveryKeyHash, recoveryKeyHash)
+      ) {
+        throw new DomainError("UNAUTHORIZED");
+      }
+      const sessions = Object.values(state.sessions).filter(
+        (session) => session.accountId === account.id,
+      );
+      const identitySessions = Object.entries(state.identities)
+        .filter(([, identity]) => identity.accountId === account.id)
+        .map(([id, identity]) => ({
+          id,
+          currentRoomId: identity.currentRoomId ?? null,
+        }));
+      const progression = this.env.PROGRESSION.get(
+        this.env.PROGRESSION.idFromName("global-v1"),
+      );
+      const exported = await responseJson<{
+        gameHistory: Array<{ roomId: string }>;
+      }>(
+        progression.fetch(
+          internalRequest("/export", {
+            identityId: account.id,
+            accountId: account.id,
+          }),
+        ),
+      );
+      const roomIds = new Set([
+        ...identitySessions.flatMap((session) =>
+          session.currentRoomId ? [session.currentRoomId] : [],
+        ),
+        ...exported.gameHistory.map((item) => requireUuid(item.roomId)),
+      ]);
+      for (const session of identitySessions) {
+        if (!session.currentRoomId) continue;
+        const gameRoom = this.env.GAME_ROOMS.get(
+          this.env.GAME_ROOMS.idFromName(session.currentRoomId),
+        );
+        await acceptedResponse(
+          gameRoom.fetch(
+            internalRequest("/disconnect-session", {
+              sessionId: session.id,
+              now: deletedAt,
+            }),
+          ),
+        );
+        await acceptedResponse(
+          gameRoom.fetch(
+            internalRequest("/leave", {
+              sessionId: session.id,
+              now: deletedAt,
+            }),
+          ),
+        );
+      }
+      let roomsAnonymized = 0;
+      for (const roomId of roomIds) {
+        const gameRoom = this.env.GAME_ROOMS.get(
+          this.env.GAME_ROOMS.idFromName(roomId),
+        );
+        const response = await gameRoom.fetch(
+          internalRequest("/anonymize-account", {
+            accountId: account.id,
+            sessionIds: identitySessions.map((session) => session.id),
+            now: deletedAt,
+          }),
+        );
+        if (response.ok) roomsAnonymized += 1;
+        else if (response.status !== 404)
+          throw new DomainError("INTERNAL_ERROR");
+      }
+      const progressionDeletion = await responseJson<{
+        rewardsDeleted: number;
+      }>(
+        progression.fetch(
+          internalRequest("/delete", {
+            identityId: account.id,
+            accountId: account.id,
+          }),
+        ),
+      );
+      await this.mutate((latest) => {
+        const stillCurrent = latest.sessions[tokenHash];
+        const stillAccount = stillCurrent?.accountId
+          ? latest.accounts[stillCurrent.accountId]
+          : null;
+        if (!stillCurrent?.accountId || !stillAccount)
+          throw new DomainError("UNAUTHORIZED");
+        for (const [hash, session] of Object.entries(latest.sessions)) {
+          if (session.accountId !== account.id) continue;
+          delete latest.sessions[hash];
+        }
+        for (const [sessionId, identity] of Object.entries(latest.identities)) {
+          if (identity.accountId === account.id)
+            delete latest.identities[sessionId];
+        }
+        delete latest.handles[account.handle.toLocaleLowerCase()];
+        delete latest.accounts[account.id];
+      });
+      return json({
+        requestId,
+        deletedAt,
+        stats: {
+          sessionsDeleted: sessions.length,
+          rewardsDeleted: progressionDeletion.rewardsDeleted,
+          relationshipsDeleted: 0,
+          reportsDeleted: 0,
+          integritySignalsDeleted: 0,
+          roomsAnonymized,
+        },
+      });
     });
   }
 
@@ -245,10 +581,11 @@ export class AccountDurableObject extends DurableObject<WorkerEnv> {
   }
 
   private async read(): Promise<AccountState> {
-    return (
+    const state =
       (await this.ctx.storage.get<AccountState>("state")) ??
-      structuredClone(EMPTY_STATE)
-    );
+      structuredClone(EMPTY_STATE);
+    state.identities ??= {};
+    return state;
   }
 
   private async mutate(action: (state: AccountState) => void): Promise<void> {
@@ -256,6 +593,7 @@ export class AccountDurableObject extends DurableObject<WorkerEnv> {
       const state =
         (await transaction.get<AccountState>("state")) ??
         structuredClone(EMPTY_STATE);
+      state.identities ??= {};
       action(state);
       await transaction.put("state", state);
     });
@@ -279,6 +617,41 @@ function sessionFromInput(input: Record<string, unknown>): SessionRecord {
         : requireUuid(input.currentRoomId),
     expiresAt: requireString(input.expiresAt),
   };
+}
+
+function accountSessionViews(state: AccountState, accountId: string) {
+  return Object.values(state.sessions)
+    .filter((session) => session.accountId === accountId)
+    .map((session) => ({
+      id: session.id,
+      nickname: session.nickname,
+      createdAt: session.createdAt,
+      lastSeenAt: session.lastSeenAt,
+      currentRoomId: session.currentRoomId,
+    }));
+}
+
+function constantTimeEqual(left: string, right: string): boolean {
+  if (left.length !== right.length) return false;
+  let difference = 0;
+  for (let index = 0; index < left.length; index += 1) {
+    difference |= left.charCodeAt(index) ^ right.charCodeAt(index);
+  }
+  return difference === 0;
+}
+
+async function responseJson<T>(responsePromise: Promise<Response>): Promise<T> {
+  const response = await responsePromise;
+  if (!response.ok) throw new DomainError("INTERNAL_ERROR");
+  return (await response.json()) as T;
+}
+
+async function acceptedResponse(
+  responsePromise: Promise<Response>,
+): Promise<void> {
+  const response = await responsePromise;
+  if (!response.ok && response.status !== 404)
+    throw new DomainError("INTERNAL_ERROR");
 }
 
 function status(error: DomainError): number {

@@ -1,6 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
 import {
   confirmPlacement,
+  createPracticeRoom,
   createRoom,
   disconnect,
   expireDisconnects,
@@ -14,6 +15,7 @@ import {
   replayFor,
   roomSummary,
   sendChat,
+  selectAiCoordinate,
   setLobbyReady,
   snapshotFor,
   startPlacement,
@@ -22,6 +24,7 @@ import {
   timerState,
 } from "../domain/game";
 import {
+  BALANCE,
   DomainError,
   protocolError,
   type ChatMessageType,
@@ -60,8 +63,14 @@ export class GameRoomDurableObject extends DurableObject<WorkerEnv> {
       if (request.method === "POST" && url.pathname === "/create") {
         return await this.create(await bodyObject(request));
       }
+      if (request.method === "POST" && url.pathname === "/create-practice") {
+        return await this.createPractice(await bodyObject(request));
+      }
       if (request.method === "POST" && url.pathname === "/join") {
         return await this.join(await bodyObject(request));
+      }
+      if (request.method === "POST" && url.pathname === "/matchmaking") {
+        return await this.configureMatchmaking(await bodyObject(request));
       }
       if (request.method === "POST" && url.pathname === "/leave") {
         return await this.leave(await bodyObject(request));
@@ -75,8 +84,17 @@ export class GameRoomDurableObject extends DurableObject<WorkerEnv> {
       if (request.method === "POST" && url.pathname === "/spectate") {
         return await this.spectate(await bodyObject(request));
       }
+      if (request.method === "POST" && url.pathname === "/invite-info") {
+        return await this.inviteInfo(await bodyObject(request));
+      }
+      if (request.method === "POST" && url.pathname === "/safety-context") {
+        return await this.safetyContext(await bodyObject(request));
+      }
       if (request.method === "POST" && url.pathname === "/disconnect-session") {
         return await this.disconnectSession(await bodyObject(request));
+      }
+      if (request.method === "POST" && url.pathname === "/anonymize-account") {
+        return await this.anonymizeAccount(await bodyObject(request));
       }
       if (request.method === "GET" && url.pathname === "/websocket") {
         return await this.websocket(request);
@@ -198,6 +216,7 @@ export class GameRoomDurableObject extends DurableObject<WorkerEnv> {
 
   async alarm(): Promise<void> {
     const room = await this.load();
+    await this.flushResultProjection(room);
     const now = new Date().toISOString();
     const chatCount = room.chatMessages.length;
     const beforeStatus = room.status;
@@ -224,6 +243,7 @@ export class GameRoomDurableObject extends DurableObject<WorkerEnv> {
       );
       const timer = timerState(room, now);
       if (timer) this.broadcast({ type: "turn:started", payload: timer });
+      await this.runAiTurns(room);
     } else if (beforeStatus === room.status) {
       await this.scheduleAlarm(room);
     }
@@ -255,6 +275,35 @@ export class GameRoomDurableObject extends DurableObject<WorkerEnv> {
     );
   }
 
+  private async createPractice(
+    input: Record<string, unknown>,
+  ): Promise<Response> {
+    if (await this.ctx.storage.get(ROOM_KEY))
+      throw new DomainError("INVALID_STATE");
+    const session = input.session as SessionRecord;
+    const aiSession = input.aiSession as SessionRecord;
+    const now = requireString(input.now);
+    const difficulty = requireString(input.difficulty);
+    if (!["RECRUIT", "OFFICER", "ADMIRAL"].includes(difficulty))
+      throw new DomainError("INVALID_REQUEST");
+    const room = createPracticeRoom(
+      {
+        roomId: requireUuid(input.roomId),
+        code: requireString(input.code).toUpperCase(),
+        name: "AI 전술 훈련",
+        visibility: "PRIVATE",
+        session,
+        playerId: requireUuid(input.playerId),
+        now,
+      },
+      difficulty as "RECRUIT" | "OFFICER" | "ADMIRAL",
+      aiSession,
+      requireUuid(input.aiPlayerId),
+    );
+    await this.register(room);
+    return json({ snapshot: snapshotFor(room, session.id, now) }, 201);
+  }
+
   private async join(input: Record<string, unknown>): Promise<Response> {
     const room = await this.load();
     const session = input.session as SessionRecord;
@@ -268,6 +317,56 @@ export class GameRoomDurableObject extends DurableObject<WorkerEnv> {
       summary: roomSummary(room),
       visibility: room.visibility,
     });
+  }
+
+  private async configureMatchmaking(
+    input: Record<string, unknown>,
+  ): Promise<Response> {
+    const room = await this.load();
+    if (
+      room.players.length !== 2 ||
+      room.gameId ||
+      room.matchmakingQuality !== null
+    ) {
+      throw new DomainError("INVALID_STATE");
+    }
+    if (
+      !input.quality ||
+      typeof input.quality !== "object" ||
+      Array.isArray(input.quality)
+    ) {
+      throw new DomainError("INVALID_REQUEST");
+    }
+    const quality = input.quality as Record<string, unknown>;
+    if (
+      !["CASUAL", "RANKED"].includes(String(quality.pool)) ||
+      !["EXACT", "REGIONAL", "GLOBAL"].includes(String(quality.phase))
+    ) {
+      throw new DomainError("INVALID_REQUEST");
+    }
+    room.matchmakingQuality =
+      input.quality as InternalRoom["matchmakingQuality"];
+    if (input.rankedMatch !== null) {
+      if (
+        !input.rankedMatch ||
+        typeof input.rankedMatch !== "object" ||
+        Array.isArray(input.rankedMatch)
+      ) {
+        throw new DomainError("INVALID_REQUEST");
+      }
+      const ranked = input.rankedMatch as Record<string, unknown>;
+      const contentRevision = Number(ranked.contentRevision);
+      if (!Number.isInteger(contentRevision) || contentRevision < 0)
+        throw new DomainError("INVALID_REQUEST");
+      room.rankedMatch = {
+        seasonId: requireString(ranked.seasonId),
+        contentRevision,
+      };
+    }
+    room.updatedAt = requireString(input.now);
+    room.version += 1;
+    await this.persist(room);
+    return noContent();
   }
 
   private async leave(input: Record<string, unknown>): Promise<Response> {
@@ -301,6 +400,48 @@ export class GameRoomDurableObject extends DurableObject<WorkerEnv> {
     return json(spectatorSnapshot(await this.load(), requireString(input.now)));
   }
 
+  private async inviteInfo(input: Record<string, unknown>): Promise<Response> {
+    const room = await this.load();
+    playerForSession(room, requireUuid(input.sessionId));
+    if (room.status !== "WAITING_FOR_OPPONENT" || room.players.length !== 1)
+      throw new DomainError("INVALID_STATE");
+    return json({
+      roomId: room.id,
+      roomCode: room.code,
+      roomName: room.name,
+    });
+  }
+
+  private async safetyContext(
+    input: Record<string, unknown>,
+  ): Promise<Response> {
+    const room = await this.load();
+    const actor = playerForSession(room, requireUuid(input.sessionId));
+    const targetPlayerId = requireUuid(input.targetPlayerId);
+    const target = room.players.find((player) => player.id === targetPlayerId);
+    if (!target || target.id === actor.id || target.kind === "AI")
+      throw new DomainError("INVALID_REQUEST");
+    return json({
+      roomId: room.id,
+      roomVersion: room.version,
+      roomState: room.status,
+      actor: {
+        playerId: actor.id,
+        sessionId: actor.sessionId,
+        accountId: actor.accountId ?? null,
+        nickname: actor.nickname,
+      },
+      target: {
+        playerId: target.id,
+        sessionId: target.sessionId,
+        accountId: target.accountId ?? null,
+        nickname: target.nickname,
+      },
+      messages: room.chatMessages.slice(-20).reverse(),
+      recentAttacks: (room.game?.attacks ?? []).slice(-20).reverse(),
+    });
+  }
+
   private async disconnectSession(
     input: Record<string, unknown>,
   ): Promise<Response> {
@@ -326,6 +467,47 @@ export class GameRoomDurableObject extends DurableObject<WorkerEnv> {
     for (const socket of this.ctx.getWebSockets(`session:${sessionId}`)) {
       socket.close(4001, "session revoked");
     }
+    return noContent();
+  }
+
+  private async anonymizeAccount(
+    input: Record<string, unknown>,
+  ): Promise<Response> {
+    const accountId = requireUuid(input.accountId);
+    if (!Array.isArray(input.sessionIds))
+      throw new DomainError("INVALID_REQUEST");
+    const sessionIds = new Set(input.sessionIds.map(requireUuid));
+    const room = await this.load();
+    if (!["FINISHED", "CANCELLED"].includes(room.status))
+      throw new DomainError("INVALID_STATE");
+    const deletedPlayers = room.players.filter(
+      (player) =>
+        player.accountId === accountId || sessionIds.has(player.sessionId),
+    );
+    if (deletedPlayers.length === 0) return noContent();
+    const deletedPlayerIds = new Set(deletedPlayers.map((player) => player.id));
+    const deletedNames = deletedPlayers.map((player) => player.nickname);
+    for (const player of deletedPlayers) {
+      player.sessionId = crypto.randomUUID();
+      player.accountId = null;
+      player.nickname = "Deleted Commander";
+    }
+    for (const message of room.chatMessages) {
+      for (const name of deletedNames) {
+        message.content = message.content.replaceAll(name, "Deleted Commander");
+      }
+      if (
+        (message.playerId && deletedPlayerIds.has(message.playerId)) ||
+        deletedNames.includes(message.nickname)
+      ) {
+        message.nickname = "Deleted Commander";
+        if (message.type === "TEXT") message.content = "[deleted]";
+      }
+    }
+    room.name = "Archived Operation";
+    room.updatedAt = requireString(input.now);
+    room.version += 1;
+    await this.persist(room);
     return noContent();
   }
 
@@ -486,6 +668,7 @@ export class GameRoomDurableObject extends DurableObject<WorkerEnv> {
           this.broadcastSnapshots(room, "game:started", now);
           const timer = timerState(room, now);
           if (timer) this.broadcast({ type: "turn:started", payload: timer });
+          await this.runAiTurns(room);
         } else {
           this.broadcastSnapshots(room, "room:updated", now);
         }
@@ -521,6 +704,7 @@ export class GameRoomDurableObject extends DurableObject<WorkerEnv> {
           );
           const timer = timerState(room, now);
           if (timer) this.broadcast({ type: "turn:started", payload: timer });
+          await this.runAiTurns(room);
         }
         return;
       }
@@ -613,6 +797,103 @@ export class GameRoomDurableObject extends DurableObject<WorkerEnv> {
       }),
     );
     if (!response.ok) throw new DomainError("INTERNAL_ERROR");
+    await this.flushResultProjection(room);
+  }
+
+  private async runAiTurns(room: InternalRoom): Promise<void> {
+    let safety = 0;
+    while (
+      room.status === "PLAYING" &&
+      room.game &&
+      !room.game.result &&
+      safety < BALANCE.manifest.boardSize
+    ) {
+      const ai = room.players.find(
+        (player) =>
+          player.kind === "AI" && player.id === room.game?.currentPlayerId,
+      );
+      if (!ai) return;
+      const coordinate = selectAiCoordinate(room, ai.id);
+      if (!coordinate) return;
+      const now = new Date().toISOString();
+      const chatCount = room.chatMessages.length;
+      const result = fire(
+        room,
+        ai.sessionId,
+        crypto.randomUUID(),
+        ai.id,
+        coordinate,
+        room.version,
+        room.game.turnNumber,
+        now,
+      );
+      await this.persist(room);
+      this.broadcast({ type: "attack:result", payload: result.record });
+      if (result.record.sunkShip)
+        this.broadcast({ type: "ship:sunk", payload: result.record });
+      this.broadcastNewChat(room, chatCount);
+      this.broadcastSnapshots(
+        room,
+        result.record.winnerId ? "game:finished" : "turn:changed",
+        now,
+      );
+      const timer = timerState(room, now);
+      if (timer) this.broadcast({ type: "turn:started", payload: timer });
+      safety += 1;
+    }
+  }
+
+  private async flushResultProjection(room: InternalRoom): Promise<void> {
+    if (!room.resultProjectionPending || !room.game?.result) return;
+    try {
+      const accounts = this.env.ACCOUNTS.get(
+        this.env.ACCOUNTS.idFromName("global-v1"),
+      );
+      const identityResponse = await accounts.fetch(
+        internalRequest("/sessions/identities", {
+          sessionIds: room.players.map((player) => player.sessionId),
+        }),
+      );
+      if (!identityResponse.ok) throw new DomainError("INTERNAL_ERROR");
+      const identityPayload = (await identityResponse.json()) as {
+        identities: Array<{
+          sessionId: string;
+          accountId: string | null;
+          nickname: string;
+        }>;
+      };
+      const progression = this.env.PROGRESSION.get(
+        this.env.PROGRESSION.idFromName("global-v1"),
+      );
+      const response = await progression.fetch(
+        internalRequest("/results/record", {
+          roomId: room.id,
+          roomName: room.name,
+          balance: BALANCE,
+          result: room.game.result,
+          rankedMatch: room.rankedMatch ?? null,
+          participants: room.players
+            .filter((player) => player.kind === "HUMAN")
+            .map((player) => {
+              const identity = identityPayload.identities.find(
+                (candidate) => candidate.sessionId === player.sessionId,
+              );
+              const accountId = identity?.accountId ?? player.accountId ?? null;
+              return {
+                identityId: accountId ?? player.sessionId,
+                accountId,
+                playerId: player.id,
+                handle: identity?.nickname ?? player.nickname,
+              };
+            }),
+        }),
+      );
+      if (!response.ok) throw new DomainError("INTERNAL_ERROR");
+      room.resultProjectionPending = false;
+      await this.ctx.storage.put(ROOM_KEY, room);
+    } catch {
+      await this.ctx.storage.setAlarm(Date.now() + 1_000);
+    }
   }
 
   private async register(room: InternalRoom): Promise<void> {
@@ -645,6 +926,9 @@ export class GameRoomDurableObject extends DurableObject<WorkerEnv> {
 
   private async scheduleAlarm(room: InternalRoom): Promise<void> {
     const candidates = [
+      room.resultProjectionPending
+        ? new Date(Date.now() + 1_000).toISOString()
+        : null,
       room.game?.result ? null : room.game?.turnDeadlineAt,
       ...Object.values(room.disconnectedDeadlines),
     ]
