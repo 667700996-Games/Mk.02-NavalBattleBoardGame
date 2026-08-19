@@ -5,6 +5,17 @@ import {
   type HistoryItem,
 } from "../domain/protocol";
 import {
+  applyInactivityDecay,
+  newRankedStanding,
+  nextSeasonSeed,
+  rankedProfile as profileForStanding,
+  rankedTier as tier,
+  recordRankedResult,
+  RANKED_PLACEMENT_MATCHES,
+  seasonRewardXp,
+  type RankedStanding,
+} from "../domain/ranked";
+import {
   bodyObject,
   json,
   noContent,
@@ -20,18 +31,23 @@ interface ResultParticipant {
   handle: string;
 }
 
-interface RankedStanding {
+interface RankedReward {
+  sourceKind: "RANKED_MATCH" | "RANKED_PLACEMENT" | "RANKED_SEASON";
+  sourceId: string;
   seasonId: string;
+  xp: number;
+  createdAt: string;
+}
+
+interface RankedMatchResult {
+  roomId: string;
   accountId: string;
-  handle: string;
-  rating: number;
-  matchesPlayed: number;
-  wins: number;
-  losses: number;
-  peakRating: number;
-  lastMatchAt: string | null;
-  decayPointsApplied: number;
-  rewardXpEarned: number;
+  seasonId: string;
+  ratingBefore: number;
+  ratingAfter: number;
+  delta: number;
+  won: boolean;
+  finishedAt: string;
 }
 
 interface MissionReward {
@@ -47,7 +63,13 @@ interface ProgressionState {
   rewards: Record<string, Record<string, MissionReward>>;
   ranked: Record<string, RankedStanding>;
   leaderboardVisible: Record<string, boolean>;
-  settledRankedRooms: Record<string, true>;
+  settledRankedRooms: Record<string, true | string[]>;
+  rankedRewards: Record<string, RankedReward>;
+  rankedMatchResults: Record<string, RankedMatchResult>;
+  recentPlayers: Record<
+    string,
+    Record<string, { accountId: string; handle: string; lastPlayedAt: string }>
+  >;
 }
 
 const EMPTY_STATE: ProgressionState = {
@@ -57,6 +79,9 @@ const EMPTY_STATE: ProgressionState = {
   ranked: {},
   leaderboardVisible: {},
   settledRankedRooms: {},
+  rankedRewards: {},
+  rankedMatchResults: {},
+  recentPlayers: {},
 };
 const CURRENT_SEASON = "FOUNDERS_SEASON";
 
@@ -70,6 +95,8 @@ export class ProgressionDurableObject extends DurableObject<WorkerEnv> {
         return await this.migrateIdentity(await bodyObject(request));
       if (request.method === "POST" && url.pathname === "/history")
         return await this.history(await bodyObject(request));
+      if (request.method === "POST" && url.pathname === "/recent")
+        return await this.recent(await bodyObject(request));
       if (request.method === "POST" && url.pathname === "/profile")
         return await this.profile(await bodyObject(request));
       if (request.method === "POST" && url.pathname === "/missions/claim")
@@ -129,8 +156,30 @@ export class ProgressionDurableObject extends DurableObject<WorkerEnv> {
         participants.length === 2 &&
         participants.every((participant) => participant.accountId)
       ) {
-        settleRanked(state, participants, result, rankedMatch.seasonId);
-        state.settledRankedRooms[roomId] = true;
+        settleRanked(state, roomId, participants, result, rankedMatch.seasonId);
+        state.settledRankedRooms[roomId] = participants.map(
+          (participant) => participant.accountId!,
+        );
+      }
+      if (
+        participants.length === 2 &&
+        participants.every((participant) => participant.accountId)
+      ) {
+        const [first, second] = participants;
+        if (first?.accountId && second?.accountId) {
+          state.recentPlayers[first.accountId] ??= {};
+          state.recentPlayers[second.accountId] ??= {};
+          state.recentPlayers[first.accountId][second.accountId] = {
+            accountId: second.accountId,
+            handle: second.handle,
+            lastPlayedAt: result.finishedAt,
+          };
+          state.recentPlayers[second.accountId][first.accountId] = {
+            accountId: first.accountId,
+            handle: first.handle,
+            lastPlayedAt: result.finishedAt,
+          };
+        }
       }
     });
     return noContent();
@@ -169,7 +218,19 @@ export class ProgressionDurableObject extends DurableObject<WorkerEnv> {
         .sort((left, right) =>
           right.result.finishedAt.localeCompare(left.result.finishedAt),
         )
-        .slice(0, 5_000),
+        .slice(0, 50),
+    });
+  }
+
+  private async recent(input: Record<string, unknown>): Promise<Response> {
+    const accountId = requireUuid(input.accountId);
+    const state = await this.read();
+    return json({
+      recentPlayers: Object.values(state.recentPlayers[accountId] ?? {})
+        .sort((left, right) =>
+          right.lastPlayedAt.localeCompare(left.lastPlayedAt),
+        )
+        .slice(0, 20),
     });
   }
 
@@ -179,8 +240,29 @@ export class ProgressionDurableObject extends DurableObject<WorkerEnv> {
       input.accountId === null ? null : requireUuid(input.accountId);
     const handle = requireString(input.handle);
     const now = requireString(input.now);
-    const state = await this.read();
-    return json(buildProgression(state, identityId, accountId, handle, now));
+    const runtime = runtimeFrom(input);
+    let response: unknown = null;
+    await this.mutate((state) => {
+      if (accountId)
+        prepareRankedStanding(
+          state,
+          accountId,
+          handle,
+          runtime.liveContent.season.id,
+          runtime.liveContent.season.startsAt,
+          now,
+        );
+      response = buildProgression(
+        state,
+        identityId,
+        accountId,
+        handle,
+        now,
+        runtime,
+      );
+    });
+    if (!response) throw new DomainError("INTERNAL_ERROR");
+    return json(response);
   }
 
   private async claimMission(
@@ -191,14 +273,24 @@ export class ProgressionDurableObject extends DurableObject<WorkerEnv> {
     const handle = requireString(input.handle);
     const missionId = requireString(input.missionId);
     const now = requireString(input.now);
+    const runtime = runtimeFrom(input);
     let response: unknown = null;
     await this.mutate((state) => {
+      prepareRankedStanding(
+        state,
+        accountId,
+        handle,
+        runtime.liveContent.season.id,
+        runtime.liveContent.season.startsAt,
+        now,
+      );
       const progression = buildProgression(
         state,
         identityId,
         accountId,
         handle,
         now,
+        runtime,
       );
       const mission = progression.missions.find(
         (candidate) => candidate.id === missionId,
@@ -214,7 +306,14 @@ export class ProgressionDurableObject extends DurableObject<WorkerEnv> {
         xp: mission.rewardXp,
         claimedAt: now,
       };
-      response = buildProgression(state, identityId, accountId, handle, now);
+      response = buildProgression(
+        state,
+        identityId,
+        accountId,
+        handle,
+        now,
+        runtime,
+      );
     });
     if (!response) throw new DomainError("INTERNAL_ERROR");
     return json(response);
@@ -225,11 +324,26 @@ export class ProgressionDurableObject extends DurableObject<WorkerEnv> {
   ): Promise<Response> {
     const accountId = requireUuid(input.accountId);
     const handle = requireString(input.handle);
-    const state = await this.read();
-    const standing =
-      state.ranked[rankedKey(CURRENT_SEASON, accountId)] ??
-      newStanding(accountId, handle, CURRENT_SEASON);
-    return json(profileForStanding(standing));
+    const seasonId = requireString(input.seasonId);
+    const seasonStartsAt = requireString(input.seasonStartsAt);
+    const now = requireString(input.now);
+    let response: unknown = null;
+    await this.mutate((state) => {
+      const standing = prepareRankedStanding(
+        state,
+        accountId,
+        handle,
+        seasonId,
+        seasonStartsAt,
+        now,
+      );
+      response = profileForStanding(
+        standing,
+        rankedRewardTotal(state, accountId),
+      );
+    });
+    if (!response) throw new DomainError("INTERNAL_ERROR");
+    return json(response);
   }
 
   private async rankedLeaderboard(
@@ -254,6 +368,7 @@ export class ProgressionDurableObject extends DurableObject<WorkerEnv> {
       .filter(
         (standing) =>
           standing.seasonId === seasonId &&
+          standing.matchesPlayed >= RANKED_PLACEMENT_MATCHES &&
           state.leaderboardVisible[standing.accountId] !== false,
       )
       .sort(
@@ -271,7 +386,15 @@ export class ProgressionDurableObject extends DurableObject<WorkerEnv> {
     const next = ordered[start + limit]?.accountId ?? null;
     return json({
       seasonId,
-      archived: seasonId !== CURRENT_SEASON,
+      archived:
+        Array.isArray(input.availableSeasons) &&
+        input.availableSeasons.some(
+          (season) =>
+            season !== null &&
+            typeof season === "object" &&
+            (season as { seasonId?: unknown }).seasonId === seasonId &&
+            (season as { archived?: unknown }).archived === true,
+        ),
       generatedAt: requireString(input.now),
       entries: page.map((standing, index) => ({
         rank: start + index + 1,
@@ -284,7 +407,9 @@ export class ProgressionDurableObject extends DurableObject<WorkerEnv> {
         peakRating: standing.peakRating,
       })),
       nextCursor: next,
-      availableSeasons: [{ seasonId: CURRENT_SEASON, archived: false }],
+      availableSeasons: Array.isArray(input.availableSeasons)
+        ? input.availableSeasons
+        : [{ seasonId: CURRENT_SEASON, archived: false }],
       viewerVisible: state.leaderboardVisible[accountId] !== false,
     });
   }
@@ -308,12 +433,23 @@ export class ProgressionDurableObject extends DurableObject<WorkerEnv> {
     return json({
       gameHistory: Object.values(state.history[identityId] ?? {}),
       progressionRewards: Object.values(state.rewards[accountId] ?? {}),
-      rankedRating: state.ranked[rankedKey(CURRENT_SEASON, accountId)] ?? null,
-      rankedStandings: Object.values(state.ranked).filter(
-        (standing) => standing.accountId === accountId,
+      rankedRating: latestStanding(state, accountId)
+        ? profileForStanding(
+            latestStanding(state, accountId)!,
+            rankedRewardTotal(state, accountId),
+          )
+        : null,
+      rankedStandings: Object.values(state.ranked)
+        .filter((standing) => standing.accountId === accountId)
+        .map((standing) =>
+          profileForStanding(standing, rankedRewardTotal(state, accountId)),
+        ),
+      rankedMatchResults: Object.values(state.rankedMatchResults).filter(
+        (result) => result.accountId === accountId,
       ),
-      rankedMatchResults: Object.keys(state.settledRankedRooms),
-      rankedRewards: [],
+      rankedRewards: Object.entries(state.rankedRewards)
+        .filter(([key]) => key.startsWith(`${accountId}:`))
+        .map(([, reward]) => reward),
       leaderboardVisible: state.leaderboardVisible[accountId] !== false,
     });
   }
@@ -333,19 +469,43 @@ export class ProgressionDurableObject extends DurableObject<WorkerEnv> {
       delete state.handles[identityId];
       delete state.handles[accountId];
       delete state.leaderboardVisible[accountId];
+      delete state.recentPlayers[accountId];
+      for (const recent of Object.values(state.recentPlayers))
+        delete recent[accountId];
       for (const key of Object.keys(state.ranked)) {
         if (state.ranked[key]?.accountId === accountId)
           delete state.ranked[key];
+      }
+      for (const key of Object.keys(state.rankedRewards)) {
+        if (key.startsWith(`${accountId}:`)) {
+          delete state.rankedRewards[key];
+          rewardsDeleted += 1;
+        }
+      }
+      for (const [key, result] of Object.entries(state.rankedMatchResults)) {
+        if (result.accountId === accountId)
+          delete state.rankedMatchResults[key];
+      }
+      for (const [roomId, participants] of Object.entries(
+        state.settledRankedRooms,
+      )) {
+        if (!Array.isArray(participants)) continue;
+        const remaining = participants.filter(
+          (participant) => participant !== accountId,
+        );
+        if (remaining.length) state.settledRankedRooms[roomId] = remaining;
+        else delete state.settledRankedRooms[roomId];
       }
     });
     return json({ rewardsDeleted, roomIds });
   }
 
   private async read(): Promise<ProgressionState> {
-    return (
+    const state =
       (await this.ctx.storage.get<ProgressionState>("state")) ??
-      structuredClone(EMPTY_STATE)
-    );
+      structuredClone(EMPTY_STATE);
+    normalizeState(state);
+    return state;
   }
 
   private async mutate(
@@ -355,14 +515,48 @@ export class ProgressionDurableObject extends DurableObject<WorkerEnv> {
       const state =
         (await transaction.get<ProgressionState>("state")) ??
         structuredClone(EMPTY_STATE);
+      normalizeState(state);
       action(state);
       await transaction.put("state", state);
     });
   }
 }
 
+function normalizeState(state: ProgressionState): void {
+  state.history ??= {};
+  state.handles ??= {};
+  state.rewards ??= {};
+  state.ranked ??= {};
+  state.leaderboardVisible ??= {};
+  state.settledRankedRooms ??= {};
+  state.rankedRewards ??= {};
+  state.rankedMatchResults ??= {};
+  state.recentPlayers ??= {};
+  for (const standing of Object.values(state.ranked)) {
+    const legacy = standing as RankedStanding & {
+      rewardXpEarned?: number;
+      seasonRewardIssuedAt?: string | null;
+      createdAt?: string;
+      updatedAt?: string;
+    };
+    standing.seasonRewardIssuedAt ??= null;
+    standing.createdAt ??= standing.lastMatchAt ?? "2026-08-01T00:00:00.000Z";
+    standing.updatedAt ??= standing.lastMatchAt ?? standing.createdAt;
+    if ((legacy.rewardXpEarned ?? 0) > 0) {
+      addRankedReward(state, standing.accountId, {
+        sourceKind: "RANKED_SEASON",
+        sourceId: `LEGACY_${standing.seasonId}`,
+        seasonId: standing.seasonId,
+        xp: legacy.rewardXpEarned!,
+        createdAt: standing.updatedAt,
+      });
+      delete legacy.rewardXpEarned;
+    }
+  }
+}
+
 function participantsFrom(value: unknown): ResultParticipant[] {
-  if (!Array.isArray(value) || value.length !== 2)
+  if (!Array.isArray(value) || value.length < 1 || value.length > 2)
     throw new DomainError("INVALID_REQUEST");
   return value.map((entry) => {
     if (!entry || typeof entry !== "object" || Array.isArray(entry))
@@ -408,6 +602,7 @@ function rankedMatchFrom(
 
 function settleRanked(
   state: ProgressionState,
+  roomId: string,
   participants: ResultParticipant[],
   result: GameResult,
   seasonId: string,
@@ -417,21 +612,29 @@ function settleRanked(
     throw new DomainError("INVALID_REQUEST");
   const firstKey = rankedKey(seasonId, first.accountId);
   const secondKey = rankedKey(seasonId, second.accountId);
-  const firstStanding =
-    state.ranked[firstKey] ??
-    newStanding(first.accountId, first.handle, seasonId);
-  const secondStanding =
-    state.ranked[secondKey] ??
-    newStanding(second.accountId, second.handle, seasonId);
+  const firstStanding = standingOrSeed(
+    state,
+    first.accountId,
+    first.handle,
+    seasonId,
+    result.finishedAt,
+  );
+  const secondStanding = standingOrSeed(
+    state,
+    second.accountId,
+    second.handle,
+    seasonId,
+    result.finishedAt,
+  );
   const firstBefore = firstStanding.rating;
   const secondBefore = secondStanding.rating;
-  recordRankedResult(
+  const firstChange = recordRankedResult(
     firstStanding,
     secondBefore,
     result.winnerId === first.playerId,
     result.finishedAt,
   );
-  recordRankedResult(
+  const secondChange = recordRankedResult(
     secondStanding,
     firstBefore,
     result.winnerId === second.playerId,
@@ -439,76 +642,191 @@ function settleRanked(
   );
   state.ranked[firstKey] = firstStanding;
   state.ranked[secondKey] = secondStanding;
-}
-
-function newStanding(
-  accountId: string,
-  handle: string,
-  seasonId: string,
-): RankedStanding {
-  return {
-    seasonId,
-    accountId,
-    handle,
-    rating: 1_500,
-    matchesPlayed: 0,
-    wins: 0,
-    losses: 0,
-    peakRating: 1_500,
-    lastMatchAt: null,
-    decayPointsApplied: 0,
-    rewardXpEarned: 0,
-  };
-}
-
-function recordRankedResult(
-  standing: RankedStanding,
-  opponentRating: number,
-  won: boolean,
-  finishedAt: string,
-): void {
-  const expected = 1 / (1 + 10 ** ((opponentRating - standing.rating) / 400));
-  const k = standing.matchesPlayed < 5 ? 64 : 32;
-  let delta = Math.round(k * ((won ? 1 : 0) - expected));
-  delta = won ? Math.max(1, delta) : Math.min(-1, delta);
-  standing.rating = Math.max(0, Math.min(4_000, standing.rating + delta));
-  standing.matchesPlayed += 1;
-  if (won) standing.wins += 1;
-  else standing.losses += 1;
-  standing.peakRating = Math.max(standing.peakRating, standing.rating);
-  standing.lastMatchAt = finishedAt;
-  standing.decayPointsApplied = 0;
-}
-
-function profileForStanding(standing: RankedStanding) {
-  return {
-    seasonId: standing.seasonId,
-    rating: standing.rating,
-    matchesPlayed: standing.matchesPlayed,
-    wins: standing.wins,
-    losses: standing.losses,
-    peakRating: standing.peakRating,
-    tier: tier(standing.rating, standing.matchesPlayed),
-    placementMatchesRemaining: Math.max(0, 5 - standing.matchesPlayed),
-    lastMatchAt: standing.lastMatchAt,
-    nextDecayAt: null,
-    decayPointsApplied: standing.decayPointsApplied,
-    rewardXpEarned: standing.rewardXpEarned,
-  };
-}
-
-function tier(rating: number, matchesPlayed: number) {
-  if (matchesPlayed < 5) return "PROVISIONAL";
-  if (rating <= 1_199) return "BRONZE";
-  if (rating <= 1_499) return "SILVER";
-  if (rating <= 1_799) return "GOLD";
-  if (rating <= 2_099) return "PLATINUM";
-  if (rating <= 2_399) return "DIAMOND";
-  return "ADMIRAL";
+  for (const [participant, change] of [
+    [first, firstChange],
+    [second, secondChange],
+  ] as const) {
+    const accountId = participant.accountId!;
+    const won = result.winnerId === participant.playerId;
+    state.rankedMatchResults[`${roomId}:${accountId}`] = {
+      roomId,
+      accountId,
+      seasonId,
+      ratingBefore: change.ratingBefore,
+      ratingAfter: change.ratingAfter,
+      delta: change.delta,
+      won,
+      finishedAt: result.finishedAt,
+    };
+    addRankedReward(state, accountId, {
+      sourceKind: "RANKED_MATCH",
+      sourceId: roomId,
+      seasonId,
+      xp: won ? 100 : 40,
+      createdAt: result.finishedAt,
+    });
+    if (change.placementCompleted)
+      addRankedReward(state, accountId, {
+        sourceKind: "RANKED_PLACEMENT",
+        sourceId: seasonId,
+        seasonId,
+        xp: 500,
+        createdAt: result.finishedAt,
+      });
+  }
 }
 
 function rankedKey(seasonId: string, accountId: string): string {
   return `${seasonId}:${accountId}`;
+}
+
+function prepareRankedStanding(
+  state: ProgressionState,
+  accountId: string,
+  handle: string,
+  seasonId: string,
+  seasonStartsAt: string,
+  now: string,
+): RankedStanding {
+  if (
+    !/^[A-Z0-9_]{3,32}$/.test(seasonId) ||
+    !Number.isFinite(Date.parse(seasonStartsAt)) ||
+    !Number.isFinite(Date.parse(now))
+  )
+    throw new DomainError("INVALID_REQUEST");
+  issuePriorSeasonRewards(state, accountId, seasonId, seasonStartsAt, now);
+  const standing = standingOrSeed(state, accountId, handle, seasonId, now);
+  applyInactivityDecay(standing, now);
+  standing.handle = handle;
+  state.ranked[rankedKey(seasonId, accountId)] = standing;
+  return standing;
+}
+
+function standingOrSeed(
+  state: ProgressionState,
+  accountId: string,
+  handle: string,
+  seasonId: string,
+  now: string,
+): RankedStanding {
+  const existing = state.ranked[rankedKey(seasonId, accountId)];
+  if (existing) return existing;
+  const previous = latestStanding(state, accountId);
+  return newRankedStanding(
+    accountId,
+    handle,
+    seasonId,
+    nextSeasonSeed(previous?.rating ?? null),
+    now,
+  );
+}
+
+function latestStanding(
+  state: ProgressionState,
+  accountId: string,
+): RankedStanding | null {
+  return (
+    Object.values(state.ranked)
+      .filter((standing) => standing.accountId === accountId)
+      .sort((left, right) =>
+        (right.lastMatchAt ?? right.updatedAt).localeCompare(
+          left.lastMatchAt ?? left.updatedAt,
+        ),
+      )[0] ?? null
+  );
+}
+
+function issuePriorSeasonRewards(
+  state: ProgressionState,
+  accountId: string,
+  currentSeasonId: string,
+  seasonStartsAt: string,
+  now: string,
+): void {
+  for (const standing of Object.values(state.ranked)) {
+    if (
+      standing.accountId !== accountId ||
+      standing.seasonId === currentSeasonId ||
+      standing.matchesPlayed < RANKED_PLACEMENT_MATCHES ||
+      standing.seasonRewardIssuedAt !== null ||
+      !standing.lastMatchAt ||
+      standing.lastMatchAt >= seasonStartsAt
+    )
+      continue;
+    const xp = seasonRewardXp(tier(standing.rating, standing.matchesPlayed));
+    if (xp > 0)
+      addRankedReward(state, accountId, {
+        sourceKind: "RANKED_SEASON",
+        sourceId: standing.seasonId,
+        seasonId: standing.seasonId,
+        xp,
+        createdAt: now,
+      });
+    standing.seasonRewardIssuedAt = now;
+    standing.updatedAt = now;
+  }
+}
+
+function addRankedReward(
+  state: ProgressionState,
+  accountId: string,
+  reward: RankedReward,
+): void {
+  const key = `${accountId}:${reward.sourceKind}:${reward.sourceId}:${reward.seasonId}`;
+  state.rankedRewards[key] ??= reward;
+}
+
+function rankedRewardTotal(state: ProgressionState, accountId: string): number {
+  return Object.entries(state.rankedRewards)
+    .filter(([key]) => key.startsWith(`${accountId}:`))
+    .reduce((total, [, reward]) => total + reward.xp, 0);
+}
+
+interface ProgressionRuntime {
+  liveContent: ReturnType<typeof baselineLiveContentView>;
+  tuning: {
+    dailyDeploymentRewardXp: number;
+    dailyAccuracyRewardXp: number;
+    weeklySupremacyRewardXp: number;
+  };
+}
+
+function runtimeFrom(input: Record<string, unknown>): ProgressionRuntime {
+  if (
+    !input.liveContent ||
+    typeof input.liveContent !== "object" ||
+    Array.isArray(input.liveContent) ||
+    !input.tuning ||
+    typeof input.tuning !== "object" ||
+    Array.isArray(input.tuning)
+  ) {
+    throw new DomainError("INVALID_REQUEST");
+  }
+  const tuning = input.tuning as Record<string, unknown>;
+  const values = {
+    dailyDeploymentRewardXp: Number(tuning.dailyDeploymentRewardXp),
+    dailyAccuracyRewardXp: Number(tuning.dailyAccuracyRewardXp),
+    weeklySupremacyRewardXp: Number(tuning.weeklySupremacyRewardXp),
+  };
+  if (Object.values(values).some((value) => !Number.isInteger(value)))
+    throw new DomainError("INVALID_REQUEST");
+  return {
+    liveContent: structuredClone(
+      input.liveContent,
+    ) as ProgressionRuntime["liveContent"],
+    tuning: values,
+  };
+}
+
+function defaultRuntime(now: string): ProgressionRuntime {
+  return {
+    liveContent: baselineLiveContentView(now),
+    tuning: {
+      dailyDeploymentRewardXp: 100,
+      dailyAccuracyRewardXp: 150,
+      weeklySupremacyRewardXp: 400,
+    },
+  };
 }
 
 function buildProgression(
@@ -517,6 +835,7 @@ function buildProgression(
   accountId: string | null,
   handle: string,
   now: string,
+  runtime: ProgressionRuntime = defaultRuntime(now),
 ) {
   const history = Object.values(state.history[identityId] ?? {});
   let wins = 0;
@@ -544,56 +863,64 @@ function buildProgression(
   }
   const rewards = Object.values(state.rewards[accountId ?? identityId] ?? {});
   const rankedStanding = accountId
-    ? (state.ranked[rankedKey(CURRENT_SEASON, accountId)] ??
-      newStanding(accountId, handle, CURRENT_SEASON))
+    ? (state.ranked[rankedKey(runtime.liveContent.season.id, accountId)] ??
+      newRankedStanding(
+        accountId,
+        handle,
+        runtime.liveContent.season.id,
+        1_500,
+        now,
+      ))
     : null;
   const resultXp =
     history.length * 100 + wins * 100 + hits * 3 + shipsSunk * 15;
   const totalXp =
     resultXp +
     rewards.reduce((total, reward) => total + reward.xp, 0) +
-    (rankedStanding?.rewardXpEarned ?? 0);
+    (accountId ? rankedRewardTotal(state, accountId) : 0);
   const level = Math.min(100, Math.floor(totalXp / 500) + 1);
   const levelXp = level === 100 ? 500 : totalXp % 500;
   const accuracy = shots ? Math.floor((hits * 100) / shots) : 0;
-  const missions = [
-    mission(
-      state,
-      accountId,
-      "DAILY_DEPLOYMENT",
-      "DAILY",
-      "오늘의 출항",
-      "오늘 교전 1회를 완료하십시오.",
-      dailyGames,
-      1,
-      100,
-      now,
-    ),
-    mission(
-      state,
-      accountId,
-      "DAILY_ACCURACY",
-      "DAILY",
-      "정밀 포격",
-      "오늘 적 함선 칸 10개를 명중시키십시오.",
-      dailyHits,
-      10,
-      150,
-      now,
-    ),
-    mission(
-      state,
-      accountId,
-      "WEEKLY_SUPREMACY",
-      "WEEKLY",
-      "주간 제해권",
-      "이번 주 교전 3회에서 승리하십시오.",
-      weeklyWins,
-      3,
-      400,
-      now,
-    ),
-  ];
+  const missions = runtime.liveContent.featureFlags.missionsEnabled
+    ? [
+        mission(
+          state,
+          accountId,
+          "DAILY_DEPLOYMENT",
+          "DAILY",
+          "오늘의 출항",
+          "오늘 교전 1회를 완료하십시오.",
+          dailyGames,
+          1,
+          runtime.tuning.dailyDeploymentRewardXp,
+          now,
+        ),
+        mission(
+          state,
+          accountId,
+          "DAILY_ACCURACY",
+          "DAILY",
+          "정밀 포격",
+          "오늘 적 함선 칸 10개를 명중시키십시오.",
+          dailyHits,
+          10,
+          runtime.tuning.dailyAccuracyRewardXp,
+          now,
+        ),
+        mission(
+          state,
+          accountId,
+          "WEEKLY_SUPREMACY",
+          "WEEKLY",
+          "주간 제해권",
+          "이번 주 교전 3회에서 승리하십시오.",
+          weeklyWins,
+          3,
+          runtime.tuning.weeklySupremacyRewardXp,
+          now,
+        ),
+      ]
+    : [];
   return {
     accountId,
     handle,
@@ -619,7 +946,12 @@ function buildProgression(
     totalShots: shots,
     totalHits: hits,
     totalShipsSunk: shipsSunk,
-    ranked: rankedStanding ? profileForStanding(rankedStanding) : null,
+    ranked: rankedStanding
+      ? profileForStanding(
+          rankedStanding,
+          accountId ? rankedRewardTotal(state, accountId) : 0,
+        )
+      : null,
     achievements: [
       achievement(
         "FIRST_CONTACT",
@@ -663,7 +995,7 @@ function buildProgression(
       ),
     ],
     missions,
-    liveContent: baselineLiveContentView(now),
+    liveContent: runtime.liveContent,
     calculatedAt: now,
   };
 }

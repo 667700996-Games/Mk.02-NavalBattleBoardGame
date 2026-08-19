@@ -37,6 +37,18 @@
       {
         "name": "MATCHMAKING",
         "class_name": "MatchmakingDurableObject"
+      },
+      {
+        "name": "SOCIAL",
+        "class_name": "SocialDurableObject"
+      },
+      {
+        "name": "OPERATIONS",
+        "class_name": "OperationsDurableObject"
+      },
+      {
+        "name": "CONTENT",
+        "class_name": "ContentDurableObject"
       }
     ]
   },
@@ -56,6 +68,18 @@
     {
       "tag": "v4",
       "new_sqlite_classes": ["MatchmakingDurableObject"]
+    },
+    {
+      "tag": "v5",
+      "new_sqlite_classes": ["SocialDurableObject"]
+    },
+    {
+      "tag": "v6",
+      "new_sqlite_classes": ["OperationsDurableObject"]
+    },
+    {
+      "tag": "v7",
+      "new_sqlite_classes": ["ContentDurableObject"]
     }
   ]
 }

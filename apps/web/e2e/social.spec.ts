@@ -26,8 +26,9 @@ test('friends, party, privacy, presence and direct invite form one responsive fl
   const bravoContext = await browser.newContext();
   const alpha = await alphaContext.newPage();
   const bravo = await bravoContext.newPage();
-  const alphaHandle = `SocA${browserName}`;
-  const bravoHandle = `SocB${browserName}`;
+  const suffix = crypto.randomUUID().replaceAll('-', '').slice(0, 4);
+  const alphaHandle = `SocA${browserName}${suffix}`;
+  const bravoHandle = `SocB${browserName}${suffix}`;
 
   await registerAccount(alpha, 'Social Alpha', alphaHandle);
   await registerAccount(bravo, 'Social Bravo', bravoHandle);

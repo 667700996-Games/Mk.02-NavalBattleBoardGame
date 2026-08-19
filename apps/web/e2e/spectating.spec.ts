@@ -55,7 +55,8 @@ test('public battles expose only the delayed visibility-filtered spectator proje
   const host = await hostContext.newPage();
   const guest = await guestContext.newPage();
   const viewer = await viewerContext.newPage();
-  const operationName = `Public Watch ${browserName}`;
+  const suffix = crypto.randomUUID().replaceAll('-', '').slice(0, 6);
+  const operationName = `Public Watch ${browserName} ${suffix}`;
 
   await register(host, 'Watch Alpha');
   await host.getByRole('button', { name: '작전실 생성' }).click();

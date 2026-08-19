@@ -7,7 +7,9 @@ import { LobbyDurableObject } from "./objects/lobby";
 import { EdgeRateLimitDurableObject } from "./objects/rate-limit";
 import { ProgressionDurableObject } from "./objects/progression";
 import { MatchmakingDurableObject } from "./objects/matchmaking";
-import { baselineLiveContentView } from "./objects/progression";
+import { SocialDurableObject } from "./objects/social";
+import { OperationsDurableObject } from "./objects/operations";
+import { ContentDurableObject } from "./objects/content";
 import {
   BALANCE,
   DomainError,
@@ -45,6 +47,9 @@ export {
   LobbyDurableObject,
   ProgressionDurableObject,
   MatchmakingDurableObject,
+  SocialDurableObject,
+  OperationsDurableObject,
+  ContentDurableObject,
 };
 
 const SESSION_TTL_SECONDS = 30 * 24 * 60 * 60;
@@ -88,15 +93,65 @@ async function api(request: Request, env: WorkerEnv): Promise<Response> {
   if (request.method === "GET" && path === "/health") {
     return json({
       status: "ok",
+      storage: "durable-objects-sqlite",
       runtime: "cloudflare-workers",
       serverTime: new Date().toISOString(),
+      protocolVersion: PROTOCOL_VERSION,
+    });
+  }
+  if (request.method === "GET" && path === "/ready") {
+    const now = new Date().toISOString();
+    const probes = await Promise.all([
+      accounts(env).fetch(internalRequest("/health")),
+      lobby(env).fetch(internalRequest("/rooms")),
+      matchmaking(env).fetch(internalRequest("/stats")),
+      operations(env).fetch(internalRequest("/health")),
+      content(env).fetch(internalRequest("/live", { now })),
+    ]);
+    if (probes.some((response) => !response.ok))
+      throw new DomainError("INTERNAL_ERROR");
+    return json({
+      status: "ready",
+      storage: "durable-objects-sqlite",
+      runtime: "cloudflare-workers",
+      serverTime: now,
+      protocolVersion: PROTOCOL_VERSION,
+    });
+  }
+  if (request.method === "GET" && path === "/metrics") {
+    const [operationsResponse, queue] = await Promise.all([
+      operations(env).fetch(internalRequest("/metrics")),
+      internalJson<{
+        queued: number;
+        rankedQueued: number;
+        oldestWaitSeconds: number;
+      }>(matchmaking(env).fetch(internalRequest("/stats"))),
+    ]);
+    if (!operationsResponse.ok) throw new DomainError("INTERNAL_ERROR");
+    const persisted = await operationsResponse.text();
+    const metrics =
+      persisted +
+      "# HELP mk01_matchmaking_queue_depth Current durable matchmaking queue entries.\n" +
+      "# TYPE mk01_matchmaking_queue_depth gauge\n" +
+      `mk01_matchmaking_queue_depth ${queue.queued}\n` +
+      "# HELP mk01_ranked_matchmaking_queue_depth Current durable ranked matchmaking queue entries.\n" +
+      "# TYPE mk01_ranked_matchmaking_queue_depth gauge\n" +
+      `mk01_ranked_matchmaking_queue_depth ${queue.rankedQueued}\n` +
+      "# HELP mk01_matchmaking_oldest_age_seconds Age of the oldest durable matchmaking queue entry in seconds.\n" +
+      "# TYPE mk01_matchmaking_oldest_age_seconds gauge\n" +
+      `mk01_matchmaking_oldest_age_seconds ${queue.oldestWaitSeconds}\n`;
+    return new Response(metrics, {
+      headers: { "content-type": "text/plain; version=0.0.4" },
     });
   }
   if (
     request.method === "POST" &&
     (path === "/telemetry/funnel" || path === "/telemetry/performance")
   ) {
-    await bodyObject(request);
+    await internalJson(
+      operations(env).fetch(internalRequest(path, await bodyObject(request))),
+      204,
+    );
     return noContent();
   }
 
@@ -125,6 +180,7 @@ async function api(request: Request, env: WorkerEnv): Promise<Response> {
   }
   if (request.method === "GET" && path === "/profile") {
     const session = await authenticate(request, env);
+    const liveContent = await liveContentRuntime(env, new Date().toISOString());
     return json(
       await internalJson(
         progression(env).fetch(
@@ -133,24 +189,42 @@ async function api(request: Request, env: WorkerEnv): Promise<Response> {
             accountId: session.accountId,
             handle: session.nickname,
             now: new Date().toISOString(),
+            liveContent: liveContent.view,
+            tuning: liveContent.tuning,
           }),
         ),
       ),
     );
   }
   if (request.method === "GET" && path === "/content/live") {
-    return json(baselineLiveContentView(new Date().toISOString()));
+    return json(
+      await internalJson(
+        content(env).fetch(
+          internalRequest("/live", { now: new Date().toISOString() }),
+        ),
+      ),
+    );
   }
   if (request.method === "GET" && path === "/leaderboards/ranked") {
     const session = await authenticate(request, env);
     if (!session.accountId) throw new DomainError("RANKED_ACCOUNT_REQUIRED");
     const limitValue = url.searchParams.get("limit");
+    const seasons = await internalJson<{
+      currentSeasonId: string;
+      seasons: Array<{ seasonId: string; archived: boolean }>;
+    }>(
+      content(env).fetch(
+        internalRequest("/seasons", { now: new Date().toISOString() }),
+      ),
+    );
     return json(
       await internalJson(
         progression(env).fetch(
           internalRequest("/ranked/leaderboard", {
             accountId: session.accountId,
-            seasonId: url.searchParams.get("seasonId"),
+            seasonId:
+              url.searchParams.get("seasonId") ?? seasons.currentSeasonId,
+            availableSeasons: seasons.seasons,
             cursor: url.searchParams.get("cursor"),
             limit: limitValue === null ? 20 : Number(limitValue),
             now: new Date().toISOString(),
@@ -181,6 +255,7 @@ async function api(request: Request, env: WorkerEnv): Promise<Response> {
   if (missionMatch) {
     const session = await authenticate(request, env);
     if (!session.accountId) throw new DomainError("UNAUTHORIZED");
+    const liveContent = await liveContentRuntime(env, new Date().toISOString());
     return json(
       await internalJson(
         progression(env).fetch(
@@ -190,6 +265,8 @@ async function api(request: Request, env: WorkerEnv): Promise<Response> {
             handle: session.nickname,
             missionId: decodeURIComponent(missionMatch[1]),
             now: new Date().toISOString(),
+            liveContent: liveContent.view,
+            tuning: liveContent.tuning,
           }),
         ),
       ),
@@ -378,6 +455,138 @@ async function api(request: Request, env: WorkerEnv): Promise<Response> {
       204,
     );
     return noContent();
+  }
+  if (request.method === "GET" && path === "/social/relationships") {
+    const session = await authenticate(request, env);
+    return json(
+      await internalJson(
+        social(env).fetch(
+          internalRequest("/relationships", {
+            identityId: session.accountId ?? session.id,
+            now: new Date().toISOString(),
+          }),
+        ),
+      ),
+    );
+  }
+  if (request.method === "GET" && path === "/social/overview") {
+    const session = await authenticate(request, env);
+    if (!session.accountId) throw new DomainError("SOCIAL_ACCOUNT_REQUIRED");
+    return json(
+      await internalJson(
+        social(env).fetch(
+          internalRequest("/overview", {
+            accountId: session.accountId,
+            now: new Date().toISOString(),
+          }),
+        ),
+      ),
+    );
+  }
+  if (request.method === "PUT" && path === "/social/privacy") {
+    const session = await authenticate(request, env);
+    if (!session.accountId) throw new DomainError("SOCIAL_ACCOUNT_REQUIRED");
+    const body = await bodyObject(request);
+    return json(
+      await internalJson(
+        social(env).fetch(
+          internalRequest("/privacy", {
+            accountId: session.accountId,
+            allowFriendRequests: body.allowFriendRequests,
+            showPresence: body.showPresence,
+            allowGameInvites: body.allowGameInvites,
+            now: new Date().toISOString(),
+          }),
+        ),
+      ),
+    );
+  }
+  if (request.method === "POST" && path === "/social/actions") {
+    return applySocialAction(request, env);
+  }
+  if (request.method === "POST" && path === "/social/relationships") {
+    return updateSocialRelationship(request, env);
+  }
+  if (request.method === "POST" && path === "/reports") {
+    return reportPlayer(request, env);
+  }
+  if (request.method === "GET" && path === "/admin/moderation/reports") {
+    authorizeOperator(request, env, false);
+    return json(
+      await internalJson(
+        operations(env).fetch(
+          internalRequest("/reports/list", {
+            status: url.searchParams.get("status"),
+            search: url.searchParams.get("search"),
+            before: url.searchParams.get("before"),
+            limit: url.searchParams.get("limit"),
+          }),
+        ),
+      ),
+    );
+  }
+  if (request.method === "GET" && path === "/admin/integrity/signals") {
+    authorizeOperator(request, env, false);
+    return json(
+      await internalJson(
+        operations(env).fetch(
+          internalRequest("/integrity/list", {
+            kind: url.searchParams.get("kind"),
+            search: url.searchParams.get("search"),
+            before: url.searchParams.get("before"),
+            limit: url.searchParams.get("limit"),
+          }),
+        ),
+      ),
+    );
+  }
+  const moderationActionMatch =
+    request.method === "POST"
+      ? path.match(/^\/admin\/moderation\/reports\/([^/]+)\/actions$/)
+      : null;
+  if (moderationActionMatch) {
+    return moderateReport(
+      request,
+      env,
+      requireUuid(decodeURIComponent(moderationActionMatch[1])),
+    );
+  }
+  if (request.method === "GET" && path === "/admin/support/accounts") {
+    authorizeOperator(request, env, false);
+    return supportAccount(env, url.searchParams.get("query"));
+  }
+  const supportRevokeMatch =
+    request.method === "POST"
+      ? path.match(/^\/admin\/support\/accounts\/([^/]+)\/sessions\/revoke$/)
+      : null;
+  if (supportRevokeMatch) {
+    return revokeSupportSessions(
+      request,
+      env,
+      requireUuid(decodeURIComponent(supportRevokeMatch[1])),
+    );
+  }
+  if (request.method === "GET" && path === "/admin/content/revisions") {
+    authorizeOperator(request, env, false);
+    const limit = url.searchParams.get("limit");
+    return json(
+      await internalJson(
+        content(env).fetch(
+          internalRequest("/history", {
+            limit: limit === null ? 25 : Number(limit),
+          }),
+        ),
+      ),
+    );
+  }
+  if (request.method === "POST" && path === "/admin/content/validate") {
+    return mutateLiveContent(request, env, "/validate", 200);
+  }
+  if (request.method === "POST" && path === "/admin/content/revisions") {
+    return mutateLiveContent(request, env, "/publish", 201);
+  }
+  if (request.method === "POST" && path === "/admin/content/rollback") {
+    return mutateLiveContent(request, env, "/rollback", 200);
   }
 
   return json(
@@ -676,14 +885,16 @@ async function enqueueMatchmaking(
     ) {
       throw new DomainError("INVALID_REQUEST");
     }
-    const content = baselineLiveContentView(now);
-    if (content.season.status !== "ACTIVE")
+    const liveContent = await liveContentRuntime(env, now);
+    if (liveContent.view.season.status !== "ACTIVE")
       throw new DomainError("INVALID_STATE");
     const profile = await internalJson<{ rating: number }>(
       progression(env).fetch(
         internalRequest("/ranked/profile", {
           accountId: session.accountId,
           handle: session.nickname,
+          seasonId: liveContent.view.season.id,
+          seasonStartsAt: liveContent.view.season.startsAt,
           now,
         }),
       ),
@@ -694,8 +905,8 @@ async function enqueueMatchmaking(
       region,
       latencyMs,
       rating: profile.rating,
-      seasonId: content.season.id,
-      contentRevision: content.revision,
+      seasonId: liveContent.view.season.id,
+      contentRevision: liveContent.view.revision,
       now,
     };
   } else {
@@ -743,6 +954,319 @@ async function enqueueMatchmaking(
       matchmaking(env).fetch(internalRequest("/enqueue", input)),
     ),
   );
+}
+
+async function applySocialAction(
+  request: Request,
+  env: WorkerEnv,
+): Promise<Response> {
+  const session = await authenticate(request, env);
+  if (!session.accountId) throw new DomainError("SOCIAL_ACCOUNT_REQUIRED");
+  const body = await bodyObject(request);
+  const action = requireString(body.action);
+  const allowed = [
+    "FRIEND_REQUEST",
+    "FRIEND_RESPOND",
+    "FRIEND_REMOVE",
+    "PARTY_INVITE",
+    "PARTY_RESPOND",
+    "PARTY_LEAVE",
+    "GAME_INVITE",
+    "GAME_INVITE_RESPOND",
+  ];
+  if (!allowed.includes(action)) throw new DomainError("INVALID_REQUEST");
+  let roomInfo: unknown = undefined;
+  if (action === "GAME_INVITE") {
+    const roomId = requireUuid(body.roomId);
+    roomInfo = await internalJson(
+      room(env, roomId).fetch(
+        internalRequest("/invite-info", { sessionId: session.id }),
+      ),
+    );
+  }
+  return json(
+    await internalJson(
+      social(env).fetch(
+        internalRequest("/actions", {
+          ...body,
+          actorId: session.accountId,
+          actorHandle: session.nickname,
+          roomInfo,
+          now: new Date().toISOString(),
+        }),
+      ),
+    ),
+  );
+}
+
+async function updateSocialRelationship(
+  request: Request,
+  env: WorkerEnv,
+): Promise<Response> {
+  const session = await authenticate(request, env);
+  const body = await bodyObject(request);
+  const roomId = requireUuid(body.roomId);
+  if (typeof body.muted !== "boolean" || typeof body.blocked !== "boolean")
+    throw new DomainError("INVALID_REQUEST");
+  const context = await internalJson<{
+    actor: { sessionId: string; accountId: string | null; nickname: string };
+    target: { sessionId: string; accountId: string | null; nickname: string };
+  }>(
+    room(env, roomId).fetch(
+      internalRequest("/safety-context", {
+        sessionId: session.id,
+        targetPlayerId: requireUuid(body.targetPlayerId),
+      }),
+    ),
+  );
+  const identities = await internalJson<{
+    identities: Array<{
+      sessionId: string;
+      accountId: string | null;
+      nickname: string;
+    }>;
+  }>(
+    accounts(env).fetch(
+      internalRequest("/sessions/identities", {
+        sessionIds: [context.actor.sessionId, context.target.sessionId],
+      }),
+    ),
+  );
+  const actorIdentity = identities.identities.find(
+    (identity) => identity.sessionId === context.actor.sessionId,
+  );
+  const targetIdentity = identities.identities.find(
+    (identity) => identity.sessionId === context.target.sessionId,
+  );
+  return json(
+    await internalJson(
+      social(env).fetch(
+        internalRequest("/relationship", {
+          actorIdentityId:
+            actorIdentity?.accountId ??
+            context.actor.accountId ??
+            context.actor.sessionId,
+          targetIdentityId:
+            targetIdentity?.accountId ??
+            context.target.accountId ??
+            context.target.sessionId,
+          actorNickname: actorIdentity?.nickname ?? context.actor.nickname,
+          targetNickname: targetIdentity?.nickname ?? context.target.nickname,
+          muted: body.muted,
+          blocked: body.blocked,
+          now: new Date().toISOString(),
+        }),
+      ),
+    ),
+  );
+}
+
+async function reportPlayer(
+  request: Request,
+  env: WorkerEnv,
+): Promise<Response> {
+  const session = await authenticate(request, env);
+  const body = await bodyObject(request);
+  const roomId = requireUuid(body.roomId);
+  const context = await internalJson<{
+    roomVersion: number;
+    roomState: string;
+    actor: { sessionId: string; accountId: string | null; nickname: string };
+    target: {
+      playerId: string;
+      sessionId: string;
+      accountId: string | null;
+      nickname: string;
+    };
+    messages: unknown[];
+    recentAttacks: unknown[];
+  }>(
+    room(env, roomId).fetch(
+      internalRequest("/safety-context", {
+        sessionId: session.id,
+        targetPlayerId: requireUuid(body.targetPlayerId),
+      }),
+    ),
+  );
+  const identities = await internalJson<{
+    identities: Array<{
+      sessionId: string;
+      accountId: string | null;
+      nickname: string;
+    }>;
+  }>(
+    accounts(env).fetch(
+      internalRequest("/sessions/identities", {
+        sessionIds: [context.actor.sessionId, context.target.sessionId],
+      }),
+    ),
+  );
+  const reporter = identities.identities.find(
+    (identity) => identity.sessionId === context.actor.sessionId,
+  );
+  const target = identities.identities.find(
+    (identity) => identity.sessionId === context.target.sessionId,
+  );
+  const now = new Date().toISOString();
+  const receipt = await internalJson(
+    operations(env).fetch(
+      internalRequest("/reports/create", {
+        reporterIdentityId:
+          reporter?.accountId ??
+          context.actor.accountId ??
+          context.actor.sessionId,
+        targetIdentityId:
+          target?.accountId ??
+          context.target.accountId ??
+          context.target.sessionId,
+        roomId,
+        targetPlayerId: context.target.playerId,
+        targetNickname: target?.nickname ?? context.target.nickname,
+        category: body.category,
+        details: body.details,
+        evidence: {
+          protocolVersion: PROTOCOL_VERSION,
+          roomId,
+          roomVersion: context.roomVersion,
+          roomState: context.roomState,
+          reportedPlayerId: context.target.playerId,
+          reportedNickname: target?.nickname ?? context.target.nickname,
+          messages: context.messages,
+          recentAttacks: context.recentAttacks,
+          capturedAt: now,
+        },
+        now,
+      }),
+    ),
+    201,
+  );
+  return json({ report: receipt }, 201);
+}
+
+async function moderateReport(
+  request: Request,
+  env: WorkerEnv,
+  reportId: string,
+): Promise<Response> {
+  const operatorId = authorizeOperator(request, env, true);
+  const body = await bodyObject(request);
+  const result = await internalJson<{
+    action: { targetIdentityId: string; action: string };
+  }>(
+    operations(env).fetch(
+      internalRequest("/reports/moderate", {
+        reportId,
+        operatorId,
+        action: body.action,
+        reason: body.reason,
+        durationHours: body.durationHours ?? null,
+        reversesActionId: body.reversesActionId ?? null,
+        now: new Date().toISOString(),
+      }),
+    ),
+  );
+  if (["SUSPEND", "BAN"].includes(result.action.action)) {
+    const revoked = await internalJson<{
+      revoked: RevokedSession[];
+    }>(
+      accounts(env).fetch(
+        internalRequest("/moderation/revoke", {
+          identityId: result.action.targetIdentityId,
+        }),
+      ),
+    );
+    await Promise.all(
+      revoked.revoked.map((session) => disconnectRevokedSession(env, session)),
+    );
+  }
+  return json(result);
+}
+
+async function supportAccount(
+  env: WorkerEnv,
+  query: string | null,
+): Promise<Response> {
+  if (!query) throw new DomainError("INVALID_REQUEST");
+  const normalized = query.trim();
+  if (
+    [...normalized].length < 3 ||
+    [...normalized].length > 64 ||
+    [...normalized].some((character) => /[\u0000-\u001f\u007f]/.test(character))
+  ) {
+    throw new DomainError("INVALID_REQUEST");
+  }
+  const core = await internalJson<{
+    account: PlayerAccount;
+    sessions: unknown[];
+  }>(
+    accounts(env).fetch(
+      internalRequest("/support/find", { query: normalized }),
+    ),
+  );
+  const audit = await internalJson<{ actions: unknown[] }>(
+    operations(env).fetch(
+      internalRequest("/support/actions", { accountId: core.account.id }),
+    ),
+  );
+  return json({ ...core, actions: audit.actions });
+}
+
+async function revokeSupportSessions(
+  request: Request,
+  env: WorkerEnv,
+  accountId: string,
+): Promise<Response> {
+  const operatorId = authorizeOperator(request, env, true);
+  const body = await bodyObject(request);
+  const reason = requireString(body.reason).trim();
+  if ([...reason].length < 8 || [...reason].length > 500)
+    throw new DomainError("INVALID_REQUEST");
+  const sessionId =
+    body.sessionId === undefined || body.sessionId === null
+      ? null
+      : requireUuid(body.sessionId);
+  const revoked = await internalJson<{ revoked: RevokedSession[] }>(
+    accounts(env).fetch(
+      internalRequest("/support/revoke", { accountId, sessionId }),
+    ),
+  );
+  const result = await internalJson(
+    operations(env).fetch(
+      internalRequest("/support/record", {
+        accountId,
+        operatorId,
+        reason,
+        targetSessionId: sessionId,
+        affectedSessionIds: revoked.revoked.map((session) => session.sessionId),
+        now: new Date().toISOString(),
+      }),
+    ),
+  );
+  await Promise.all(
+    revoked.revoked.map((session) => disconnectRevokedSession(env, session)),
+  );
+  return json(result);
+}
+
+async function mutateLiveContent(
+  request: Request,
+  env: WorkerEnv,
+  operation: "/validate" | "/publish" | "/rollback",
+  status: 200 | 201,
+): Promise<Response> {
+  const operatorId = authorizeOperator(request, env, true);
+  const body = await bodyObject(request);
+  const result = await internalJson(
+    content(env).fetch(
+      internalRequest(operation, {
+        ...body,
+        operatorId,
+        now: new Date().toISOString(),
+      }),
+    ),
+    status,
+  );
+  return json(result, status);
 }
 
 async function websocket(request: Request, env: WorkerEnv): Promise<Response> {
@@ -919,6 +1443,67 @@ function progression(env: WorkerEnv) {
 
 function matchmaking(env: WorkerEnv) {
   return env.MATCHMAKING.get(env.MATCHMAKING.idFromName(GLOBAL_OBJECT_ID));
+}
+
+function social(env: WorkerEnv) {
+  return env.SOCIAL.get(env.SOCIAL.idFromName(GLOBAL_OBJECT_ID));
+}
+
+function operations(env: WorkerEnv) {
+  return env.OPERATIONS.get(env.OPERATIONS.idFromName(GLOBAL_OBJECT_ID));
+}
+
+function content(env: WorkerEnv) {
+  return env.CONTENT.get(env.CONTENT.idFromName(GLOBAL_OBJECT_ID));
+}
+
+async function liveContentRuntime(env: WorkerEnv, now: string) {
+  return internalJson<{
+    view: {
+      revision: number;
+      season: { id: string; startsAt: string; endsAt: string; status: string };
+      featureFlags: { missionsEnabled: boolean; eventBannerEnabled: boolean };
+      [key: string]: unknown;
+    };
+    tuning: {
+      dailyDeploymentRewardXp: number;
+      dailyAccuracyRewardXp: number;
+      weeklySupremacyRewardXp: number;
+    };
+  }>(content(env).fetch(internalRequest("/runtime", { now })));
+}
+
+function authorizeOperator(
+  request: Request,
+  env: WorkerEnv,
+  requireOperatorId: boolean,
+): string {
+  const supplied = request.headers
+    .get("authorization")
+    ?.match(/^Bearer (.+)$/)?.[1];
+  const expected = env.ADMIN_TOKEN;
+  if (
+    !supplied ||
+    !expected ||
+    expected.length < 32 ||
+    !constantTimeTextEqual(supplied, expected)
+  ) {
+    throw new DomainError("UNAUTHORIZED");
+  }
+  const operatorId = request.headers.get("x-operator-id")?.trim() ?? "";
+  if (requireOperatorId && !operatorId)
+    throw new DomainError("INVALID_REQUEST");
+  return operatorId;
+}
+
+function constantTimeTextEqual(left: string, right: string): boolean {
+  const length = Math.max(left.length, right.length);
+  let difference = left.length ^ right.length;
+  for (let index = 0; index < length; index += 1) {
+    difference |=
+      (left.charCodeAt(index) || 0) ^ (right.charCodeAt(index) || 0);
+  }
+  return difference === 0;
 }
 
 async function internalJson<T = unknown>(

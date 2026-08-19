@@ -376,6 +376,13 @@ const ERROR_MESSAGES = {
   SOCIAL_ACCOUNT_REQUIRED:
     "소셜 기능은 계정으로 로그인한 지휘관만 이용할 수 있습니다.",
   PLAYER_BLOCKED: "차단된 지휘관과는 이 작업을 수행할 수 없습니다.",
+  ACCOUNT_SUSPENDED: "이 계정은 일시 정지되었습니다.",
+  ACCOUNT_BANNED: "이 계정은 이용이 금지되었습니다.",
+  REPORT_NOT_FOUND: "신고 사례를 찾을 수 없습니다.",
+  SUPPORT_ACCOUNT_NOT_FOUND: "지원 도구에서 계정을 찾을 수 없습니다.",
+  LIVE_CONTENT_REVISION_NOT_FOUND: "라이브 콘텐츠 리비전을 찾을 수 없습니다.",
+  LIVE_CONTENT_REVISION_CONFLICT:
+    "라이브 콘텐츠가 다른 운영자에 의해 갱신되었습니다.",
   SERVER_PROTOCOL_MISMATCH:
     "이 클라이언트 프로토콜 버전은 현재 릴리스 창에서 지원되지 않습니다.",
   INVALID_REQUEST: "요청 형식이 올바르지 않습니다.",
@@ -416,7 +423,16 @@ export function protocolError(
 
 export function statusForError(code: ErrorCode): number {
   if (code === "UNAUTHORIZED") return 401;
-  if (code === "RANKED_ACCOUNT_REQUIRED") return 403;
+  if (
+    [
+      "RANKED_ACCOUNT_REQUIRED",
+      "SOCIAL_ACCOUNT_REQUIRED",
+      "PLAYER_BLOCKED",
+      "ACCOUNT_SUSPENDED",
+      "ACCOUNT_BANNED",
+    ].includes(code)
+  )
+    return 403;
   if (code === "SERVER_PROTOCOL_MISMATCH") return 426;
   if (code === "ROOM_NOT_FOUND") return 404;
   if (
@@ -432,6 +448,7 @@ export function statusForError(code: ErrorCode): number {
       "TURN_CONFLICT",
       "TURN_EXPIRED",
       "PLACEMENT_LOCKED",
+      "LIVE_CONTENT_REVISION_CONFLICT",
     ].includes(code)
   )
     return 409;

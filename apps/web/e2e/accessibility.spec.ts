@@ -76,7 +76,7 @@ test('complete keyboard flow passes automated WCAG 2.2 AA checks', async ({
   await createTrigger.press('Enter');
   await first.getByLabel('작전실 이름').fill('WCAG Fleet');
   await first.getByRole('radio', { name: /비공개/ }).check();
-  await first.getByRole('button', { name: '작전실 편성' }).click();
+  await first.getByRole('button', { name: '작전실 편성' }).press('Enter');
   await expect(
     first.getByRole('heading', { name: '상대 지휘관의 입장을 기다리고 있습니다.' })
   ).toBeVisible();

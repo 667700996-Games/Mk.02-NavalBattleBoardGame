@@ -39,6 +39,8 @@ export class AccountDurableObject extends DurableObject<WorkerEnv> {
   async fetch(request: Request): Promise<Response> {
     try {
       const url = new URL(request.url);
+      if (request.method === "GET" && url.pathname === "/health")
+        return json({ status: "ok" });
       if (request.method === "POST" && url.pathname === "/sessions/create") {
         return await this.createSession(await bodyObject(request));
       }
@@ -77,6 +79,15 @@ export class AccountDurableObject extends DurableObject<WorkerEnv> {
       }
       if (request.method === "POST" && url.pathname === "/accounts/presence") {
         return await this.accountPresence(await bodyObject(request));
+      }
+      if (request.method === "POST" && url.pathname === "/support/find") {
+        return await this.supportFind(await bodyObject(request));
+      }
+      if (request.method === "POST" && url.pathname === "/support/revoke") {
+        return await this.supportRevoke(await bodyObject(request));
+      }
+      if (request.method === "POST" && url.pathname === "/moderation/revoke") {
+        return await this.moderationRevoke(await bodyObject(request));
       }
       if (request.method === "POST" && url.pathname === "/accounts/export") {
         return await this.exportCore(await bodyObject(request));
@@ -140,6 +151,7 @@ export class AccountDurableObject extends DurableObject<WorkerEnv> {
       found = structuredClone(session);
     });
     if (!found) throw new DomainError("UNAUTHORIZED");
+    await this.enforcePenalty(found, now);
     return json(found);
   }
 
@@ -301,10 +313,103 @@ export class AccountDurableObject extends DurableObject<WorkerEnv> {
     });
   }
 
+  private async supportFind(input: Record<string, unknown>): Promise<Response> {
+    const query = requireString(input.query).trim();
+    const state = await this.read();
+    const account =
+      state.accounts[query] ??
+      state.accounts[state.handles[query.toLocaleLowerCase()] ?? ""];
+    if (!account) throw new DomainError("SUPPORT_ACCOUNT_NOT_FOUND");
+    return json({
+      account: {
+        id: account.id,
+        handle: account.handle,
+        createdAt: account.createdAt,
+      },
+      sessions: accountSessionViews(state, account.id),
+    });
+  }
+
+  private async supportRevoke(
+    input: Record<string, unknown>,
+  ): Promise<Response> {
+    const accountId = requireUuid(input.accountId);
+    const targetSessionId =
+      input.sessionId === null ? null : requireUuid(input.sessionId);
+    const revoked: Array<{ sessionId: string; roomId: string | null }> = [];
+    await this.mutate((state) => {
+      if (!state.accounts[accountId])
+        throw new DomainError("SUPPORT_ACCOUNT_NOT_FOUND");
+      for (const [hash, session] of Object.entries(state.sessions)) {
+        if (
+          session.accountId !== accountId ||
+          (targetSessionId && session.id !== targetSessionId)
+        ) {
+          continue;
+        }
+        revoked.push({ sessionId: session.id, roomId: session.currentRoomId });
+        delete state.sessions[hash];
+      }
+      if (targetSessionId && !revoked.length)
+        throw new DomainError("INVALID_REQUEST");
+    });
+    return json({ revoked });
+  }
+
+  private async moderationRevoke(
+    input: Record<string, unknown>,
+  ): Promise<Response> {
+    const identityId = requireUuid(input.identityId);
+    const revoked: Array<{ sessionId: string; roomId: string | null }> = [];
+    await this.mutate((state) => {
+      for (const [hash, session] of Object.entries(state.sessions)) {
+        if (session.id !== identityId && session.accountId !== identityId)
+          continue;
+        revoked.push({ sessionId: session.id, roomId: session.currentRoomId });
+        delete state.sessions[hash];
+      }
+    });
+    return json({ revoked });
+  }
+
+  private async enforcePenalty(
+    session: SessionRecord,
+    now: string,
+  ): Promise<void> {
+    const operations = this.env.OPERATIONS.get(
+      this.env.OPERATIONS.idFromName("global-v1"),
+    );
+    const response = await operations.fetch(
+      internalRequest("/penalty", {
+        identityId: session.accountId ?? session.id,
+        sessionId: session.id,
+        now,
+      }),
+    );
+    if (!response.ok) throw new DomainError("INTERNAL_ERROR");
+    const result = (await response.json()) as {
+      penalty: "BANNED" | "SUSPENDED" | null;
+    };
+    if (result.penalty === "BANNED") throw new DomainError("ACCOUNT_BANNED");
+    if (result.penalty === "SUSPENDED")
+      throw new DomainError("ACCOUNT_SUSPENDED");
+  }
+
   private async login(input: Record<string, unknown>): Promise<Response> {
     const accountId = requireUuid(input.accountId);
     const recoveryKeyHash = requireString(input.recoveryKeyHash);
     const session = sessionFromInput(input);
+    const current = await this.read();
+    const currentAccount = current.accounts[accountId];
+    if (
+      !currentAccount ||
+      !constantTimeEqual(currentAccount.recoveryKeyHash, recoveryKeyHash)
+    ) {
+      throw new DomainError("UNAUTHORIZED");
+    }
+    session.accountId = currentAccount.id;
+    session.nickname = currentAccount.handle;
+    await this.enforcePenalty(session, session.createdAt);
     await this.mutate((state) => {
       const account = state.accounts[accountId];
       if (
@@ -372,6 +477,21 @@ export class AccountDurableObject extends DurableObject<WorkerEnv> {
         }),
       ),
     );
+    const social = this.env.SOCIAL.get(this.env.SOCIAL.idFromName("global-v1"));
+    const socialData = await responseJson<{ relationships: unknown[] }>(
+      social.fetch(internalRequest("/export", { identityId: account.id })),
+    );
+    const operations = this.env.OPERATIONS.get(
+      this.env.OPERATIONS.idFromName("global-v1"),
+    );
+    const operationsData = await responseJson<{
+      moderationReports: unknown[];
+      moderationActions: unknown[];
+      integritySignals: unknown[];
+      supportActions: unknown[];
+    }>(
+      operations.fetch(internalRequest("/export", { identityId: account.id })),
+    );
     return json({
       formatVersion: 1,
       requestId: requireUuid(input.requestId),
@@ -383,11 +503,8 @@ export class AccountDurableObject extends DurableObject<WorkerEnv> {
       },
       sessions: accountSessionViews(state, account.id),
       ...progressionData,
-      socialRelationships: [],
-      moderationReports: [],
-      moderationActions: [],
-      integritySignals: [],
-      supportActions: [],
+      socialRelationships: socialData.relationships,
+      ...operationsData,
       cacheCopies: "SQLite-backed Durable Objects storage only",
       credentialsExcluded: true,
     });
@@ -521,6 +638,33 @@ export class AccountDurableObject extends DurableObject<WorkerEnv> {
           }),
         ),
       );
+      const social = this.env.SOCIAL.get(
+        this.env.SOCIAL.idFromName("global-v1"),
+      );
+      const socialDeletion = await responseJson<{
+        relationshipsDeleted: number;
+      }>(social.fetch(internalRequest("/delete", { identityId: account.id })));
+      const operations = this.env.OPERATIONS.get(
+        this.env.OPERATIONS.idFromName("global-v1"),
+      );
+      const operationsDeletion = await responseJson<{
+        reportsDeleted: number;
+        integritySignalsDeleted: number;
+      }>(
+        operations.fetch(
+          internalRequest("/delete", { identityId: account.id }),
+        ),
+      );
+      const matchmaking = this.env.MATCHMAKING.get(
+        this.env.MATCHMAKING.idFromName("global-v1"),
+      );
+      for (const session of identitySessions) {
+        await acceptedResponse(
+          matchmaking.fetch(
+            internalRequest("/cancel", { sessionId: session.id }),
+          ),
+        );
+      }
       await this.mutate((latest) => {
         const stillCurrent = latest.sessions[tokenHash];
         const stillAccount = stillCurrent?.accountId
@@ -545,9 +689,9 @@ export class AccountDurableObject extends DurableObject<WorkerEnv> {
         stats: {
           sessionsDeleted: sessions.length,
           rewardsDeleted: progressionDeletion.rewardsDeleted,
-          relationshipsDeleted: 0,
-          reportsDeleted: 0,
-          integritySignalsDeleted: 0,
+          relationshipsDeleted: socialDeletion.relationshipsDeleted,
+          reportsDeleted: operationsDeletion.reportsDeleted,
+          integritySignalsDeleted: operationsDeletion.integritySignalsDeleted,
           roomsAnonymized,
         },
       });
@@ -656,6 +800,8 @@ async function acceptedResponse(
 
 function status(error: DomainError): number {
   if (error.code === "UNAUTHORIZED") return 401;
+  if (["ACCOUNT_BANNED", "ACCOUNT_SUSPENDED"].includes(error.code)) return 403;
+  if (error.code === "SUPPORT_ACCOUNT_NOT_FOUND") return 404;
   if (error.code === "ACCOUNT_HANDLE_TAKEN") return 409;
   if (error.code === "INTERNAL_ERROR") return 500;
   return 400;

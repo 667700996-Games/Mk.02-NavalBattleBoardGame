@@ -18,7 +18,8 @@ test('ranked queue measures RTT and sends only player-controlled preferences', a
   page,
   browserName
 }, testInfo) => {
-  const handle = `Rank${browserName}${testInfo.repeatEachIndex}`;
+  const suffix = crypto.randomUUID().replaceAll('-', '').slice(0, 3);
+  const handle = `Rank${browserName}${testInfo.repeatEachIndex}${suffix}`;
   await register(page, handle);
   const upgraded = await page.request.post('/api/accounts/upgrade', {
     data: { handle }
@@ -65,7 +66,8 @@ test('mobile ranked leaderboard keeps privacy controls readable without overflow
   browserName
 }, testInfo) => {
   test.skip(browserName !== 'chromium', 'One mobile layout run covers the shared responsive CSS.');
-  const handle = `BoardMobile${testInfo.repeatEachIndex}`;
+  const suffix = crypto.randomUUID().replaceAll('-', '').slice(0, 4);
+  const handle = `BoardMobile${testInfo.repeatEachIndex}${suffix}`;
   await register(page, handle);
   const upgraded = await page.request.post('/api/accounts/upgrade', { data: { handle } });
   expect(upgraded.ok()).toBe(true);

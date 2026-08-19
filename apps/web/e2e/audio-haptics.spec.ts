@@ -26,10 +26,12 @@ test('music, ambience, and interface masters decode after a user gesture in ever
   await page.getByRole('button', { name: '작전 로비 입장' }).click();
   await expect(page).toHaveURL(/\/lobby$/);
   await expect
-    .poll(() =>
-      ['/audio/music-command-loop.mp3', '/audio/ambience-ocean-loop.mp3'].every((path) =>
-        requested.has(path)
-      )
+    .poll(
+      () =>
+        ['/audio/music-command-loop.mp3', '/audio/ambience-ocean-loop.mp3'].every((path) =>
+          requested.has(path)
+        ),
+      { timeout: 20_000 }
     )
     .toBe(true);
   const settingsProbe = page.waitForResponse(

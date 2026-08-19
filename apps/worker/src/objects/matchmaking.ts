@@ -100,7 +100,18 @@ export class MatchmakingDurableObject extends DurableObject<WorkerEnv> {
     }
     const own: QueueEntry = existing ?? { session, criteria, queuedAt: now };
     own.session = session;
-    const candidates = Object.values(state.queue)
+    const unblocked = await Promise.all(
+      Object.values(state.queue).map(async (candidate) => ({
+        candidate,
+        blocked: await this.pairBlocked(
+          own.criteria.partyId,
+          candidate.criteria.partyId,
+        ),
+      })),
+    );
+    const candidates = unblocked
+      .filter(({ blocked }) => !blocked)
+      .map(({ candidate }) => candidate)
       .filter(
         (candidate) =>
           candidate.session.id !== session.id &&
@@ -278,6 +289,16 @@ export class MatchmakingDurableObject extends DurableObject<WorkerEnv> {
 
   private room(roomId: string) {
     return this.env.GAME_ROOMS.get(this.env.GAME_ROOMS.idFromName(roomId));
+  }
+
+  private async pairBlocked(firstIdentityId: string, secondIdentityId: string) {
+    if (firstIdentityId === secondIdentityId) return true;
+    const social = this.env.SOCIAL.get(this.env.SOCIAL.idFromName("global-v1"));
+    const response = await social.fetch(
+      internalRequest("/blocked", { firstIdentityId, secondIdentityId }),
+    );
+    if (!response.ok) throw new DomainError("INTERNAL_ERROR");
+    return ((await response.json()) as { blocked: boolean }).blocked;
   }
 
   private async read(): Promise<MatchmakingState> {

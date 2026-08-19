@@ -55,6 +55,7 @@ interface SocketAttachment {
 const ROOM_KEY = "room-v1";
 const RECONNECT_GRACE_SECONDS = 90;
 const TURN_DURATION_SECONDS = 60;
+const COMPLETED_ROOM_RETENTION_MS = 90 * 86_400_000;
 
 export class GameRoomDurableObject extends DurableObject<WorkerEnv> {
   async fetch(request: Request): Promise<Response> {
@@ -131,6 +132,11 @@ export class GameRoomDurableObject extends DurableObject<WorkerEnv> {
       (time) => nowMs - time < 1_000,
     );
     if (attachment.eventTimes.length >= 60) {
+      await this.recordIntegritySignal(attachment, "AUTOMATION", 3, 0.88, {
+        detector: "WEBSOCKET_EVENT_BURST",
+        eventsPerSecondLimit: 60,
+        protocolVersion: 3,
+      });
       this.send(socket, {
         type: "error",
         payload: protocolError(new DomainError("RATE_LIMITED")),
@@ -174,6 +180,31 @@ export class GameRoomDurableObject extends DurableObject<WorkerEnv> {
                 : eventType.startsWith("ships:")
                   ? "placement:rejected"
                   : "error";
+      if (
+        error instanceof DomainError &&
+        [
+          "NOT_YOUR_TURN",
+          "COORDINATE_ALREADY_ATTACKED",
+          "TURN_CONFLICT",
+          "STALE_ROOM_VERSION",
+          "PLACEMENT_MISMATCH",
+          "UNAUTHORIZED",
+        ].includes(error.code)
+      ) {
+        await this.recordIntegritySignal(
+          attachment,
+          "IMPOSSIBLE_ORDER",
+          error.code === "UNAUTHORIZED" ? 4 : 2,
+          error.code === "UNAUTHORIZED" ? 0.96 : 0.72,
+          {
+            detector: "AUTHORITATIVE_COMMAND_REJECTION",
+            event: eventType || "unknown",
+            errorCode: error.code,
+            requestId: requestId ?? null,
+            protocolVersion: 3,
+          },
+        );
+      }
       this.send(socket, {
         type: errorEvent,
         payload: protocolError(error, requestId),
@@ -203,7 +234,7 @@ export class GameRoomDurableObject extends DurableObject<WorkerEnv> {
         disconnect(room, attachment.sessionId, RECONNECT_GRACE_SECONDS, now)
       ) {
         await this.persist(room);
-        this.broadcastNewChat(room, chatCount);
+        await this.broadcastNewChat(room, chatCount);
         this.broadcastSnapshots(room, "player:disconnected", now);
       }
     }
@@ -218,13 +249,21 @@ export class GameRoomDurableObject extends DurableObject<WorkerEnv> {
     const room = await this.load();
     await this.flushResultProjection(room);
     const now = new Date().toISOString();
+    if (
+      !room.resultProjectionPending &&
+      ["FINISHED", "CANCELLED"].includes(room.status) &&
+      Date.parse(now) >= completedRoomExpiry(room)
+    ) {
+      await this.expireCompletedRoom(room);
+      return;
+    }
     const chatCount = room.chatMessages.length;
     const beforeStatus = room.status;
     const disconnected = expireDisconnects(room, now);
     const expiration = expireTurn(room, now);
     if (disconnected || expiration) {
       await this.persist(room);
-      this.broadcastNewChat(room, chatCount);
+      await this.broadcastNewChat(room, chatCount);
       if (expiration && room.gameId) {
         this.broadcast({
           type: "turn:expired",
@@ -308,9 +347,13 @@ export class GameRoomDurableObject extends DurableObject<WorkerEnv> {
     const room = await this.load();
     const session = input.session as SessionRecord;
     const now = requireString(input.now);
+    await this.ensureNotBlocked(room, session);
     joinRoom(room, session, requireUuid(input.playerId), now);
     await this.persist(room);
-    this.broadcastNewChat(room, Math.max(0, room.chatMessages.length - 1));
+    await this.broadcastNewChat(
+      room,
+      Math.max(0, room.chatMessages.length - 1),
+    );
     this.broadcastSnapshots(room, "player:joined", now);
     return json({
       snapshot: snapshotFor(room, session.id, now),
@@ -376,7 +419,7 @@ export class GameRoomDurableObject extends DurableObject<WorkerEnv> {
     const chatCount = room.chatMessages.length;
     leaveRoom(room, sessionId, now);
     await this.persist(room);
-    this.broadcastNewChat(room, chatCount);
+    await this.broadcastNewChat(room, chatCount);
     this.broadcastSnapshots(
       room,
       room.status === "FINISHED" ? "game:finished" : "player:left",
@@ -461,7 +504,7 @@ export class GameRoomDurableObject extends DurableObject<WorkerEnv> {
     }
     if (changed) {
       await this.persist(room);
-      this.broadcastNewChat(room, chatCount);
+      await this.broadcastNewChat(room, chatCount);
       this.broadcastSnapshots(room, "player:disconnected", now);
     }
     for (const socket of this.ctx.getWebSockets(`session:${sessionId}`)) {
@@ -544,7 +587,7 @@ export class GameRoomDurableObject extends DurableObject<WorkerEnv> {
     const chatCount = room.chatMessages.length;
     if (reconnect(room, sessionId, now)) {
       await this.persist(room);
-      this.broadcastNewChat(room, chatCount);
+      await this.broadcastNewChat(room, chatCount);
       this.broadcastSnapshots(room, "player:reconnected", now);
     }
     this.send(server, {
@@ -553,7 +596,10 @@ export class GameRoomDurableObject extends DurableObject<WorkerEnv> {
     });
     this.send(server, {
       type: "chat:history",
-      payload: { roomId: room.id, messages: room.chatMessages },
+      payload: {
+        roomId: room.id,
+        messages: await this.chatHistoryFor(room, sessionId),
+      },
     });
     const timer = timerState(room, now);
     if (timer) this.send(server, { type: "game:timer-sync", payload: timer });
@@ -604,7 +650,7 @@ export class GameRoomDurableObject extends DurableObject<WorkerEnv> {
           payload: result.record,
         });
         if (!result.duplicate) {
-          this.broadcastNewChat(room, chatCount);
+          await this.broadcastNewChat(room, chatCount);
           this.broadcastSnapshots(room, "room:updated", now);
         }
         return;
@@ -625,7 +671,7 @@ export class GameRoomDurableObject extends DurableObject<WorkerEnv> {
           payload: result.record,
         });
         if (!result.duplicate) {
-          this.broadcastNewChat(room, chatCount);
+          await this.broadcastNewChat(room, chatCount);
           this.broadcastSnapshots(room, "game:placement-started", now);
         }
         return;
@@ -664,7 +710,7 @@ export class GameRoomDurableObject extends DurableObject<WorkerEnv> {
           payload: snapshotFor(room, attachment.sessionId, now),
         });
         if (started) {
-          this.broadcastNewChat(room, chatCount);
+          await this.broadcastNewChat(room, chatCount);
           this.broadcastSnapshots(room, "game:started", now);
           const timer = timerState(room, now);
           if (timer) this.broadcast({ type: "turn:started", payload: timer });
@@ -696,7 +742,7 @@ export class GameRoomDurableObject extends DurableObject<WorkerEnv> {
           this.broadcast({ type: "attack:result", payload: result.record });
           if (result.record.sunkShip)
             this.broadcast({ type: "ship:sunk", payload: result.record });
-          this.broadcastNewChat(room, chatCount);
+          await this.broadcastNewChat(room, chatCount);
           this.broadcastSnapshots(
             room,
             result.record.winnerId ? "game:finished" : "turn:changed",
@@ -717,7 +763,7 @@ export class GameRoomDurableObject extends DurableObject<WorkerEnv> {
         );
         await this.persist(room);
         this.broadcast({ type: "game:surrendered", payload: record });
-        this.broadcastNewChat(room, chatCount);
+        await this.broadcastNewChat(room, chatCount);
         this.broadcastSnapshots(room, "game:finished", now);
         return;
       }
@@ -734,22 +780,36 @@ export class GameRoomDurableObject extends DurableObject<WorkerEnv> {
         if (!result.duplicate) await this.persist(room);
         if (result.duplicate)
           this.send(socket, { type: "chat:message", payload: result.message });
-        else this.broadcast({ type: "chat:message", payload: result.message });
+        else await this.broadcastChatMessage(room, result.message);
         return;
       }
       case "chat:typing": {
         const player = playerForSession(room, attachment.sessionId);
         if (typeof payload.isTyping !== "boolean")
           throw new DomainError("INVALID_REQUEST");
-        this.broadcast({
-          type: "chat:typing",
-          payload: {
-            roomId: room.id,
-            playerId: player.id,
-            nickname: player.nickname,
-            isTyping: payload.isTyping,
-          },
-        });
+        for (const recipientSocket of this.ctx.getWebSockets()) {
+          const recipientAttachment =
+            recipientSocket.deserializeAttachment() as SocketAttachment | null;
+          const recipient = room.players.find(
+            (candidate) => candidate.id === recipientAttachment?.playerId,
+          );
+          if (
+            !recipient ||
+            recipient.id === player.id ||
+            (await this.communicationSuppressed(recipient, player))
+          ) {
+            continue;
+          }
+          this.send(recipientSocket, {
+            type: "chat:typing",
+            payload: {
+              roomId: room.id,
+              playerId: player.id,
+              nickname: player.nickname,
+              isTyping: payload.isTyping,
+            },
+          });
+        }
         return;
       }
       case "game:sync": {
@@ -760,7 +820,10 @@ export class GameRoomDurableObject extends DurableObject<WorkerEnv> {
         });
         this.send(socket, {
           type: "chat:history",
-          payload: { roomId: room.id, messages: room.chatMessages },
+          payload: {
+            roomId: room.id,
+            messages: await this.chatHistoryFor(room, attachment.sessionId),
+          },
         });
         const timer = timerState(room, now);
         if (timer)
@@ -771,7 +834,7 @@ export class GameRoomDurableObject extends DurableObject<WorkerEnv> {
         leaveRoom(room, attachment.sessionId, now);
         await this.persist(room);
         await this.clearSessionRoom(attachment.sessionId);
-        this.broadcastNewChat(room, chatCount);
+        await this.broadcastNewChat(room, chatCount);
         this.broadcastSnapshots(room, "player:left", now);
         return;
       }
@@ -831,7 +894,7 @@ export class GameRoomDurableObject extends DurableObject<WorkerEnv> {
       this.broadcast({ type: "attack:result", payload: result.record });
       if (result.record.sunkShip)
         this.broadcast({ type: "ship:sunk", payload: result.record });
-      this.broadcastNewChat(room, chatCount);
+      await this.broadcastNewChat(room, chatCount);
       this.broadcastSnapshots(
         room,
         result.record.winnerId ? "game:finished" : "turn:changed",
@@ -865,6 +928,20 @@ export class GameRoomDurableObject extends DurableObject<WorkerEnv> {
       const progression = this.env.PROGRESSION.get(
         this.env.PROGRESSION.idFromName("global-v1"),
       );
+      const participants = room.players
+        .filter((player) => player.kind === "HUMAN")
+        .map((player) => {
+          const identity = identityPayload.identities.find(
+            (candidate) => candidate.sessionId === player.sessionId,
+          );
+          const accountId = identity?.accountId ?? player.accountId ?? null;
+          return {
+            identityId: accountId ?? player.sessionId,
+            accountId,
+            playerId: player.id,
+            handle: identity?.nickname ?? player.nickname,
+          };
+        });
       const response = await progression.fetch(
         internalRequest("/results/record", {
           roomId: room.id,
@@ -872,23 +949,24 @@ export class GameRoomDurableObject extends DurableObject<WorkerEnv> {
           balance: BALANCE,
           result: room.game.result,
           rankedMatch: room.rankedMatch ?? null,
-          participants: room.players
-            .filter((player) => player.kind === "HUMAN")
-            .map((player) => {
-              const identity = identityPayload.identities.find(
-                (candidate) => candidate.sessionId === player.sessionId,
-              );
-              const accountId = identity?.accountId ?? player.accountId ?? null;
-              return {
-                identityId: accountId ?? player.sessionId,
-                accountId,
-                playerId: player.id,
-                handle: identity?.nickname ?? player.nickname,
-              };
-            }),
+          participants,
         }),
       );
       if (!response.ok) throw new DomainError("INTERNAL_ERROR");
+      if (!room.gameId) throw new DomainError("INTERNAL_ERROR");
+      const operations = this.env.OPERATIONS.get(
+        this.env.OPERATIONS.idFromName("global-v1"),
+      );
+      const assessment = await operations.fetch(
+        internalRequest("/integrity/assess", {
+          roomId: room.id,
+          gameId: room.gameId,
+          result: room.game.result,
+          participants,
+          now: new Date().toISOString(),
+        }),
+      );
+      if (!assessment.ok) throw new DomainError("INTERNAL_ERROR");
       room.resultProjectionPending = false;
       await this.ctx.storage.put(ROOM_KEY, room);
     } catch {
@@ -924,10 +1002,118 @@ export class GameRoomDurableObject extends DurableObject<WorkerEnv> {
     if (!response.ok) throw new DomainError("INTERNAL_ERROR");
   }
 
+  private async expireCompletedRoom(room: InternalRoom): Promise<void> {
+    for (const socket of this.ctx.getWebSockets())
+      socket.close(1001, "archived room retention expired");
+    const accounts = this.env.ACCOUNTS.get(
+      this.env.ACCOUNTS.idFromName("global-v1"),
+    );
+    await Promise.all(
+      room.players
+        .filter((player) => player.kind === "HUMAN")
+        .map((player) =>
+          accounts.fetch(
+            internalRequest("/sessions/room-by-id", {
+              sessionId: player.sessionId,
+              roomId: null,
+            }),
+          ),
+        ),
+    );
+    const lobby = this.env.LOBBY.get(this.env.LOBBY.idFromName("global-v1"));
+    await lobby.fetch(internalRequest("/rooms/remove", { roomId: room.id }));
+    await this.ctx.storage.delete(ROOM_KEY);
+    await this.ctx.storage.deleteAlarm();
+  }
+
+  private async ensureNotBlocked(
+    room: InternalRoom,
+    joining: SessionRecord,
+  ): Promise<void> {
+    const existing = room.players.find((player) => player.kind === "HUMAN");
+    if (!existing) return;
+    const accounts = this.env.ACCOUNTS.get(
+      this.env.ACCOUNTS.idFromName("global-v1"),
+    );
+    const response = await accounts.fetch(
+      internalRequest("/sessions/identities", {
+        sessionIds: [existing.sessionId, joining.id],
+      }),
+    );
+    if (!response.ok) throw new DomainError("INTERNAL_ERROR");
+    const payload = (await response.json()) as {
+      identities: Array<{ sessionId: string; accountId: string | null }>;
+    };
+    const existingIdentity = payload.identities.find(
+      (identity) => identity.sessionId === existing.sessionId,
+    );
+    const joiningIdentity = payload.identities.find(
+      (identity) => identity.sessionId === joining.id,
+    );
+    const social = this.env.SOCIAL.get(this.env.SOCIAL.idFromName("global-v1"));
+    const blocked = await social.fetch(
+      internalRequest("/blocked", {
+        firstIdentityId: existingIdentity?.accountId ?? existing.sessionId,
+        secondIdentityId:
+          joiningIdentity?.accountId ?? joining.accountId ?? joining.id,
+      }),
+    );
+    if (!blocked.ok) throw new DomainError("INTERNAL_ERROR");
+    if (((await blocked.json()) as { blocked: boolean }).blocked)
+      throw new DomainError("PLAYER_BLOCKED");
+  }
+
+  private async recordIntegritySignal(
+    attachment: SocketAttachment,
+    kind: "IMPOSSIBLE_ORDER" | "AUTOMATION",
+    severity: number,
+    confidence: number,
+    evidence: Record<string, unknown>,
+  ): Promise<void> {
+    try {
+      const room = await this.load();
+      const player = playerForSession(room, attachment.sessionId);
+      const accounts = this.env.ACCOUNTS.get(
+        this.env.ACCOUNTS.idFromName("global-v1"),
+      );
+      const identityResponse = await accounts.fetch(
+        internalRequest("/sessions/identities", {
+          sessionIds: [attachment.sessionId],
+        }),
+      );
+      if (!identityResponse.ok) return;
+      const identity = (
+        (await identityResponse.json()) as {
+          identities: Array<{ accountId: string | null }>;
+        }
+      ).identities[0];
+      const operations = this.env.OPERATIONS.get(
+        this.env.OPERATIONS.idFromName("global-v1"),
+      );
+      await operations.fetch(
+        internalRequest("/integrity/record", {
+          subjectIdentityId:
+            identity?.accountId ?? player.accountId ?? attachment.sessionId,
+          roomId: room.id,
+          kind,
+          severity,
+          confidence,
+          evidence,
+          now: new Date().toISOString(),
+        }),
+      );
+    } catch {
+      // Integrity telemetry must not replace the authoritative command response.
+    }
+  }
+
   private async scheduleAlarm(room: InternalRoom): Promise<void> {
     const candidates = [
       room.resultProjectionPending
         ? new Date(Date.now() + 1_000).toISOString()
+        : null,
+      ["FINISHED", "CANCELLED"].includes(room.status)
+        ? new Date(completedRoomExpiry(room)).toISOString()
         : null,
       room.game?.result ? null : room.game?.turnDeadlineAt,
       ...Object.values(room.disconnectedDeadlines),
@@ -970,10 +1156,101 @@ export class GameRoomDurableObject extends DurableObject<WorkerEnv> {
     }
   }
 
-  private broadcastNewChat(room: InternalRoom, previousCount: number): void {
+  private async broadcastNewChat(
+    room: InternalRoom,
+    previousCount: number,
+  ): Promise<void> {
     for (const message of room.chatMessages.slice(previousCount)) {
-      this.broadcast({ type: "chat:message", payload: message });
+      await this.broadcastChatMessage(room, message);
     }
+  }
+
+  private async broadcastChatMessage(
+    room: InternalRoom,
+    message: InternalRoom["chatMessages"][number],
+  ): Promise<void> {
+    const sender = message.playerId
+      ? room.players.find((player) => player.id === message.playerId)
+      : null;
+    for (const socket of this.ctx.getWebSockets()) {
+      const attachment =
+        socket.deserializeAttachment() as SocketAttachment | null;
+      if (!attachment) continue;
+      const recipient = room.players.find(
+        (player) => player.id === attachment.playerId,
+      );
+      if (
+        sender &&
+        recipient &&
+        sender.id !== recipient.id &&
+        (await this.communicationSuppressed(recipient, sender))
+      ) {
+        continue;
+      }
+      this.send(socket, { type: "chat:message", payload: message });
+    }
+  }
+
+  private async chatHistoryFor(
+    room: InternalRoom,
+    recipientSessionId: string,
+  ): Promise<InternalRoom["chatMessages"]> {
+    const recipient = playerForSession(room, recipientSessionId);
+    const messages: InternalRoom["chatMessages"] = [];
+    for (const message of room.chatMessages) {
+      const sender = message.playerId
+        ? room.players.find((player) => player.id === message.playerId)
+        : null;
+      if (
+        sender &&
+        sender.id !== recipient.id &&
+        (await this.communicationSuppressed(recipient, sender))
+      ) {
+        continue;
+      }
+      messages.push(message);
+    }
+    return messages;
+  }
+
+  private async communicationSuppressed(
+    recipient: InternalRoom["players"][number],
+    sender: InternalRoom["players"][number],
+  ): Promise<boolean> {
+    const accounts = this.env.ACCOUNTS.get(
+      this.env.ACCOUNTS.idFromName("global-v1"),
+    );
+    const identitiesResponse = await accounts.fetch(
+      internalRequest("/sessions/identities", {
+        sessionIds: [recipient.sessionId, sender.sessionId],
+      }),
+    );
+    if (!identitiesResponse.ok) return true;
+    const identities = (await identitiesResponse.json()) as {
+      identities: Array<{
+        sessionId: string;
+        accountId: string | null;
+      }>;
+    };
+    const recipientIdentity = identities.identities.find(
+      (identity) => identity.sessionId === recipient.sessionId,
+    );
+    const senderIdentity = identities.identities.find(
+      (identity) => identity.sessionId === sender.sessionId,
+    );
+    const social = this.env.SOCIAL.get(this.env.SOCIAL.idFromName("global-v1"));
+    const response = await social.fetch(
+      internalRequest("/suppressed", {
+        recipientIdentityId:
+          recipientIdentity?.accountId ??
+          recipient.accountId ??
+          recipient.sessionId,
+        senderIdentityId:
+          senderIdentity?.accountId ?? sender.accountId ?? sender.sessionId,
+      }),
+    );
+    if (!response.ok) return true;
+    return ((await response.json()) as { suppressed: boolean }).suppressed;
   }
 }
 
@@ -991,6 +1268,11 @@ function eventPayload(event: ClientEvent | undefined): Record<string, unknown> {
 
 function requireRoom(room: InternalRoom, value: unknown): void {
   if (requireUuid(value) !== room.id) throw new DomainError("ROOM_NOT_FOUND");
+}
+
+function completedRoomExpiry(room: InternalRoom): number {
+  const completedAt = room.game?.result?.finishedAt ?? room.updatedAt;
+  return Date.parse(completedAt) + COMPLETED_ROOM_RETENTION_MS;
 }
 
 function requireNumber(value: unknown): number {

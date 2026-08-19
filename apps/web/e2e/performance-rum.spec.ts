@@ -16,7 +16,10 @@ test('real browser vitals and attack latency reach anonymous histograms', async 
   page,
   request
 }, testInfo) => {
-  test.skip(testInfo.project.name !== 'chromium', 'canonical desktop RUM acceptance profile');
+  test.skip(
+    !testInfo.project.name.includes('chromium'),
+    'canonical desktop RUM acceptance profile'
+  );
   const baseline = await metrics(request);
   const initial = {
     lcp: histogramCount(baseline, 'mk01_rum_lcp_milliseconds', 'landing', 'desktop'),

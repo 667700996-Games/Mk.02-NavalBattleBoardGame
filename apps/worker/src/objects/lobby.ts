@@ -29,6 +29,9 @@ export class LobbyDurableObject extends DurableObject<WorkerEnv> {
       if (request.method === "POST" && url.pathname === "/rooms/lookup") {
         return await this.lookup(await bodyObject(request));
       }
+      if (request.method === "POST" && url.pathname === "/rooms/remove") {
+        return await this.remove(await bodyObject(request));
+      }
       if (request.method === "GET" && url.pathname === "/rooms")
         return await this.list();
       if (request.method === "GET" && url.pathname === "/rooms/spectatable")
@@ -82,6 +85,20 @@ export class LobbyDurableObject extends DurableObject<WorkerEnv> {
     const roomId = state.codes[code];
     if (!roomId) throw new DomainError("ROOM_NOT_FOUND");
     return json({ roomId });
+  }
+
+  private async remove(input: Record<string, unknown>): Promise<Response> {
+    const roomId = requireUuid(input.roomId);
+    await this.ctx.storage.transaction(async (transaction) => {
+      const state =
+        (await transaction.get<LobbyState>("state")) ??
+        structuredClone(EMPTY_STATE);
+      const room = state.rooms[roomId];
+      if (room) delete state.codes[room.code];
+      delete state.rooms[roomId];
+      await transaction.put("state", state);
+    });
+    return noContent();
   }
 
   private async list(): Promise<Response> {

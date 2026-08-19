@@ -65,7 +65,8 @@ flowchart LR
 
 Cloudflare 실행은 같은 origin에서 SvelteKit, API, WebSocket을 하나의 Worker로
 노출합니다. 실시간 게임은 방 하나당 Durable Object 하나가 직렬화하고,
-계정/세션·로비 색인·속도 제한은 별도 책임의 DO로 분리합니다.
+계정/세션, 로비, 진행도, 매칭, 소셜, 운영, live content와 속도 제한은 별도
+책임의 DO로 분리합니다.
 
 ```mermaid
 flowchart LR
@@ -76,6 +77,11 @@ flowchart LR
   W --> L[Lobby DO]
   W --> RL[Rate-limit DOs]
   W --> R[Game Room DO]
+  W --> P[Progression DO]
+  W --> M[Matchmaking DO]
+  W --> SO[Social DO]
+  W --> O[Operations DO]
+  W --> C[Content DO]
 ```
 
 브라우저는 자신의 배치/보드와 자신이 실행한 공격 결과만 받습니다. `GameRoom` 내부 스냅샷은 최근 채팅 100개를 포함해 PostgreSQL JSONB에 저장됩니다. 각 운영 변이는 5초짜리 방 권위 임대와 단조 증가 펜싱 토큰을 먼저 획득하고, 같은 트랜잭션에서 `persistenceRevision` CAS까지 통과해야 확정됩니다. 커밋 시 임대를 즉시 반환하므로 다른 인스턴스가 다음 명령을 처리할 수 있으며, 멈춘 프로세스는 임대 만료와 인수 후 저장할 수 없습니다. Redis는 세션별 실시간 이벤트를 다른 서버 인스턴스로 전달하고 HTTP/WebSocket 속도 제한을 공유합니다. 운영에서 `DISTRIBUTED_COORDINATION_REQUIRED=true`면 Redis 시작/구독 실패 시 서버 시작 또는 readiness가 실패합니다.
@@ -117,7 +123,7 @@ apps/
     e2e/                  2-브라우저 전체 경기·모바일 테스트
   worker/                 Cloudflare HTTP/WebSocket adapter
     src/domain/           런타임 비의존 게임 규칙·상태 머신
-    src/objects/          계정, 로비, 게임방, 속도 제한 Durable Objects
+    src/objects/          계정, 로비, 게임방, 진행도, 매칭, 소셜, 운영, 콘텐츠 DO
 deploy/Caddyfile          로컬 Compose 게이트웨이
 ops/observability/        Prometheus 경보·Alertmanager 라우팅·Grafana 대시보드
 compose.yaml              PostgreSQL, Redis, server, web, gateway
@@ -207,16 +213,23 @@ POSTGRES_PASSWORD='replace-this-local-password' docker compose up --build
 | `GET/DELETE`  | `/sessions/current`                      | 현재 세션 복구 / 서버 세션 폐기                |
 | `POST`        | `/accounts/upgrade`                      | 게스트 기록을 보존해 계정으로 전환             |
 | `GET/POST`    | `/social/relationships`                  | 음소거·차단 목록/변경                          |
+| `GET/PUT`     | `/social/overview`, `/social/privacy`    | 친구·파티·초대·presence와 공개 범위            |
+| `POST`        | `/social/actions`                        | 친구·파티·게임 초대 상태 전이                  |
 | `POST`        | `/reports`                               | 서버 증거를 첨부한 플레이어 신고               |
 | `GET`         | `/admin/moderation/reports`              | 토큰 보호 운영자 신고 검색 큐                  |
 | `POST`        | `/admin/moderation/reports/{id}/actions` | 감사 가능한 경고·정지·차단·기각·취소           |
 | `GET`         | `/admin/integrity/signals`               | 권위 명령·자동화·담합·지연 탐지 신호 검색      |
+| `GET/POST`    | `/admin/support/accounts/*`              | 계정 조회·세션 해제와 운영자 감사              |
+| `GET/POST`    | `/admin/content/*`                       | live content 검증·발행·이력·롤백               |
 | `POST`        | `/accounts/login`                        | 계정 ID·복구 키 검증 후 새 세션 발급           |
 | `GET`         | `/accounts/sessions`                     | 계정에 연결된 세션 목록                        |
 | `DELETE`      | `/accounts/sessions/{sessionId}`         | 다른 기기의 세션 원격 해제                     |
 | `GET`         | `/accounts/export`                       | 자격 증명을 제외한 계정 자료 JSON 내보내기     |
 | `DELETE`      | `/accounts`                              | 복구 키와 명시적 확인 후 계정 자료 삭제·익명화 |
 | `GET`         | `/profile`                               | XP·업적·임무·현재 시즌 랭크 프로필             |
+| `GET`         | `/leaderboards/ranked`                   | 현재·보관 시즌 랭크 리더보드                   |
+| `PUT`         | `/profile/leaderboard-visibility`        | 랭크 공개 여부                                 |
+| `GET`         | `/content/live`                          | 현재 시즌·이벤트·기능 플래그                   |
 | `POST`        | `/profile/missions/{missionId}/claim`    | 완료 임무 XP 멱등 지급                         |
 | `POST`        | `/practice`                              | 난이도별 서버 권위 AI 연습전 생성              |
 | `GET/POST`    | `/rooms`                                 | 공개 방 목록 / 방 생성                         |
@@ -225,6 +238,8 @@ POSTGRES_PASSWORD='replace-this-local-password' docker compose up --build
 | `POST`        | `/rooms/{roomId}/leave`                  | 전투 전 방 나가기 또는 전투 중 이탈 처리       |
 | `GET`         | `/games/recover`                         | 진행 중 게임 복구                              |
 | `GET`         | `/games/history`                         | 최근 50개 경기 결과                            |
+| `GET`         | `/games/spectatable`                     | 관전 가능 공개 경기                            |
+| `GET`         | `/games/{roomId}/spectate`               | 30초 지연·비공개 필터 관전 상태                |
 | `GET`         | `/games/{roomId}/replay`                 | 종료 경기의 참가자 전용 버전형 복기            |
 | `POST/DELETE` | `/matchmaking`                           | 일반 매칭 대기/상태 갱신/취소                  |
 | `POST`        | `/matchmaking/ranked`                    | 활성 시즌·계정 기반 랭크 매칭/상태 갱신        |
@@ -346,7 +361,7 @@ npm run test:coverage:web # 위험 파일별 Vitest 커버리지 하한
 npm run test:fuzz   # 프로토콜 JSON 경계의 20초 libFuzzer 실행
 npm run test:load   # 인증 HTTP/WebSocket 8-VU k6 부하 기준
 npm run test:e2e    # Chromium/Firefox/WebKit 전체 경기 + 모바일 2종 + 태블릿 1종
-npm run test:e2e:cloudflare # Wrangler + Chromium 2인 경기/항복 + 계정·세션 흐름
+npm run test:e2e:cloudflare # Wrangler + Chromium 전체 게임·계정·매칭·소셜·운영·관전·RUM
 npm run test:performance # 프로덕션 빌드의 데스크톱·모바일·저사양 모바일 예산 검증
 npm run build       # Rust release + SvelteKit adapter-node
 npm run build:cloudflare # SvelteKit Worker + API/DO 배포 dry-run
@@ -411,9 +426,11 @@ GitHub Actions 자동 배포 secret/variable, Durable Object migration, 현재 �
 
 ## 알려진 제한
 
-- Cloudflare 런타임은 현재 게스트/계정 세션과 실시간 2인 게임 계약을 완전히
-  제공합니다. AI, 매칭, 랭킹, 히스토리/리플레이/관전, 소셜·운영 API가 필요한
-  배포는 아직 Rust/PostgreSQL/Redis 런타임을 사용해야 합니다.
+- Cloudflare 런타임은 게임·계정·AI·매칭·랭킹·히스토리/리플레이/관전·소셜·운영
+  API 계약을 SQLite-backed Durable Objects로 제공합니다. Rust 런타임의
+  PostgreSQL/Redis 분산 조정 대신 방별 DO 직렬화와 Free Plan용 singleton 색인을
+  사용하므로 대규모 트래픽에서는 [`Cloudflare 런타임 문서`](docs/CLOUDFLARE.md)의
+  한도와 sharding 지침을 먼저 검토해야 합니다.
 - 방 쓰기는 PostgreSQL의 변이 단위 권위 임대·펜싱 토큰·리비전 CAS로 보호됩니다. 완전히 동시에 도착한 서로 다른 인스턴스의 명령 중 뒤쪽 명령은 `VERSION_CONFLICT`로 재시도될 수 있으며, 각 인스턴스는 명령 전에 PostgreSQL 권위 스냅샷으로 로컬 상태를 갱신합니다.
 - WebSocket 연결 수 제한은 인스턴스별입니다. HTTP·세션 생성·WebSocket 이벤트 속도 제한은 Redis에서 공유되지만 전체 동시 연결 상한은 운영 게이트웨이에서도 제한해야 합니다.
 - 턴과 재접속 마감은 영속 CAS로 중복 확정을 막지만 별도의 지연 작업 큐·소유권 계층·큐 지표를 아직 제공하지 않습니다.

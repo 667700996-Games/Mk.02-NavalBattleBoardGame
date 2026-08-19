@@ -94,7 +94,7 @@ test('Cloudflare matchmaking pairs two casual and two ranked sessions exactly on
       matchQuality: { pool: 'RANKED', phase: 'EXACT', ratingDelta: 0 },
       snapshot: {
         matchmakingQuality: { pool: 'RANKED' },
-        rankedMatch: { seasonId: 'FOUNDERS_SEASON', contentRevision: 0 }
+        rankedMatch: { seasonId: 'FOUNDERS_SEASON', contentRevision: expect.any(Number) }
       }
     }
   });
