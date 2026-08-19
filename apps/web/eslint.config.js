@@ -7,12 +7,16 @@ export default ts.config(
   {
     ignores: [
       '.svelte-kit/**',
+      '.wrangler/**',
       'build/**',
+      'dist/**',
       'coverage/**',
       'playwright-report/**',
+      'playwright-cloudflare-report/**',
       'playwright-performance-report/**',
       'playwright-visual-report/**',
-      'test-results/**'
+      'test-results/**',
+      'worker-configuration.d.ts'
     ]
   },
   js.configs.recommended,

@@ -4,8 +4,13 @@
 node_modules/
 target/
 apps/web/.svelte-kit/
+apps/web/.wrangler/
 apps/web/build/
+apps/web/dist/
+apps/worker/dist/
+apps/worker/.wrangler/
 apps/web/playwright-report/
+apps/web/playwright-cloudflare-report/
 apps/web/playwright-performance-report/
 apps/web/playwright-visual-report/
 apps/web/test-results/

@@ -16,7 +16,7 @@
   import GridBoard from '$lib/components/GridBoard.svelte';
   import { api } from '$lib/api';
   import { analyzeReplay } from '$lib/game/replay-analysis';
-  import { localizeError, t } from '$lib/i18n';
+  import { formatNumber, localizeError, shipMessageKey, t } from '$lib/i18n';
   import {
     type CellAttackSnapshot,
     type GameReplay,
@@ -210,6 +210,31 @@
           onclick={() => (step += 1)}><ChevronRight size={18} /></button
         >
       </div>
+    </section>
+
+    <section class="balance-proof panel" aria-labelledby="balance-proof-title">
+      <header>
+        <div>
+          <small>{$t('replay.balanceProofEyebrow')}</small>
+          <h2 id="balance-proof-title">{$t('replay.balanceProofTitle')}</h2>
+        </div>
+        <strong
+          >{$t('replay.balanceProofPin', {
+            ruleset: replay.balance.rulesetVersion
+          })}</strong
+        >
+      </header>
+      <code>SHA-256 {replay.balance.checksum}</code>
+      <ul>
+        {#each replay.balance.manifest.fleet as ship (ship.kind)}
+          <li>
+            {$t('replay.balanceProofShip', {
+              ship: $t(shipMessageKey(ship.kind)),
+              cells: formatNumber(ship.cells)
+            })}
+          </li>
+        {/each}
+      </ul>
     </section>
 
     <section class="replay-boards" aria-label={$t('replay.revealedFleets')}>
@@ -476,6 +501,57 @@
   .replay-controls input {
     width: 100%;
     accent-color: var(--cyan-300);
+  }
+  .balance-proof {
+    display: grid;
+    gap: 13px;
+    margin-top: 14px;
+    padding: 18px 22px;
+  }
+  .balance-proof header {
+    display: flex;
+    align-items: end;
+    justify-content: space-between;
+    gap: 18px;
+  }
+  .balance-proof small,
+  .balance-proof strong,
+  .balance-proof code,
+  .balance-proof li {
+    font-family: var(--font-display);
+    letter-spacing: 0.08em;
+  }
+  .balance-proof small {
+    color: var(--cyan-300);
+    font-size: 7px;
+  }
+  .balance-proof h2 {
+    margin: 3px 0 0;
+    font-size: 18px;
+  }
+  .balance-proof strong {
+    color: var(--cyan-200);
+    font-size: 10px;
+  }
+  .balance-proof code {
+    overflow-wrap: anywhere;
+    color: var(--ink-400);
+    font-size: 9px;
+  }
+  .balance-proof ul {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 7px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .balance-proof li {
+    padding: 5px 8px;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    color: var(--ink-300);
+    font-size: 8px;
   }
   .replay-boards {
     display: grid;

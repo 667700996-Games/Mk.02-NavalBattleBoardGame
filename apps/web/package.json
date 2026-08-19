@@ -4,8 +4,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite --host 0.0.0.0",
+    "dev": "MK01_WEB_ADAPTER=node vite --host 0.0.0.0",
     "build": "vite build",
+    "build:cloudflare": "vite build",
+    "build:node": "MK01_WEB_ADAPTER=node vite build",
     "preview": "vite preview --host 0.0.0.0",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "lint": "prettier --check . && eslint .",
@@ -16,6 +18,7 @@
     "test:localization": "playwright test e2e/localization.spec.ts",
     "test:visual": "playwright test --config=playwright.visual.config.ts",
     "test:e2e": "playwright test",
+    "test:e2e:cloudflare": "playwright test --config playwright.cloudflare.config.ts",
     "test:performance": "npm run build && playwright test --config=playwright.performance.config.ts"
   },
   "dependencies": {

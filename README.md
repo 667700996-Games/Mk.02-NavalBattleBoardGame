@@ -2,7 +2,7 @@
 
 ![Mk.01 함대 작전 이미지](apps/web/static/og-mk01.png)
 
-`Mk.01-GameProject-NavalBattleBoardGame`은 두 명의 플레이어가 각자의 10×10 해역에 함선을 비공개로 배치하고, WebSocket으로 턴을 교대하며 상대 함대를 먼저 격침하는 실시간 전략 게임입니다. 함선 좌표, 공격 판정, 턴, 승패는 Rust 서버만 관리하며 상대 함선 좌표는 클라이언트로 전송하지 않습니다.
+`Mk.01-GameProject-NavalBattleBoardGame`은 두 명의 플레이어가 각자의 10×10 해역에 함선을 비공개로 배치하고, WebSocket으로 턴을 교대하며 상대 함대를 먼저 격침하는 실시간 전략 게임입니다. 하나의 SvelteKit 클라이언트는 기존 Rust/Axum 서버 또는 Cloudflare Workers/Durable Objects 백엔드를 선택해 사용합니다. 함선 좌표, 공격 판정, 턴, 승패는 선택한 권위 서버만 관리하며 상대 함선 좌표는 종료 전에 클라이언트로 전송하지 않습니다.
 
 ## 제공 기능
 
@@ -39,14 +39,14 @@
 
 ## 기술 스택
 
-| 영역          | 기술                                                      |
-| ------------- | --------------------------------------------------------- |
-| 프런트엔드    | SvelteKit 2, Svelte 5, TypeScript 6, CSS 디자인 토큰      |
-| API/게임 서버 | Rust 1.88, Axum 0.8, Tokio                                |
-| 실시간        | WebSocket, 타입화 JSON 이벤트                             |
-| 저장소        | PostgreSQL 16+, SQLx migration, Redis 7.4                 |
-| 테스트        | Rust unit/integration, Vitest, Playwright 3-engine/mobile |
-| 운영          | adapter-node, Docker Compose, Caddy                       |
+| 영역          | 기술                                                       |
+| ------------- | ---------------------------------------------------------- |
+| 프런트엔드    | SvelteKit 2, Svelte 5, TypeScript 6, CSS 디자인 토큰       |
+| API/게임 서버 | Rust 1.88/Axum/Tokio 또는 Cloudflare Workers               |
+| 실시간        | WebSocket, Durable Objects hibernation, 타입화 JSON 이벤트 |
+| 저장소        | Memory, PostgreSQL+Redis, SQLite-backed Durable Objects    |
+| 테스트        | Rust unit/integration, Vitest, Playwright 3-engine/mobile  |
+| 운영          | adapter-node/Docker/Caddy, adapter-cloudflare/Wrangler     |
 
 ## 시스템 아키텍처
 
@@ -61,6 +61,21 @@ flowchart LR
   S2 -->|CAS room / durable queue| P
   S1 <-->|Pub/Sub / shared limits| R[(Redis)]
   S2 <-->|Pub/Sub / shared limits| R
+```
+
+Cloudflare 실행은 같은 origin에서 SvelteKit, API, WebSocket을 하나의 Worker로
+노출합니다. 실시간 게임은 방 하나당 Durable Object 하나가 직렬화하고,
+계정/세션·로비 색인·속도 제한은 별도 책임의 DO로 분리합니다.
+
+```mermaid
+flowchart LR
+  A[플레이어 A] <-->|HTTPS / WSS| W[Cloudflare Worker]
+  B[플레이어 B] <-->|HTTPS / WSS| W
+  W --> S[SvelteKit Worker / Assets]
+  W --> AC[Account DO]
+  W --> L[Lobby DO]
+  W --> RL[Rate-limit DOs]
+  W --> R[Game Room DO]
 ```
 
 브라우저는 자신의 배치/보드와 자신이 실행한 공격 결과만 받습니다. `GameRoom` 내부 스냅샷은 최근 채팅 100개를 포함해 PostgreSQL JSONB에 저장됩니다. 각 운영 변이는 5초짜리 방 권위 임대와 단조 증가 펜싱 토큰을 먼저 획득하고, 같은 트랜잭션에서 `persistenceRevision` CAS까지 통과해야 확정됩니다. 커밋 시 임대를 즉시 반환하므로 다른 인스턴스가 다음 명령을 처리할 수 있으며, 멈춘 프로세스는 임대 만료와 인수 후 저장할 수 없습니다. Redis는 세션별 실시간 이벤트를 다른 서버 인스턴스로 전달하고 HTTP/WebSocket 속도 제한을 공유합니다. 운영에서 `DISTRIBUTED_COORDINATION_REQUIRED=true`면 Redis 시작/구독 실패 시 서버 시작 또는 readiness가 실패합니다.
@@ -100,6 +115,9 @@ apps/
     src/lib/components/   배치·전투·결과 컴포넌트
     src/routes/           시작, 로비, 참가, 방, 기록, 설정, 오류
     e2e/                  2-브라우저 전체 경기·모바일 테스트
+  worker/                 Cloudflare HTTP/WebSocket adapter
+    src/domain/           런타임 비의존 게임 규칙·상태 머신
+    src/objects/          계정, 로비, 게임방, 속도 제한 Durable Objects
 deploy/Caddyfile          로컬 Compose 게이트웨이
 ops/observability/        Prometheus 경보·Alertmanager 라우팅·Grafana 대시보드
 compose.yaml              PostgreSQL, Redis, server, web, gateway
@@ -121,7 +139,17 @@ npm run dev
 
 기존 개발 서버가 5173/8080 포트에 남아 있으면 새 프론트엔드가 이전 서버 계약과 혼용될 수 있습니다. 이 경우 실행 중인 `npm run dev`를 완전히 종료한 뒤 다시 시작하세요. 클라이언트는 `protocolVersion` 불일치를 감지하며, 이전 서버의 `WAITING`/자동 `PLACEMENT` 응답을 취소나 게임 시작으로 잘못 표시하지 않고 재시작 안내를 표시합니다.
 
-### 2. 영속 로컬 스택
+### 2. Cloudflare 로컬 모드
+
+```bash
+npm run dev:cloudflare
+```
+
+`http://localhost:8787`에서 SvelteKit, `/api`, `/ws`, 로컬 Durable Objects를 함께
+실행합니다. 상세한 구성과 배포 방법은
+[`docs/CLOUDFLARE.md`](docs/CLOUDFLARE.md)를 참조하세요.
+
+### 3. 영속 로컬 스택
 
 Docker Compose 2 또는 호환되는 Podman Compose가 필요합니다.
 
@@ -318,8 +346,10 @@ npm run test:coverage:web # 위험 파일별 Vitest 커버리지 하한
 npm run test:fuzz   # 프로토콜 JSON 경계의 20초 libFuzzer 실행
 npm run test:load   # 인증 HTTP/WebSocket 8-VU k6 부하 기준
 npm run test:e2e    # Chromium/Firefox/WebKit 전체 경기 + 모바일 2종 + 태블릿 1종
+npm run test:e2e:cloudflare # Wrangler + Chromium 2인 경기/항복 + 계정·세션 흐름
 npm run test:performance # 프로덕션 빌드의 데스크톱·모바일·저사양 모바일 예산 검증
 npm run build       # Rust release + SvelteKit adapter-node
+npm run build:cloudflare # SvelteKit Worker + API/DO 배포 dry-run
 npm run budget      # JS/CSS/폰트/이미지/오디오 파일·총량 제한과 기존 WOFF 차단
 ```
 
@@ -364,12 +394,26 @@ DEPLOYMENT_ENV=production STORAGE_MODE=postgres \
 HOST=0.0.0.0 PORT=3000 ORIGIN='https://game.example.com' node apps/web/build
 ```
 
+Cloudflare는 PostgreSQL/Redis 또는 유료 Container 없이 다음으로 별도 배포합니다.
+
+```bash
+npm ci
+npm run build:cloudflare
+npm run deploy:cloudflare
+```
+
+GitHub Actions 자동 배포 secret/variable, Durable Object migration, 현재 기능 차이는
+[`Cloudflare 런타임 문서`](docs/CLOUDFLARE.md)에 정리합니다.
+
 로컬 개발에는 `compose.yaml`을 사용합니다. 릴리스에서는 소스를 다시 빌드하지 않는
 `deploy/compose.release.yaml`과 보호된 환경 워크플로를 사용하고, 외부 TLS/트래픽 계층이
 각 환경의 루프백 게이트웨이에 승인된 비율만 전달해야 합니다.
 
 ## 알려진 제한
 
+- Cloudflare 런타임은 현재 게스트/계정 세션과 실시간 2인 게임 계약을 완전히
+  제공합니다. AI, 매칭, 랭킹, 히스토리/리플레이/관전, 소셜·운영 API가 필요한
+  배포는 아직 Rust/PostgreSQL/Redis 런타임을 사용해야 합니다.
 - 방 쓰기는 PostgreSQL의 변이 단위 권위 임대·펜싱 토큰·리비전 CAS로 보호됩니다. 완전히 동시에 도착한 서로 다른 인스턴스의 명령 중 뒤쪽 명령은 `VERSION_CONFLICT`로 재시도될 수 있으며, 각 인스턴스는 명령 전에 PostgreSQL 권위 스냅샷으로 로컬 상태를 갱신합니다.
 - WebSocket 연결 수 제한은 인스턴스별입니다. HTTP·세션 생성·WebSocket 이벤트 속도 제한은 Redis에서 공유되지만 전체 동시 연결 상한은 운영 게이트웨이에서도 제한해야 합니다.
 - 턴과 재접속 마감은 영속 CAS로 중복 확정을 막지만 별도의 지연 작업 큐·소유권 계층·큐 지표를 아직 제공하지 않습니다.

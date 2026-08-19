@@ -32,6 +32,7 @@ jobs:
       - run: npm run lint
       - run: npm run test
       - run: npm run build
+      - run: npm run build:cloudflare
       - run: npm run budget
       - run: npm audit --audit-level=moderate
 
@@ -195,6 +196,23 @@ jobs:
         env:
           CI: "true"
       - run: npm run test:visual
+        env:
+          CI: "true"
+
+  cloudflare-e2e:
+    runs-on: ubuntu-latest
+    needs: [quality]
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e:cloudflare
         env:
           CI: "true"
 

@@ -1,11 +1,17 @@
 import adapter from '@sveltejs/adapter-cloudflare';
+import nodeAdapter from '@sveltejs/adapter-node';
 import { vitePreprocess } from '@sveltejs/vite-plugin-svelte';
+
+const selectedAdapter =
+  process.env.MK01_WEB_ADAPTER === 'node'
+    ? nodeAdapter()
+    : adapter({ config: 'wrangler.svelte.jsonc' });
 
 /** @type {import('@sveltejs/kit').Config} */
 const config = {
   preprocess: vitePreprocess(),
   kit: {
-    adapter: adapter(),
+    adapter: selectedAdapter,
     csp: {
       mode: 'auto',
       directives: {

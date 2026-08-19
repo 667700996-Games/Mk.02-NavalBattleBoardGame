@@ -5,7 +5,7 @@ COPY package.json package-lock.json ./
 COPY apps/web/package.json ./apps/web/package.json
 RUN npm ci
 COPY apps/web ./apps/web
-RUN npm --workspace @mk01/web run build \
+RUN npm --workspace @mk01/web run build:node \
   && npm prune --omit=dev
 
 FROM node:22-alpine AS runtime

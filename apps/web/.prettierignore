@@ -1,7 +1,11 @@
 .svelte-kit/
+.wrangler/
 build/
+dist/
 playwright-report/
+playwright-cloudflare-report/
 playwright-performance-report/
 playwright-visual-report/
 test-results/
 coverage/
+worker-configuration.d.ts

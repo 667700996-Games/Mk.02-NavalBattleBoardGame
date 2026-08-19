@@ -2,12 +2,44 @@
   "$schema": "../../node_modules/wrangler/config-schema.json",
   "name": "mk-01-gameproject-navalbattleboardgame",
   "compatibility_date": "2026-08-15",
+  "compatibility_flags": ["nodejs_compat"],
   "observability": {
     "enabled": true
   },
-  "main": ".svelte-kit/cloudflare/_worker.js",
+  "main": "../worker/src/index.ts",
   "assets": {
     "binding": "ASSETS",
-    "directory": ".svelte-kit/cloudflare"
-  }
+    "directory": ".svelte-kit/cloudflare",
+    "run_worker_first": ["/api/*", "/ws"]
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "ACCOUNTS",
+        "class_name": "AccountDurableObject"
+      },
+      {
+        "name": "LOBBY",
+        "class_name": "LobbyDurableObject"
+      },
+      {
+        "name": "GAME_ROOMS",
+        "class_name": "GameRoomDurableObject"
+      },
+      {
+        "name": "RATE_LIMITS",
+        "class_name": "EdgeRateLimitDurableObject"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["AccountDurableObject", "LobbyDurableObject", "GameRoomDurableObject"]
+    },
+    {
+      "tag": "v2",
+      "new_sqlite_classes": ["EdgeRateLimitDurableObject"]
+    }
+  ]
 }
