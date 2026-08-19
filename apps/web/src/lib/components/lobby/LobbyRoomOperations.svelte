@@ -61,7 +61,7 @@
           : $t('lobbyRooms.scanning')}
       </p>
     </div>
-    <Button variant="ghost" size="sm" onclick={loadRooms}
+    <Button variant="secondary" size="sm" onclick={loadRooms}
       ><RefreshCw size={15} /> {$t('lobbyRooms.scan')}</Button
     >
   </div>
