@@ -28,6 +28,7 @@
     "@axe-core/playwright": "4.13.0",
     "@eslint/js": "^10.0.1",
     "@playwright/test": "1.62.1",
+    "@sveltejs/adapter-cloudflare": "^7.2.9",
     "@sveltejs/adapter-node": "5.5.7",
     "@sveltejs/kit": "2.70.2",
     "@sveltejs/vite-plugin-svelte": "7.2.0",
