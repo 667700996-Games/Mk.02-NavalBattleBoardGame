@@ -724,6 +724,12 @@
   .mobile-surrender {
     display: none;
   }
+  .surrender-modal-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+    margin-top: 22px;
+  }
   .combat-strip {
     display: flex;
     justify-content: space-between;
@@ -1353,6 +1359,9 @@
     }
   }
   @media (max-width: 620px) {
+    .surrender-modal-actions {
+      grid-template-columns: 1fr;
+    }
     .turn-banner {
       gap: 10px;
       padding: 12px;

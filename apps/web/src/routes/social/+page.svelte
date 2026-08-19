@@ -35,7 +35,7 @@
 <style>
   .social-page {
     min-height: 100vh;
-    padding-block: var(--space-6) var(--space-9);
+    padding-block: var(--space-6) var(--space-8);
   }
   nav {
     display: flex;
