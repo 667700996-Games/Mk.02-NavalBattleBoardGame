@@ -563,41 +563,39 @@ pub(super) fn build_progression(
                 games_played >= 25,
             ),
         ],
-        missions: live_content
-            .feature_flags
-            .missions_enabled
-            .then(|| {
-                vec![
-                    mission(
-                        "DAILY_DEPLOYMENT",
-                        MissionCadence::Daily,
-                        "오늘의 출항",
-                        "오늘 교전 1회를 완료하십시오.",
-                        daily_games,
-                        1,
-                        live_content.tuning.daily_deployment_reward_xp,
-                    ),
-                    mission(
-                        "DAILY_ACCURACY",
-                        MissionCadence::Daily,
-                        "정밀 포격",
-                        "오늘 적 함선 칸 10개를 명중시키십시오.",
-                        daily_hits,
-                        10,
-                        live_content.tuning.daily_accuracy_reward_xp,
-                    ),
-                    mission(
-                        "WEEKLY_SUPREMACY",
-                        MissionCadence::Weekly,
-                        "주간 제해권",
-                        "이번 주 교전 3회에서 승리하십시오.",
-                        weekly_wins,
-                        3,
-                        live_content.tuning.weekly_supremacy_reward_xp,
-                    ),
-                ]
-            })
-            .unwrap_or_default(),
+        missions: if live_content.feature_flags.missions_enabled {
+            vec![
+                mission(
+                    "DAILY_DEPLOYMENT",
+                    MissionCadence::Daily,
+                    "오늘의 출항",
+                    "오늘 교전 1회를 완료하십시오.",
+                    daily_games,
+                    1,
+                    live_content.tuning.daily_deployment_reward_xp,
+                ),
+                mission(
+                    "DAILY_ACCURACY",
+                    MissionCadence::Daily,
+                    "정밀 포격",
+                    "오늘 적 함선 칸 10개를 명중시키십시오.",
+                    daily_hits,
+                    10,
+                    live_content.tuning.daily_accuracy_reward_xp,
+                ),
+                mission(
+                    "WEEKLY_SUPREMACY",
+                    MissionCadence::Weekly,
+                    "주간 제해권",
+                    "이번 주 교전 3회에서 승리하십시오.",
+                    weekly_wins,
+                    3,
+                    live_content.tuning.weekly_supremacy_reward_xp,
+                ),
+            ]
+        } else {
+            Vec::new()
+        },
         live_content: LiveContentView::from_revision(live_content, now),
         calculated_at: now,
     }

@@ -42,7 +42,7 @@
 | 영역          | 기술                                                      |
 | ------------- | --------------------------------------------------------- |
 | 프런트엔드    | SvelteKit 2, Svelte 5, TypeScript 6, CSS 디자인 토큰      |
-| API/게임 서버 | Rust 1.87, Axum 0.8, Tokio                                |
+| API/게임 서버 | Rust 1.88, Axum 0.8, Tokio                                |
 | 실시간        | WebSocket, 타입화 JSON 이벤트                             |
 | 저장소        | PostgreSQL 16+, SQLx migration, Redis 7.4                 |
 | 테스트        | Rust unit/integration, Vitest, Playwright 3-engine/mobile |
@@ -110,7 +110,7 @@ compose.yaml              PostgreSQL, Redis, server, web, gateway
 
 ### 1. 빠른 개발 모드
 
-필요 도구는 Rust 1.87 이상, Node.js 22 이상, npm 11 이상입니다.
+필요 도구는 Rust 1.88 이상, Node.js 22 이상, npm 11 이상입니다.
 
 ```bash
 cp .env.example .env

@@ -1,4 +1,4 @@
-FROM rust:1.87-bookworm AS builder
+FROM rust:1.88-bookworm AS builder
 ARG SOURCE_DATE_EPOCH
 WORKDIR /workspace
 COPY Cargo.toml Cargo.lock ./

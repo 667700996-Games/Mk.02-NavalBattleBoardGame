@@ -18,7 +18,7 @@ jobs:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: "1.87"
+          toolchain: "1.88"
           components: rustfmt, clippy
       - uses: actions/setup-node@v6
         with:
@@ -71,7 +71,7 @@ jobs:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: "1.87"
+          toolchain: "1.88"
           components: llvm-tools-preview
       - uses: actions/setup-node@v6
         with:
@@ -102,7 +102,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: nightly-2026-08-18
-      - run: cargo install cargo-fuzz --version 0.12.0 --locked
+      - run: cargo install cargo-fuzz --version 0.13.2 --locked
       - run: npm run test:fuzz
         env:
           FUZZ_TOOLCHAIN: nightly-2026-08-18
@@ -150,7 +150,7 @@ jobs:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: "1.87"
+          toolchain: "1.88"
       - uses: actions/setup-node@v6
         with:
           node-version: "22"
@@ -181,7 +181,7 @@ jobs:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: "1.87"
+          toolchain: "1.88"
       - uses: actions/setup-node@v6
         with:
           node-version: "22"
@@ -207,12 +207,14 @@ jobs:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: "1.87"
+          toolchain: "1.88"
       - uses: actions/setup-node@v6
         with:
           node-version: "22"
-      - run: npm run test:load
+      - name: Run authenticated HTTP and WebSocket load test
+        run: npm run test:load
       - uses: actions/upload-artifact@v6
+        if: always()
         with:
           name: load-evidence-${{ github.sha }}
           path: |
@@ -248,7 +250,7 @@ jobs:
           --health-timeout 5s
           --health-retries 12
       toxiproxy:
-        image: shopify/toxiproxy:2.9.0
+        image: ghcr.io/shopify/toxiproxy:2.12.0
         ports:
           - 8474:8474
           - 15432:15432
@@ -259,7 +261,7 @@ jobs:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: "1.87"
+          toolchain: "1.88"
       - uses: actions/setup-node@v6
         with:
           node-version: "22"
@@ -352,7 +354,7 @@ jobs:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: "1.87"
+          toolchain: "1.88"
       - name: Install PostgreSQL and GPG clients
         run: sudo apt-get update && sudo apt-get install -y postgresql-client gnupg
       - name: Build maintenance binary and seed a migration-complete source

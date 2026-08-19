@@ -132,10 +132,7 @@ impl GameRoom {
                 nickname, self.balance.manifest.consecutive_timeout_forfeit
             )
         } else {
-            format!(
-                "{} 지휘관의 작전 시간이 만료되었습니다. 공격 기회가 소멸했습니다.",
-                nickname
-            )
+            format!("{nickname} 지휘관의 작전 시간이 만료되었습니다. 공격 기회가 소멸했습니다.")
         };
         self.push_system_message(message);
         Ok(Some(TurnExpiredRecord::from_expiration(
@@ -250,8 +247,7 @@ impl GameRoom {
         self.bump();
         let message = if is_lobby && player_id != self.host_player_id {
             format!(
-                "{} 지휘관의 재접속 시간이 만료되어 자리에서 제거되었습니다.",
-                disconnected_nickname
+                "{disconnected_nickname} 지휘관의 재접속 시간이 만료되어 자리에서 제거되었습니다."
             )
         } else if is_lobby {
             "방장의 재접속 시간이 만료되어 작전실이 종료되었습니다.".to_string()
@@ -263,13 +259,11 @@ impl GameRoom {
                 .map(|player| player.nickname.as_str())
                 .unwrap_or("상대");
             format!(
-                "{} 지휘관의 재접속 시간이 만료되었습니다. {} 지휘관이 승리했습니다.",
-                disconnected_nickname, winner
+                "{disconnected_nickname} 지휘관의 재접속 시간이 만료되었습니다. {winner} 지휘관이 승리했습니다."
             )
         } else {
             format!(
-                "{} 지휘관의 재접속 시간이 만료되어 작전이 취소되었습니다.",
-                disconnected_nickname
+                "{disconnected_nickname} 지휘관의 재접속 시간이 만료되어 작전이 취소되었습니다."
             )
         };
         self.push_system_message(message);

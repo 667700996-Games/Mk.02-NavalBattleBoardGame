@@ -129,8 +129,7 @@ impl GameRoom {
         let player = self.player_for_session(session_id)?;
         let nickname = player.nickname.clone();
         Ok(self.push_system_message(format!(
-            "{} 지휘관의 게임 시작 요청이 거부되었습니다. ({})",
-            nickname, error_code
+            "{nickname} 지휘관의 게임 시작 요청이 거부되었습니다. ({error_code})"
         )))
     }
 

@@ -19,7 +19,7 @@ jobs:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: "1.87"
+          toolchain: "1.88"
       - uses: actions/setup-node@v6
         with:
           node-version: "22"
@@ -48,7 +48,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: nightly-2026-08-18
-      - run: cargo install cargo-fuzz --version 0.12.0 --locked
+      - run: cargo install cargo-fuzz --version 0.13.2 --locked
       - name: Run the protocol boundary for ten minutes
         env:
           FUZZ_TOOLCHAIN: nightly-2026-08-18
