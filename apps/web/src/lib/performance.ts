@@ -28,7 +28,12 @@ const battleStarts = new Map<string, number>();
 export function classifyRumRoute(pathname: string): RumRoute {
   if (pathname === '/') return 'landing';
   if (pathname.startsWith('/tutorial')) return 'tutorial';
-  if (pathname.startsWith('/lobby')) return 'lobby';
+  if (
+    pathname.startsWith('/play') ||
+    pathname.startsWith('/single-player') ||
+    pathname.startsWith('/lobby')
+  )
+    return 'lobby';
   if (pathname.startsWith('/join/')) return 'join';
   if (pathname.startsWith('/room/')) return 'room';
   if (pathname.startsWith('/settings') || pathname.startsWith('/stats')) return 'account';

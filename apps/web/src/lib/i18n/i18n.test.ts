@@ -19,8 +19,8 @@ afterEach(() => setLocale('ko-KR'));
 
 describe('localization runtime', () => {
   it('renders Korean and English from one stable key', () => {
-    expect(translate('ko-KR', 'landing.enterLobby')).toBe('작전 로비 입장');
-    expect(translate('en-US', 'landing.enterLobby')).toBe('Enter operations lobby');
+    expect(translate('ko-KR', 'landing.choosePlayMode')).toBe('플레이 방식 선택');
+    expect(translate('en-US', 'landing.choosePlayMode')).toBe('Choose play mode');
   });
 
   it('preserves interpolation tokens while expanding pseudolocalized copy', () => {

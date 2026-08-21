@@ -1,12 +1,7 @@
 <script lang="ts">
   import { resolve } from '$app/paths';
   import { ArrowRight, History, Radio, ShieldCheck, Users, X } from '@lucide/svelte';
-  import type {
-    AiDifficulty,
-    MatchmakingPool,
-    MatchmakingRegion,
-    MatchmakingTicket
-  } from '$lib/types';
+  import type { MatchmakingPool, MatchmakingRegion, MatchmakingTicket } from '$lib/types';
   import { Badge, Button, Surface } from '$lib/ui';
   import {
     formatNumber,
@@ -25,11 +20,9 @@
     rankedRegion: MatchmakingRegion;
     measuredLatency: number | null;
     matchmakingTicket: MatchmakingTicket | null;
-    practicing: boolean;
     socketStatus: SocketStatus;
     toggleMatchmaking: () => void | Promise<void>;
     measureLatency: () => void | Promise<void>;
-    startPractice: (difficulty: AiDifficulty) => void | Promise<void>;
   }
 
   let {
@@ -39,11 +32,9 @@
     rankedRegion = $bindable(),
     measuredLatency,
     matchmakingTicket,
-    practicing,
     socketStatus,
     toggleMatchmaking,
-    measureLatency,
-    startPractice
+    measureLatency
   }: Props = $props();
 
   const socketStatusKeys: Record<SocketStatus, MessageKey> = {
@@ -143,29 +134,6 @@
   </Surface>
 
   <div class="dashboard-side">
-    <Surface tone="elevated" padding="md" class="practice-card">
-      <div class="practice-heading">
-        <span><strong aria-hidden="true">AI</strong></span>
-        <div>
-          <small>{$t('dashboard.aiRange')}</small><strong>{$t('dashboard.aiPractice')}</strong>
-          <p>{$t('dashboard.aiDescription')}</p>
-        </div>
-      </div>
-      <div class="practice-options" aria-label={$t('dashboard.aiDifficulty')}>
-        <button disabled={practicing} onclick={() => startPractice('RECRUIT')}
-          ><span>{$t('dashboard.recruit')}</span><small>{$t('dashboard.recruitCode')}</small
-          ></button
-        >
-        <button disabled={practicing} onclick={() => startPractice('OFFICER')}
-          ><span>{$t('dashboard.officer')}</span><small>{$t('dashboard.officerCode')}</small
-          ></button
-        >
-        <button disabled={practicing} onclick={() => startPractice('ADMIRAL')}
-          ><span>{$t('dashboard.admiral')}</span><small>{$t('dashboard.admiralCode')}</small
-          ></button
-        >
-      </div>
-    </Surface>
     <Surface tone="interactive" padding="md">
       <a class="dashboard-action" href={resolve('/tutorial')}>
         <span><ShieldCheck size={19} /></span>

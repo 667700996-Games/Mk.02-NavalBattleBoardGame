@@ -12,7 +12,8 @@ test('cosmetic loadout persists, drives every presentation surface, and preserve
   await sessionProbe;
   await expect(page.locator('html')).toHaveAttribute('data-hydrated', 'true');
   await page.locator('#nickname').fill(`Present-${testInfo.project.name}`.slice(0, 16));
-  await page.getByRole('button', { name: '작전 로비 입장' }).click();
+  await page.getByRole('button', { name: '플레이 방식 선택' }).click();
+  await page.getByRole('button', { name: '멀티 플레이 선택' }).click();
   await expect(page).toHaveURL(/\/lobby$/);
   const settingsProbe = page.waitForResponse(
     (response) =>
@@ -58,7 +59,7 @@ test('cosmetic loadout persists, drives every presentation surface, and preserve
   await expect(page.getByLabel('인터페이스 프레임')).toHaveValue('veteran');
   await expect(page.getByLabel('효과 품질')).toHaveValue('low');
 
-  await page.goto('/lobby');
+  await page.goto('/single-player');
   await page.getByRole('button', { name: /신병 RECRUIT/ }).click();
   await expect(page.getByRole('heading', { name: '함대 배치' })).toBeVisible();
   await expect(page.locator('.launch-sequence')).toBeHidden();

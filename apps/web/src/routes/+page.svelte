@@ -38,10 +38,10 @@
     }
   });
 
-  async function enterLobby() {
+  async function continueToModeSelection() {
     error = '';
     if (existingSession) {
-      await goto(resolve('/lobby'));
+      await goto(resolve('/play'));
       return;
     }
     submitting = true;
@@ -49,7 +49,7 @@
       const created = await api.createSession(nickname);
       session.set(created);
       trackFunnelReached('session_created');
-      await goto(resolve('/lobby'));
+      await goto(resolve('/play'));
     } catch (caught) {
       trackFunnelFailure('session_created', 'session_creation');
       error = localizeError(caught, 'landing.sessionCreateError');
@@ -64,7 +64,7 @@
     try {
       const authenticated = await api.loginAccount(accountId.trim(), recoveryKey.trim());
       session.set(authenticated);
-      await goto(resolve('/lobby'));
+      await goto(resolve('/play'));
     } catch (caught) {
       error = localizeError(caught, 'landing.accountLoginError');
     } finally {
@@ -141,7 +141,7 @@
         <form
           onsubmit={(event) => {
             event.preventDefault();
-            enterLobby();
+            continueToModeSelection();
           }}
         >
           <div class="command-entry__head">
@@ -170,7 +170,7 @@
               required
             />
             <Button variant="primary" size="lg" type="submit" loading={submitting}>
-              {existingSession ? $t('landing.resumeOperation') : $t('landing.enterLobby')}
+              {existingSession ? $t('landing.resumeOperation') : $t('landing.choosePlayMode')}
               <ArrowRight size={18} />
             </Button>
           </div>

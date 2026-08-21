@@ -312,12 +312,13 @@
 
   async function leaveRoom() {
     if (!snapshot) return;
+    const returnToSinglePlayer = snapshot.practiceDifficulty !== null;
     if (snapshot.room.status !== 'FINISHED') trackFunnelAbandoned();
     try {
       await api.leaveRoom(snapshot.room.id);
     } finally {
       gameSnapshot.set(null);
-      await goto(resolve('/lobby'));
+      await goto(returnToSinglePlayer ? resolve('/single-player') : resolve('/lobby'));
     }
   }
 </script>
@@ -431,14 +432,21 @@
           <span>{$t('room.reportCompiling')}</span>
         </section>
       {/if}
-      <ResultView {snapshot} onlobby={leaveRoom} />
+      <ResultView
+        {snapshot}
+        onreturn={leaveRoom}
+        returnLabel={$t(
+          snapshot.practiceDifficulty ? 'result.returnSinglePlayer' : 'result.returnLobby'
+        )}
+      />
     {:else if snapshot.room.status === 'CANCELLED'}
       <section class="load-error panel">
         <WifiOff size={34} />
         <h1>{$t('room.cancelled')}</h1>
         <p>{$t('room.cancelledDescription')}</p>
         <button class="button" onclick={leaveRoom}
-          ><ArrowLeft size={16} /> {$t('room.returnLobby')}</button
+          ><ArrowLeft size={16} />
+          {$t(snapshot.practiceDifficulty ? 'room.returnSinglePlayer' : 'room.returnLobby')}</button
         >
       </section>
     {:else}

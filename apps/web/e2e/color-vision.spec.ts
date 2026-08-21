@@ -32,7 +32,8 @@ async function register(page: Page) {
   await page.goto('/');
   await sessionProbe;
   await page.locator('#nickname').fill('ColorCaptain');
-  await page.getByRole('button', { name: '작전 로비 입장' }).click();
+  await page.getByRole('button', { name: '플레이 방식 선택' }).click();
+  await page.getByRole('button', { name: '멀티 플레이 선택' }).click();
   await expect(page).toHaveURL(/\/lobby$/);
 }
 
@@ -80,7 +81,7 @@ test('color-vision presets persist and every combat state has non-color semantic
   await expect(selector).toHaveValue('tritanopia');
   await assertSemanticPalette(page, 'tritanopia');
 
-  await page.goto('/lobby');
+  await page.goto('/single-player');
   await Promise.all([
     page.waitForURL(/\/room\//),
     page.getByRole('button', { name: /신병 RECRUIT/ }).click()

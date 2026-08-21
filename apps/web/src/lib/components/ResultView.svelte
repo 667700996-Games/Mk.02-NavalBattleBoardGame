@@ -18,9 +18,10 @@
 
   interface Props {
     snapshot: GameSnapshot;
-    onlobby: () => void;
+    onreturn: () => void;
+    returnLabel: string;
   }
-  let { snapshot, onlobby }: Props = $props();
+  let { snapshot, onreturn, returnLabel }: Props = $props();
   let won = $derived(snapshot.result?.winnerId === snapshot.selfPlayerId);
   let stats = $derived(
     snapshot.result?.players.find((player) => player.playerId === snapshot.selfPlayerId)
@@ -195,9 +196,7 @@
         {$t('result.share')}{/if}</button
     ><a class="button" href={resolve('/replay/[roomId]', { roomId: snapshot.room.id })}
       ><Play size={16} /> {$t('result.replay')}</a
-    ><button class="button" onclick={onlobby}
-      ><ArrowLeft size={16} /> {$t('result.returnLobby')}</button
-    >
+    ><button class="button" onclick={onreturn}><ArrowLeft size={16} /> {returnLabel}</button>
   </div>
 </section>
 

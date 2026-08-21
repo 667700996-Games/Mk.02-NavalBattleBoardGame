@@ -13,7 +13,6 @@
   import LobbyRoomOperations from '$lib/components/lobby/LobbyRoomOperations.svelte';
   import './lobby.css';
   import type {
-    AiDifficulty,
     GameMode,
     MatchmakingPool,
     MatchmakingPreferences,
@@ -38,7 +37,6 @@
   let roomCode = '';
   let submitting = false;
   let matching = false;
-  let practicing = false;
   let queuedAt: Date | null = null;
   let elapsed = 0;
   let matchPool: MatchmakingPool = 'CASUAL';
@@ -58,12 +56,16 @@
         session.set(current);
         trackFunnelReached('lobby_entered');
         const recovered = await api.recover();
-        if (recovered && recovered.room.status !== 'CANCELLED') {
+        if (recovered?.room.status === 'CANCELLED') {
+          await api.leaveRoom(recovered.room.id);
+        } else if (recovered?.practiceDifficulty) {
+          await goto(resolve('/single-player'));
+          return;
+        } else if (recovered) {
           gameSnapshot.set(recovered);
           await goto(resolve('/room/[code]', { code: recovered.room.code }));
           return;
         }
-        if (recovered?.room.status === 'CANCELLED') await api.leaveRoom(recovered.room.id);
         realtime.connect();
         await loadRooms();
         refreshTimer = setInterval(loadRooms, 7_500);
@@ -214,22 +216,6 @@
   async function measureLatency() {
     measuredLatency = await api.measureMatchmakingLatency();
   }
-
-  async function startPractice(difficulty: AiDifficulty) {
-    practicing = true;
-    error = '';
-    try {
-      const snapshot = await api.createPractice(difficulty);
-      gameSnapshot.set(snapshot);
-      trackFunnelReached('room_joined');
-      await goto(resolve('/room/[code]', { code: snapshot.room.code }));
-    } catch (caught) {
-      trackFunnelFailure('room_joined', 'room_entry');
-      error = localizeError(caught, 'lobby.practiceError');
-    } finally {
-      practicing = false;
-    }
-  }
 </script>
 
 <svelte:head><title>{$t('lobby.metaTitle')}</title></svelte:head>
@@ -274,11 +260,9 @@
       bind:rankedRegion
       {measuredLatency}
       {matchmakingTicket}
-      {practicing}
       socketStatus={$socketStatus}
       {toggleMatchmaking}
       {measureLatency}
-      {startPractice}
     />
 
     <LobbyRoomOperations

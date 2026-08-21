@@ -78,7 +78,7 @@ test('new-player funnel exposes reached, failed, and abandoned checkpoints', asy
   await nickname.fill('Funnel Cadet');
   await expect(nickname).toHaveValue('Funnel Cadet');
   await page.route('**/api/sessions', (route) => route.abort('failed'));
-  await page.getByRole('button', { name: '작전 로비 입장' }).click();
+  await page.getByRole('button', { name: '플레이 방식 선택' }).click();
   await expect(page.getByText('지휘관 등록에 실패했습니다.', { exact: true })).toBeVisible();
   await expect
     .poll(async () => funnelValue(await metrics(page), 'session_created', 'failed'))
@@ -88,7 +88,8 @@ test('new-player funnel exposes reached, failed, and abandoned checkpoints', asy
     .toBeGreaterThan(initial.sessionFailureReason);
   await page.unroute('**/api/sessions');
 
-  await page.getByRole('button', { name: '작전 로비 입장' }).click();
+  await page.getByRole('button', { name: '플레이 방식 선택' }).click();
+  await page.getByRole('button', { name: '멀티 플레이 선택' }).click();
   await expect(page.getByRole('heading', { name: '작전 로비' })).toBeVisible();
   await expect
     .poll(async () => funnelValue(await metrics(page), 'session_created', 'reached'))
@@ -97,6 +98,7 @@ test('new-player funnel exposes reached, failed, and abandoned checkpoints', asy
     .poll(async () => funnelValue(await metrics(page), 'lobby_entered', 'reached'))
     .toBeGreaterThan(initial.lobbyEntered);
 
+  await page.goto('/single-player');
   await page.getByRole('button', { name: /신병 RECRUIT/ }).click();
   await expect(page.getByRole('heading', { name: '함대 배치' })).toBeVisible();
   await expect(page.locator('.launch-sequence')).toBeHidden();

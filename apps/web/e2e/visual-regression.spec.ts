@@ -43,7 +43,8 @@ test('authenticated lobby matches its approved empty-channel golden', async ({
     (response) =>
       new URL(response.url()).pathname === '/api/rooms' && response.request().method() === 'GET'
   );
-  await page.getByRole('button', { name: '작전 로비 입장' }).click();
+  await page.getByRole('button', { name: '플레이 방식 선택' }).click();
+  await page.getByRole('button', { name: '멀티 플레이 선택' }).click();
   await expect(page).toHaveURL(/\/lobby$/);
   await roomList;
   await expect(page.getByRole('heading', { name: '활성 작전 없음' })).toBeVisible();
@@ -66,7 +67,8 @@ test('practice combat and after-action report match approved goldens', async ({
   await page
     .locator('#nickname')
     .fill(testInfo.project.name === 'mobile-chromium' ? 'CombatMobile' : 'CombatDesktop');
-  await page.getByRole('button', { name: '작전 로비 입장' }).click();
+  await page.getByRole('button', { name: '플레이 방식 선택' }).click();
+  await page.getByRole('button', { name: '싱글 플레이 선택' }).click();
   await page.getByRole('button', { name: /신병 RECRUIT/ }).click();
   await expect(page.getByRole('heading', { name: '함대 배치' })).toBeVisible();
   await expect(page.locator('.launch-sequence')).toBeHidden();

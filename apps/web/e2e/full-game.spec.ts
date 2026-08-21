@@ -13,8 +13,9 @@ async function register(page: Page, nickname: string) {
     (response) =>
       new URL(response.url()).pathname === '/api/sessions' && response.request().method() === 'POST'
   );
-  await page.getByRole('button', { name: '작전 로비 입장' }).click();
+  await page.getByRole('button', { name: '플레이 방식 선택' }).click();
   expect((await sessionCreated).status()).toBe(201);
+  await page.getByRole('button', { name: '멀티 플레이 선택' }).click();
   await expect(page).toHaveURL(/\/lobby$/);
   await expect(page.getByRole('heading', { name: '작전 로비' })).toBeVisible();
   await page.waitForLoadState('networkidle');

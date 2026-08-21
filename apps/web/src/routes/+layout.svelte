@@ -145,7 +145,7 @@
 
 <header class="app-header">
   <div class="shell app-header__inner">
-    <a class="brand" href={resolve($session ? '/lobby' : '/')} aria-label={$t('layout.home')}>
+    <a class="brand" href={resolve($session ? '/play' : '/')} aria-label={$t('layout.home')}>
       <span class="brand__mark"><Crosshair size={18} strokeWidth={1.5} /></span>
       <span class="brand__text">
         <strong>MK.01</strong>
@@ -155,13 +155,12 @@
 
     <nav class="nav-links" aria-label={$t('layout.mainNavigation')}>
       {#if $session}
-        <Tooltip text={$t('layout.operationsLobby')} side="bottom">
+        <Tooltip text={$t('layout.playSelection')} side="bottom">
           <a
-            class:active={active('/lobby') || active('/room')}
+            class:active={active('/play') || active('/single-player')}
             class="nav-link"
-            aria-label={$t('layout.operationsLobby')}
-            href={resolve('/lobby')}
-            ><Radio size={17} /><span>{$t('layout.operationsLobby')}</span></a
+            aria-label={$t('layout.playSelection')}
+            href={resolve('/play')}><Radio size={17} /><span>{$t('layout.playSelection')}</span></a
           >
         </Tooltip>
         <Tooltip text={$t('layout.battleHistory')} side="bottom">

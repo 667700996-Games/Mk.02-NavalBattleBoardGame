@@ -10,7 +10,8 @@ async function registerAccount(page: Page, nickname: string, handle: string) {
   await page.goto('/');
   await sessionProbe;
   await page.locator('#nickname').fill(nickname);
-  await page.getByRole('button', { name: '작전 로비 입장' }).click();
+  await page.getByRole('button', { name: '플레이 방식 선택' }).click();
+  await page.getByRole('button', { name: '멀티 플레이 선택' }).click();
   await expect(page).toHaveURL(/\/lobby$/);
   const upgraded = await page.request.post('/api/accounts/upgrade', { data: { handle } });
   expect(upgraded.ok()).toBe(true);

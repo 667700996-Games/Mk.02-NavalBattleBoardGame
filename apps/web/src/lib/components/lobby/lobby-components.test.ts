@@ -34,7 +34,7 @@ const room: RoomSummary = {
 };
 
 describe('LobbyCommandDashboard', () => {
-  it('renders an actionable casual idle state and every practice difficulty', () => {
+  it('renders an actionable multiplayer casual idle state without AI practice controls', () => {
     const { body } = render(LobbyCommandDashboard, {
       props: {
         matching: false,
@@ -43,20 +43,16 @@ describe('LobbyCommandDashboard', () => {
         rankedRegion: 'AUTO',
         measuredLatency: null,
         matchmakingTicket: null,
-        practicing: false,
         socketStatus: 'online',
         toggleMatchmaking: vi.fn(),
-        measureLatency: vi.fn(),
-        startPractice: vi.fn()
+        measureLatency: vi.fn()
       }
     });
 
     expect(body).toContain(translate('ko-KR', 'dashboard.quickTitle'));
     expect(body).toContain(translate('ko-KR', 'dashboard.findOpponent'));
     expect(body).toContain(translate('ko-KR', 'dashboard.synchronizing'));
-    expect(body).toContain(translate('ko-KR', 'dashboard.recruit'));
-    expect(body).toContain(translate('ko-KR', 'dashboard.officer'));
-    expect(body).toContain(translate('ko-KR', 'dashboard.admiral'));
+    expect(body).not.toContain(translate('ko-KR', 'dashboard.aiPractice'));
     expect(body).toContain(`aria-label="${translate('ko-KR', 'dashboard.type')}"`);
   });
 
@@ -69,11 +65,9 @@ describe('LobbyCommandDashboard', () => {
         rankedRegion: 'KOREA',
         measuredLatency: 24,
         matchmakingTicket: ticket,
-        practicing: true,
         socketStatus: 'reconnecting',
         toggleMatchmaking: vi.fn(),
-        measureLatency: vi.fn(),
-        startPractice: vi.fn()
+        measureLatency: vi.fn()
       }
     });
 
@@ -87,7 +81,7 @@ describe('LobbyCommandDashboard', () => {
     expect(body).toContain(translate('ko-KR', 'dashboard.rating', { rating: '1,542' }));
     expect(body).toContain(translate('ko-KR', 'dashboard.cancelMatch'));
     expect(body).toContain(translate('ko-KR', 'dashboard.statusReconnecting'));
-    expect(body.match(/disabled/g)?.length).toBeGreaterThanOrEqual(6);
+    expect(body.match(/disabled/g)?.length).toBeGreaterThanOrEqual(3);
   });
 });
 

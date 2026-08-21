@@ -30,7 +30,8 @@ test('document security policy permits nonce-based hydration and blocks unsafe s
   expect(headers['x-content-type-options']).toBe('nosniff');
 
   await page.locator('#nickname').fill('CspHydration');
-  await page.getByRole('button', { name: '작전 로비 입장' }).click();
+  await page.getByRole('button', { name: '플레이 방식 선택' }).click();
+  await page.getByRole('button', { name: '멀티 플레이 선택' }).click();
   await expect(page).toHaveURL(/\/lobby$/);
   expect(policyViolations).toEqual([]);
 });

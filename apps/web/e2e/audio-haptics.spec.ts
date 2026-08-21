@@ -23,7 +23,8 @@ test('music, ambience, and interface masters decode after a user gesture in ever
   await sessionProbe;
   await expect(page.locator('html')).toHaveAttribute('data-hydrated', 'true');
   await page.locator('#nickname').fill(`Audio-${testInfo.project.name}`.slice(0, 16));
-  await page.getByRole('button', { name: '작전 로비 입장' }).click();
+  await page.getByRole('button', { name: '플레이 방식 선택' }).click();
+  await page.getByRole('button', { name: '멀티 플레이 선택' }).click();
   await expect(page).toHaveURL(/\/lobby$/);
   await expect
     .poll(
@@ -98,7 +99,8 @@ test('file-backed audio, independent mixers, lifecycle recovery, cues, and optio
   await sessionProbe;
   await expect(page.locator('html')).toHaveAttribute('data-hydrated', 'true');
   await page.locator('#nickname').fill('AudioCadet');
-  await page.getByRole('button', { name: '작전 로비 입장' }).click();
+  await page.getByRole('button', { name: '플레이 방식 선택' }).click();
+  await page.getByRole('button', { name: '멀티 플레이 선택' }).click();
   await expect(page).toHaveURL(/\/lobby$/);
   await expect
     .poll(() => audioRequests.some((path) => path.endsWith('music-command-loop.mp3')))

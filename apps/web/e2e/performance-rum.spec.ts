@@ -58,8 +58,9 @@ test('real browser vitals and attack latency reach anonymous histograms', async 
       .toBeGreaterThan(initial[metric]);
   }
 
-  await page.getByRole('button', { name: '작전 로비 입장' }).click();
-  await expect(page.getByRole('heading', { name: '작전 로비' })).toBeVisible();
+  await page.getByRole('button', { name: '플레이 방식 선택' }).click();
+  await page.getByRole('button', { name: '싱글 플레이 선택' }).click();
+  await expect(page.getByRole('heading', { name: 'AI 전술 훈련장' })).toBeVisible();
   await page.getByRole('button', { name: /신병 RECRUIT/ }).click();
   await expect(page.getByRole('heading', { name: '함대 배치' })).toBeVisible();
   await expect(page.locator('.launch-sequence')).toBeHidden();

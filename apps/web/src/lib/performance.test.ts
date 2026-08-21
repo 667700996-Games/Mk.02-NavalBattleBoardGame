@@ -5,6 +5,8 @@ describe('RUM route classification', () => {
   it.each([
     ['/', 'landing'],
     ['/tutorial', 'tutorial'],
+    ['/play', 'lobby'],
+    ['/single-player', 'lobby'],
     ['/lobby', 'lobby'],
     ['/join/ABCD12', 'join'],
     ['/room/ABCD12', 'room'],
