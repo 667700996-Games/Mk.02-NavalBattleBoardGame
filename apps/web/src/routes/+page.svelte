@@ -2,16 +2,7 @@
   import { goto } from '$app/navigation';
   import { resolve } from '$app/paths';
   import { onMount } from 'svelte';
-  import {
-    ArrowRight,
-    Crosshair,
-    KeyRound,
-    LockKeyhole,
-    Radio,
-    RotateCw,
-    ShieldCheck,
-    Waves
-  } from '@lucide/svelte';
+  import { ArrowRight, Crosshair, KeyRound, LockKeyhole, Radio, ShieldCheck } from '@lucide/svelte';
   import { api } from '$lib/api';
   import { trackFunnelFailure, trackFunnelReached } from '$lib/funnel';
   import { localizeError, t } from '$lib/i18n';
@@ -201,9 +192,9 @@
         ></span
       >
     </div>
-    <a class="tutorial-link" href={resolve('/tutorial')}
-      >{$t('landing.tutorialLink')} <ArrowRight size={18} /></a
-    >
+    <a class="tutorial-link" href={resolve('/tutorial')}>
+      <span>{$t('landing.tutorialLink')}</span><ArrowRight size={18} />
+    </a>
   </div>
 
   <div class="command-visual" aria-hidden="true">
@@ -256,45 +247,6 @@
       ><span>{$t('landing.thermalStable')}</span>
     </div>
     <div class="visual-index"><span>01</span><i></i><span>04</span></div>
-  </div>
-</section>
-
-<section class="mission-brief shell" aria-labelledby="mission-title">
-  <header class="mission-brief__heading">
-    <div>
-      <p class="eyebrow">{$t('landing.missionProtocol')}</p>
-      <h2 id="mission-title">{$t('landing.missionTitle')}</h2>
-    </div>
-    <p>{$t('landing.missionLead')}</p>
-  </header>
-  <div class="mission-grid">
-    <Surface tone="interactive" padding="lg">
-      <article>
-        <span class="mission-number">01</span><Waves size={22} /><small
-          >{$t('landing.deployCode')}</small
-        >
-        <h3>{$t('landing.deployTitle')}</h3>
-        <p>{$t('landing.deployDescription')}</p>
-      </article>
-    </Surface>
-    <Surface tone="interactive" padding="lg">
-      <article>
-        <span class="mission-number">02</span><Crosshair size={22} /><small
-          >{$t('landing.deduceCode')}</small
-        >
-        <h3>{$t('landing.deduceTitle')}</h3>
-        <p>{$t('landing.deduceDescription')}</p>
-      </article>
-    </Surface>
-    <Surface tone="interactive" padding="lg">
-      <article>
-        <span class="mission-number">03</span><RotateCw size={22} /><small
-          >{$t('landing.endureCode')}</small
-        >
-        <h3>{$t('landing.endureTitle')}</h3>
-        <p>{$t('landing.endureDescription')}</p>
-      </article>
-    </Surface>
   </div>
 </section>
 
@@ -438,19 +390,56 @@
     letter-spacing: 0.12em;
   }
   .tutorial-link {
+    position: relative;
     display: flex;
     gap: 10px;
     align-items: center;
     width: fit-content;
-    min-height: 44px;
-    margin: 14px 0 0 auto;
-    padding-left: 12px;
+    min-height: 48px;
+    margin: 18px 0 0 auto;
+    padding: 10px 16px 10px 18px;
+    overflow: hidden;
+    border: 1px solid rgba(83, 233, 232, 0.34);
+    border-radius: 7px 2px 7px 2px;
     color: var(--cyan-300);
+    background: linear-gradient(145deg, rgba(17, 59, 68, 0.7), rgba(4, 24, 31, 0.9));
+    box-shadow:
+      inset 0 1px rgba(220, 255, 255, 0.05),
+      0 0 20px rgba(40, 223, 232, 0.035);
     font: 700 clamp(13px, 1.1vw, 16px) var(--font-display);
     letter-spacing: 0.04em;
+    isolation: isolate;
+    animation: tutorial-glow 5.6s ease-in-out infinite;
+    transition: 180ms var(--ease-out);
+    transition-property: color, border-color, background, transform;
   }
-  .tutorial-link:hover {
+  .tutorial-link::before {
+    position: absolute;
+    z-index: 0;
+    inset: 0;
+    content: '';
+    opacity: 0.48;
+    pointer-events: none;
+    background: linear-gradient(
+      110deg,
+      transparent 28%,
+      rgba(184, 255, 255, 0.14) 48%,
+      transparent 68%
+    );
+    transform: translateX(-160%);
+    animation: tutorial-shimmer 5.6s ease-in-out infinite;
+  }
+  .tutorial-link > span,
+  .tutorial-link :global(svg) {
+    position: relative;
+    z-index: 1;
+  }
+  .tutorial-link:hover,
+  .tutorial-link:focus-visible {
+    border-color: rgba(112, 246, 246, 0.62);
     color: var(--cyan-200);
+    background: linear-gradient(145deg, rgba(20, 71, 79, 0.78), rgba(5, 29, 37, 0.94));
+    transform: translateY(-1px);
   }
   .command-visual {
     position: relative;
@@ -808,68 +797,6 @@
     height: 1px;
     background: var(--line-strong);
   }
-  .mission-brief {
-    padding-block: 48px 112px;
-  }
-  .mission-brief__heading {
-    display: flex;
-    align-items: end;
-    justify-content: space-between;
-    gap: 40px;
-    margin-bottom: 28px;
-  }
-  .mission-brief__heading h2 {
-    margin: 0;
-    font-family: var(--font-display);
-    font-size: clamp(30px, 4vw, 46px);
-    font-weight: 600;
-  }
-  .mission-brief__heading > p {
-    max-width: 440px;
-    margin-bottom: 4px;
-    color: var(--ink-300);
-    font-size: 13px;
-    line-height: 1.8;
-  }
-  .mission-grid {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 16px;
-  }
-  .mission-grid article {
-    position: relative;
-    min-height: 220px;
-  }
-  .mission-grid :global(svg) {
-    color: var(--cyan-300);
-  }
-  .mission-grid article > small {
-    display: block;
-    margin: 25px 0 3px;
-    color: var(--ink-500);
-    font-family: var(--font-display);
-    font-size: 8px;
-    letter-spacing: 0.16em;
-  }
-  .mission-grid h3 {
-    margin-bottom: 11px;
-    font-size: 18px;
-  }
-  .mission-grid p {
-    margin: 0;
-    color: var(--ink-300);
-    font-size: 12px;
-    line-height: 1.8;
-  }
-  .mission-number {
-    position: absolute;
-    top: -8px;
-    right: 0;
-    color: rgba(110, 185, 201, 0.17);
-    font-family: var(--font-display);
-    font-size: 42px;
-    font-weight: 700;
-  }
   @media (max-width: 1040px) {
     .hero {
       grid-template-columns: 1fr;
@@ -922,21 +849,6 @@
     }
     .visual-coordinates--side {
       display: none;
-    }
-    .mission-brief {
-      padding-block: 24px 80px;
-    }
-    .mission-brief__heading {
-      display: block;
-    }
-    .mission-brief__heading > p {
-      margin-top: 16px;
-    }
-    .mission-grid {
-      grid-template-columns: 1fr;
-    }
-    .mission-grid article {
-      min-height: auto;
     }
   }
   .hero {
@@ -1032,20 +944,6 @@
     border-color: var(--line);
     background: rgba(2, 13, 20, 0.86);
   }
-  .mission-brief {
-    padding-top: 22px;
-  }
-  .mission-grid {
-    gap: 12px;
-  }
-  :global(.mission-grid .ui-surface) {
-    border-radius: 7px 2px 7px 2px;
-    border-color: var(--line);
-    background: linear-gradient(145deg, rgba(7, 28, 36, 0.82), rgba(2, 13, 20, 0.86));
-  }
-  :global(.mission-grid .ui-surface:hover) {
-    border-color: var(--line-active);
-  }
   @media (max-width: 820px) {
     .hero {
       min-height: auto;
@@ -1096,6 +994,29 @@
   @keyframes contact-drift-three {
     50% {
       transform: translate(4px, 8px);
+    }
+  }
+  @keyframes tutorial-glow {
+    0%,
+    100% {
+      box-shadow:
+        inset 0 1px rgba(220, 255, 255, 0.05),
+        0 0 16px rgba(40, 223, 232, 0.025);
+    }
+    50% {
+      box-shadow:
+        inset 0 1px rgba(220, 255, 255, 0.08),
+        0 0 25px rgba(40, 223, 232, 0.09);
+    }
+  }
+  @keyframes tutorial-shimmer {
+    0%,
+    58% {
+      transform: translateX(-160%);
+    }
+    86%,
+    100% {
+      transform: translateX(160%);
     }
   }
 </style>
