@@ -1,6 +1,10 @@
 import { expect, test } from '@playwright/test';
 
 async function settleVisualState(page: import('@playwright/test').Page) {
+  const notificationCloseButtons = page.locator('.toast-stack .ui-icon-button');
+  while ((await notificationCloseButtons.count()) > 0) {
+    await notificationCloseButtons.first().click();
+  }
   await page.evaluate(async () => {
     await document.fonts.ready;
     window.scrollTo(0, 0);

@@ -227,6 +227,7 @@
 <section class="battle" aria-labelledby="battle-status">
   <header
     class:turn-banner--mine={myTurn}
+    class:turn-banner--opponent={!myTurn}
     class:turn-banner--pulse={turnPulse}
     class="turn-banner panel"
   >
@@ -241,17 +242,22 @@
         })}</span
       >
       <h1 id="battle-status">
-        {disabled
-          ? $t('battle.reconnectWait')
-          : myTurn
-            ? snapshot.rules.mode === 'SALVO'
-              ? $t('battle.salvoPrompt', {
-                  shots: formatNumber(snapshot.shotsRemainingInTurn ?? 1)
-                })
-              : $t('battle.attackPrompt')
-            : $t('battle.opponentWait', {
-                opponent: opponent?.nickname ?? $t('battle.opponentFallback')
-              })}
+        <span class="turn-banner__phase-title">
+          {myTurn ? $t('battle.myAttackPhase') : $t('battle.opponentAttackPhase')}
+        </span>
+        <span class="turn-banner__instruction">
+          {disabled
+            ? $t('battle.reconnectWait')
+            : myTurn
+              ? snapshot.rules.mode === 'SALVO'
+                ? $t('battle.salvoPrompt', {
+                    shots: formatNumber(snapshot.shotsRemainingInTurn ?? 1)
+                  })
+                : $t('battle.attackPrompt')
+              : $t('battle.opponentWait', {
+                  opponent: opponent?.nickname ?? $t('battle.opponentFallback')
+                })}
+        </span>
       </h1>
     </div>
     <div
@@ -281,8 +287,11 @@
       </div>
     </div>
     <div class="turn-banner__side">
-      <small>{$t('battle.currentCommand')}</small>
-      <strong class:cyan={myTurn}>{myTurn ? $t('battle.yourTurn') : $t('battle.opponent')}</strong>
+      <small>{$t('battle.phaseStatus')}</small>
+      <strong class:cyan={myTurn} class:amber={!myTurn}>
+        <i aria-hidden="true"></i>
+        {myTurn ? $t('battle.myAttackStatus') : $t('battle.opponentAttackStatus')}
+      </strong>
       <button
         class="surrender-trigger"
         type="button"
@@ -350,6 +359,7 @@
 
     <div class="battle-grid">
       <section
+        class:board-panel--defense-alert={!myTurn}
         class="board-panel board-panel--friendly panel"
         aria-labelledby="friendly-waters-title"
       >
@@ -366,7 +376,7 @@
         </div>
         <div class="board-readout">
           <span><i class="signal-dot signal-dot--safe"></i>{$t('battle.ownFleetVisible')}</span
-          ><strong>{$t('battle.shieldArray')}</strong>
+          ><strong>{myTurn ? $t('battle.shieldArray') : $t('battle.defensePhaseStatus')}</strong>
         </div>
         <GridBoard
           balance={snapshot.balance.manifest}
@@ -383,6 +393,8 @@
       </section>
 
       <section
+        class:board-panel--attack-active={myTurn}
+        class:board-panel--standby={!myTurn}
         class="board-panel board-panel--hostile panel"
         aria-labelledby="hostile-waters-title"
       >
@@ -418,11 +430,17 @@
         </div>
       </section>
 
-      <aside class="fire-control panel" aria-label={$t('battle.fireControlAria')}>
+      <aside
+        class:fire-control--standby={!myTurn}
+        class="fire-control panel"
+        aria-label={$t('battle.fireControlAria')}
+      >
         <div class="fire-control__title">
-          <Crosshair size={17} />
+          {#if myTurn}<Crosshair size={17} />{:else}<Radio size={17} />{/if}
           <div>
-            <small>{$t('battle.fireControlCode')}</small><strong>{$t('battle.fireControl')}</strong>
+            <small>{$t('battle.fireControlCode')}</small><strong
+              >{myTurn ? $t('battle.fireControl') : $t('battle.opponentAttackStatus')}</strong
+            >
           </div>
         </div>
         <div class:coordinate-lock--active={selected} class="coordinate-lock">
@@ -545,18 +563,42 @@
     padding-bottom: 28px;
   }
   .turn-banner {
+    position: relative;
     display: grid;
     grid-template-columns: auto minmax(0, 1fr) auto auto;
     align-items: center;
     gap: 16px;
     margin-bottom: 10px;
     padding: 14px 18px;
+    overflow: hidden;
     border-radius: 10px 3px 10px 3px;
     background: linear-gradient(100deg, rgba(8, 25, 34, 0.94), rgba(3, 13, 20, 0.9));
+  }
+  .turn-banner::before {
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 4px;
+    content: '';
+    background: var(--amber-400);
+    box-shadow: 0 0 20px rgba(237, 181, 82, 0.52);
   }
   .turn-banner--mine {
     border-color: rgba(83, 233, 232, 0.42);
     background: linear-gradient(100deg, rgba(10, 47, 55, 0.96), rgba(4, 20, 28, 0.94));
+    box-shadow:
+      inset 0 0 38px rgba(83, 233, 232, 0.055),
+      0 0 24px rgba(83, 233, 232, 0.045);
+  }
+  .turn-banner--mine::before {
+    background: var(--tactical);
+    box-shadow: 0 0 22px rgba(83, 233, 232, 0.58);
+  }
+  .turn-banner--opponent {
+    border-color: rgba(237, 181, 82, 0.42);
+    background: linear-gradient(100deg, rgba(54, 39, 17, 0.88), rgba(17, 19, 21, 0.94));
+    box-shadow:
+      inset 0 0 38px rgba(237, 181, 82, 0.045),
+      0 0 24px rgba(237, 181, 82, 0.035);
   }
   .turn-banner__icon {
     display: grid;
@@ -568,6 +610,11 @@
     color: var(--tactical);
     background: rgba(83, 233, 232, 0.08);
   }
+  .turn-banner--opponent .turn-banner__icon {
+    border-color: rgba(237, 181, 82, 0.4);
+    color: var(--amber-400);
+    background: rgba(237, 181, 82, 0.1);
+  }
   .turn-banner__eyebrow,
   .turn-banner__side small {
     color: var(--ink-400);
@@ -575,8 +622,25 @@
     letter-spacing: 0.15em;
   }
   .turn-banner h1 {
+    display: grid;
+    gap: 3px;
     margin: 4px 0 0;
-    font-size: 17px;
+  }
+  .turn-banner__phase-title {
+    color: var(--amber-400);
+    font: 800 clamp(17px, 2vw, 22px) var(--font-display);
+    letter-spacing: 0.045em;
+  }
+  .turn-banner--mine .turn-banner__phase-title {
+    color: var(--cyan-200);
+    text-shadow: 0 0 18px rgba(83, 233, 232, 0.2);
+  }
+  .turn-banner__instruction {
+    color: var(--ink-300);
+    font-size: 10px;
+    font-weight: 600;
+    line-height: 1.45;
+    letter-spacing: 0;
   }
   .turn-banner__side {
     display: grid;
@@ -585,12 +649,27 @@
     text-align: right;
   }
   .turn-banner__side strong {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 6px;
     color: var(--ink-200);
-    font: 700 13px var(--font-display);
-    letter-spacing: 0.11em;
+    font: 700 11px var(--font-display);
+    letter-spacing: 0.04em;
+    white-space: nowrap;
+  }
+  .turn-banner__side strong i {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: currentColor;
+    box-shadow: 0 0 10px currentColor;
   }
   .turn-banner__side strong.cyan {
     color: var(--tactical);
+  }
+  .turn-banner__side strong.amber {
+    color: var(--amber-400);
   }
   .timer-hud {
     display: flex;
@@ -768,6 +847,24 @@
       rgba(98, 190, 200, 0.025) 13px 14px
     );
   }
+  .board-panel--attack-active {
+    border-color: rgba(83, 233, 232, 0.5);
+    box-shadow:
+      inset 0 0 32px rgba(83, 233, 232, 0.045),
+      0 0 18px rgba(83, 233, 232, 0.04);
+  }
+  .board-panel--defense-alert {
+    border-color: rgba(237, 181, 82, 0.48);
+    background: linear-gradient(145deg, rgba(50, 36, 18, 0.72), rgba(4, 20, 28, 0.84));
+    box-shadow: inset 0 0 28px rgba(237, 181, 82, 0.045);
+  }
+  .board-panel--defense-alert .board-readout strong {
+    color: var(--amber-400);
+  }
+  .board-panel--standby {
+    border-color: rgba(83, 233, 232, 0.16);
+    opacity: 0.7;
+  }
   .board-panel > * {
     position: relative;
     z-index: 1;
@@ -865,6 +962,17 @@
   .fire-control__title strong {
     color: var(--ink-100);
     font-size: 14px;
+  }
+  .fire-control--standby {
+    border-color: rgba(237, 181, 82, 0.2);
+    background: linear-gradient(165deg, rgba(40, 31, 18, 0.76), rgba(2, 13, 20, 0.94));
+  }
+  .fire-control--standby .fire-control__title {
+    color: var(--amber-400);
+  }
+  .fire-control--standby .coordinate-lock,
+  .fire-control--standby .fire-button {
+    opacity: 0.58;
   }
   .coordinate-lock {
     display: grid;

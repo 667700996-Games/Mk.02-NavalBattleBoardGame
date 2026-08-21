@@ -10,6 +10,7 @@ import {
   hudNotifications,
   lastAttack,
   socketStatus,
+  type HudNotification,
   type SocketStatus
 } from '$lib/stores';
 import { coordinateLabel, type ClientEvent, type GameSnapshot, type ServerEvent } from '$lib/types';
@@ -32,6 +33,7 @@ class RealtimeClient {
   private manuallyClosed = false;
   private queue: ClientEvent[] = [];
   private typingTimer: ReturnType<typeof setTimeout> | null = null;
+  private lastTurnNotificationKey = '';
 
   connect(): void {
     if (!browser || this.socket?.readyState === WebSocket.OPEN) return;
@@ -64,6 +66,7 @@ class RealtimeClient {
     this.socket?.close(1000, 'client navigation');
     this.socket = null;
     this.queue = [];
+    this.lastTurnNotificationKey = '';
     this.setStatus('idle');
   }
 
@@ -95,6 +98,40 @@ class RealtimeClient {
     const current = get(gameSnapshot);
     if (current && current.room.id === next.room.id && next.version < current.version) return;
     gameSnapshot.set(next);
+    this.notifyTurnPhase(next);
+  }
+
+  private notifyTurnPhase(snapshot: GameSnapshot): void {
+    if (
+      snapshot.room.status !== 'PLAYING' ||
+      snapshot.turnNumber === null ||
+      !snapshot.currentPlayerId
+    ) {
+      this.lastTurnNotificationKey = '';
+      return;
+    }
+    const notificationKey = `${snapshot.room.id}-${snapshot.turnNumber}-${snapshot.currentPlayerId}-${snapshot.selfPlayerId}`;
+    if (notificationKey === this.lastTurnNotificationKey) return;
+    this.lastTurnNotificationKey = notificationKey;
+
+    const myTurn = snapshot.currentPlayerId === snapshot.selfPlayerId;
+    const opponent = snapshot.players.find((player) => player.id !== snapshot.selfPlayerId);
+    const notification: HudNotification = {
+      id: `turn-phase-${notificationKey}`,
+      title: myTurn ? message('realtime.turnSelfTitle') : message('realtime.turnOpponentTitle'),
+      message: myTurn
+        ? message('realtime.turnSelfMessage')
+        : message('realtime.turnOpponentMessage', {
+            opponent: opponent?.nickname ?? message('battle.opponentFallback')
+          }),
+      tone: myTurn ? 'success' : 'warning'
+    };
+    hudNotifications.update((notifications) =>
+      [...notifications.filter((entry) => !entry.id.startsWith('turn-phase-')), notification].slice(
+        -3
+      )
+    );
+    setTimeout(() => dismissHudNotification(notification.id), 5_000);
   }
 
   private onOpen(): void {
@@ -302,6 +339,8 @@ class RealtimeClient {
           serverTimestamp: event.payload.serverTimestamp
         };
       });
+      const updated = get(gameSnapshot);
+      if (updated?.room.id === event.payload.roomId) this.notifyTurnPhase(updated);
     } else if (event.type === 'turn:expired') {
       const snapshot = get(gameSnapshot);
       if (snapshot?.room.id === event.payload.roomId) {

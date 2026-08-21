@@ -145,6 +145,17 @@ test('ready cancellation, tactical signals, deadline recovery and timeout defeat
   await expect(first.locator('.turn-clock strong')).toHaveText(/00:(0\d|10)/);
   await expect(second.getByText('경과', { exact: true })).toBeVisible();
   const initialTurnPage = (await first.locator('.turn-banner--mine').isVisible()) ? first : second;
+  const initialWaitingPage = initialTurnPage === first ? second : first;
+  await expect(initialTurnPage.locator('.turn-banner__phase-title')).toHaveText('내 공격 페이즈');
+  await expect(initialTurnPage.locator('.turn-banner__side strong')).toContainText(
+    '지금 공격할 차례입니다'
+  );
+  await expect(initialWaitingPage.locator('.turn-banner__phase-title')).toHaveText(
+    '상대 공격 페이즈'
+  );
+  await expect(initialWaitingPage.locator('.turn-banner__side strong')).toContainText(
+    '상대 공격 진행 중'
+  );
   await expect(initialTurnPage.locator('.sr-only[aria-live="assertive"]')).toHaveText(
     /턴 제한 시간 (10|5|3|2|1)초 남았습니다/,
     { timeout: 6_000 }
@@ -172,6 +183,10 @@ test('ready cancellation, tactical signals, deadline recovery and timeout defeat
   const victim = attacker === first ? second : first;
   await fire(attacker, 0, 0);
   await expect(victim.locator('.turn-banner--mine')).toBeVisible();
+  await expect(victim.locator('.turn-banner__phase-title')).toHaveText('내 공격 페이즈');
+  await expect(attacker.locator('.turn-banner__phase-title')).toHaveText('상대 공격 페이즈');
+  await expect(victim.locator('.ui-toast').filter({ hasText: '내 공격 페이즈' })).toBeVisible();
+  await expect(attacker.locator('.ui-toast').filter({ hasText: '상대 공격 페이즈' })).toBeVisible();
 
   await victim.reload();
   await expect(victim.getByText('상대 공격 보드')).toBeVisible();
