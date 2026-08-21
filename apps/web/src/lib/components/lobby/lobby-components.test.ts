@@ -43,7 +43,6 @@ describe('LobbyCommandDashboard', () => {
         rankedRegion: 'AUTO',
         measuredLatency: null,
         matchmakingTicket: null,
-        socketStatus: 'online',
         toggleMatchmaking: vi.fn(),
         measureLatency: vi.fn()
       }
@@ -51,7 +50,6 @@ describe('LobbyCommandDashboard', () => {
 
     expect(body).toContain(translate('ko-KR', 'dashboard.quickTitle'));
     expect(body).toContain(translate('ko-KR', 'dashboard.findOpponent'));
-    expect(body).toContain(translate('ko-KR', 'dashboard.synchronizing'));
     expect(body).not.toContain(translate('ko-KR', 'dashboard.aiPractice'));
     expect(body).toContain(`aria-label="${translate('ko-KR', 'dashboard.type')}"`);
   });
@@ -65,7 +63,6 @@ describe('LobbyCommandDashboard', () => {
         rankedRegion: 'KOREA',
         measuredLatency: 24,
         matchmakingTicket: ticket,
-        socketStatus: 'reconnecting',
         toggleMatchmaking: vi.fn(),
         measureLatency: vi.fn()
       }
@@ -80,7 +77,6 @@ describe('LobbyCommandDashboard', () => {
     );
     expect(body).toContain(translate('ko-KR', 'dashboard.rating', { rating: '1,542' }));
     expect(body).toContain(translate('ko-KR', 'dashboard.cancelMatch'));
-    expect(body).toContain(translate('ko-KR', 'dashboard.statusReconnecting'));
     expect(body.match(/disabled/g)?.length).toBeGreaterThanOrEqual(3);
   });
 });

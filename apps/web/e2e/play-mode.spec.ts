@@ -30,7 +30,9 @@ test('single-player choice opens the dedicated AI tactical range', async ({ page
   await expect(page.getByRole('heading', { name: '함대 배치' })).toBeVisible();
 });
 
-test('multiplayer choice opens a lobby without AI practice controls', async ({ page }) => {
+test('multiplayer choice opens a focused lobby and exposes social in the header', async ({
+  page
+}) => {
   await registerToPlaySelection(page, 'MultiCaptain');
 
   await page.getByRole('button', { name: '멀티 플레이 선택' }).click();
@@ -39,4 +41,6 @@ test('multiplayer choice opens a lobby without AI practice controls', async ({ p
   await expect(page.getByRole('heading', { name: '작전 로비' })).toBeVisible();
   await expect(page.getByRole('button', { name: '작전실 생성' })).toBeVisible();
   await expect(page.getByText('AI 연습 교전', { exact: true })).toHaveCount(0);
+  await expect(page.locator('.dashboard-side')).toHaveCount(0);
+  await expect(page.locator('.app-header').getByRole('link', { name: '소셜 허브' })).toBeVisible();
 });

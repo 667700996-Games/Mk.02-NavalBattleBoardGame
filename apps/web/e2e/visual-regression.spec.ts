@@ -48,7 +48,6 @@ test('authenticated lobby matches its approved empty-channel golden', async ({
   await expect(page).toHaveURL(/\/lobby$/);
   await roomList;
   await expect(page.getByRole('heading', { name: '활성 작전 없음' })).toBeVisible();
-  await expect(page.getByText('실시간 동기화 중')).toBeVisible();
   await settleVisualState(page);
   await expect(page).toHaveScreenshot('lobby-empty.png', { fullPage: true });
 });

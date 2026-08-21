@@ -1,17 +1,8 @@
 <script lang="ts">
-  import { resolve } from '$app/paths';
-  import { ArrowRight, History, Radio, ShieldCheck, Users, X } from '@lucide/svelte';
+  import { Radio, X } from '@lucide/svelte';
   import type { MatchmakingPool, MatchmakingRegion, MatchmakingTicket } from '$lib/types';
   import { Badge, Button, Surface } from '$lib/ui';
-  import {
-    formatNumber,
-    matchPhaseMessageKey,
-    regionMessageKey,
-    t,
-    type MessageKey
-  } from '$lib/i18n';
-
-  type SocketStatus = 'idle' | 'connecting' | 'online' | 'reconnecting' | 'offline';
+  import { formatNumber, matchPhaseMessageKey, regionMessageKey, t } from '$lib/i18n';
 
   interface Props {
     matching: boolean;
@@ -20,7 +11,6 @@
     rankedRegion: MatchmakingRegion;
     measuredLatency: number | null;
     matchmakingTicket: MatchmakingTicket | null;
-    socketStatus: SocketStatus;
     toggleMatchmaking: () => void | Promise<void>;
     measureLatency: () => void | Promise<void>;
   }
@@ -32,18 +22,10 @@
     rankedRegion = $bindable(),
     measuredLatency,
     matchmakingTicket,
-    socketStatus,
     toggleMatchmaking,
     measureLatency
   }: Props = $props();
 
-  const socketStatusKeys: Record<SocketStatus, MessageKey> = {
-    idle: 'dashboard.statusIdle',
-    connecting: 'dashboard.statusConnecting',
-    online: 'dashboard.statusOnline',
-    reconnecting: 'dashboard.statusReconnecting',
-    offline: 'dashboard.statusOffline'
-  };
   const rankedRegions: ReadonlyArray<Exclude<MatchmakingRegion, 'AUTO'>> = [
     'KOREA',
     'JAPAN',
@@ -132,53 +114,4 @@
         {$t('dashboard.findOpponent')}{/if}
     </Button>
   </Surface>
-
-  <div class="dashboard-side">
-    <Surface tone="interactive" padding="md">
-      <a class="dashboard-action" href={resolve('/tutorial')}>
-        <span><ShieldCheck size={19} /></span>
-        <div>
-          <small>{$t('dashboard.commandAcademy')}</small><strong>{$t('dashboard.tutorial')}</strong>
-          <p>{$t('dashboard.tutorialDescription')}</p>
-        </div>
-        <ArrowRight size={16} />
-      </a>
-    </Surface>
-    <Surface tone="interactive" padding="md">
-      <a class="dashboard-action" href={resolve('/stats')}>
-        <span><History size={19} /></span>
-        <div>
-          <small>{$t('dashboard.operationArchive')}</small><strong>{$t('dashboard.history')}</strong
-          >
-          <p>{$t('dashboard.historyDescription')}</p>
-        </div>
-        <ArrowRight size={16} />
-      </a>
-    </Surface>
-    <Surface tone="interactive" padding="md">
-      <a class="dashboard-action" href={resolve('/social')}>
-        <span><Users size={19} /></span>
-        <div>
-          <small>{$t('dashboard.commandNetwork')}</small><strong>{$t('dashboard.social')}</strong>
-          <p>{$t('dashboard.socialDescription')}</p>
-        </div>
-        <ArrowRight size={16} />
-      </a>
-    </Surface>
-    <Surface tone="quiet" padding="md">
-      <div class="network-card">
-        <ShieldCheck size={19} />
-        <div>
-          <small>{$t('dashboard.tacticalNetwork')}</small><strong
-            >{socketStatus === 'online'
-              ? $t('dashboard.synchronizing')
-              : $t('dashboard.channelPreparing')}</strong
-          >
-        </div>
-        <Badge tone={socketStatus === 'online' ? 'success' : 'warning'}
-          >{$t(socketStatusKeys[socketStatus])}</Badge
-        >
-      </div>
-    </Surface>
-  </div>
 </section>

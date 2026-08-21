@@ -6,7 +6,7 @@
   import { api, ApiError } from '$lib/api';
   import { trackFunnelAbandoned, trackFunnelFailure, trackFunnelReached } from '$lib/funnel';
   import { realtime } from '$lib/realtime';
-  import { gameSnapshot, session, socketStatus } from '$lib/stores';
+  import { gameSnapshot, session } from '$lib/stores';
   import { Badge, Button } from '$lib/ui';
   import { localizeError, t } from '$lib/i18n';
   import LobbyCommandDashboard from '$lib/components/lobby/LobbyCommandDashboard.svelte';
@@ -267,7 +267,6 @@
       bind:rankedRegion
       {measuredLatency}
       {matchmakingTicket}
-      socketStatus={$socketStatus}
       {toggleMatchmaking}
       {measureLatency}
     />
