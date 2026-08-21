@@ -1852,7 +1852,24 @@ async fn delayed_spectating_lists_public_battles_and_never_serializes_hidden_sta
     room.place_ships(guest.id, fleet(5)).unwrap();
     assert!(!room.confirm_placement(host.id, &fleet(0), 60).unwrap());
     assert!(room.confirm_placement(guest.id, &fleet(5), 60).unwrap());
+
+    let mut finished_room = room.clone();
+    finished_room.id = uuid::Uuid::new_v4();
+    finished_room.code = "WATCH2".to_string();
+    finished_room.name = "Completed fleet exercise".to_string();
+    let surrendering_player_id = finished_room.game.as_ref().unwrap().current_player_id;
+    let surrendering_session_id = if surrendering_player_id == host_player_id {
+        host.id
+    } else {
+        guest.id
+    };
+    finished_room
+        .surrender(surrendering_session_id, surrendering_player_id)
+        .unwrap();
+    let finished_room_id = finished_room.id;
+
     store.save_room(&mut room).await.unwrap();
+    store.save_room(&mut finished_room).await.unwrap();
     let room_id = room.id;
     let app = build_router(AppState::with_store(test_settings(), store));
 
@@ -1882,6 +1899,17 @@ async fn delayed_spectating_lists_public_battles_and_never_serializes_hidden_sta
     assert_eq!(listed["delaySeconds"], 30);
     assert_eq!(listed["rooms"].as_array().unwrap().len(), 1);
     assert_eq!(listed["rooms"][0]["id"], room_id.to_string());
+
+    let finished_response = send(
+        &app,
+        Request::builder()
+            .uri(format!("/api/games/{finished_room_id}/spectate"))
+            .header(header::COOKIE, cookie)
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(finished_response.status(), StatusCode::NOT_FOUND);
 
     let response = send(
         &app,

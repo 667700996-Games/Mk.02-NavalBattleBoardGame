@@ -210,6 +210,9 @@ impl GameRoom {
         if self.visibility != RoomVisibility::Public {
             return Err(GameError::RoomNotFound);
         }
+        if self.status != RoomStatus::Playing {
+            return Err(GameError::RoomNotFound);
+        }
         let game = self.game.as_ref().ok_or(GameError::InvalidState)?;
         let visible_through = now - Duration::seconds(i64::from(SPECTATOR_DELAY_SECONDS));
         let source_timeline = if game.timeline.is_empty() {

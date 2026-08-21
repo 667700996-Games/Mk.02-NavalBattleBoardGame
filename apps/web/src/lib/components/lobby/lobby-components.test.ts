@@ -4,6 +4,7 @@ import type { MatchmakingTicket, RoomSummary } from '$lib/types';
 import { translate } from '$lib/i18n';
 import LobbyCommandDashboard from './LobbyCommandDashboard.svelte';
 import LobbyRoomOperations from './LobbyRoomOperations.svelte';
+import SpectatableRooms from './SpectatableRooms.svelte';
 
 const ticket: MatchmakingTicket = {
   pool: 'RANKED',
@@ -140,5 +141,35 @@ describe('LobbyRoomOperations', () => {
     expect(joinDialog).toContain('minlength="6"');
     expect(joinDialog).toContain('maxlength="6"');
     expect(joinDialog).toMatch(/채널 접속[\s\S]*disabled|disabled[\s\S]*채널 접속/);
+  });
+});
+
+describe('SpectatableRooms', () => {
+  it('shows only operations that are currently playing', () => {
+    const playingRoom: RoomSummary = {
+      ...room,
+      id: '00000000-0000-4000-8000-000000000010',
+      name: '진행 중 공개 작전',
+      status: 'PLAYING',
+      gameId: '00000000-0000-4000-8000-000000000011',
+      playerCount: 2
+    };
+    const finishedRoom: RoomSummary = {
+      ...playingRoom,
+      id: '00000000-0000-4000-8000-000000000012',
+      name: '종료된 공개 작전',
+      status: 'FINISHED'
+    };
+
+    const mixed = render(SpectatableRooms, {
+      props: { rooms: [playingRoom, finishedRoom], delaySeconds: 30, spectate: vi.fn() }
+    }).body;
+    expect(mixed).toContain('진행 중 공개 작전');
+    expect(mixed).not.toContain('종료된 공개 작전');
+
+    const finishedOnly = render(SpectatableRooms, {
+      props: { rooms: [finishedRoom], delaySeconds: 30, spectate: vi.fn() }
+    }).body;
+    expect(finishedOnly).not.toContain(translate('ko-KR', 'spectator.lobbyTitle'));
   });
 });

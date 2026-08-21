@@ -1403,7 +1403,7 @@ impl GameStore for MemoryStore {
             .filter(|entry| {
                 entry.visibility == RoomVisibility::Public
                     && entry.game.is_some()
-                    && matches!(entry.status, RoomStatus::Playing | RoomStatus::Finished)
+                    && entry.status == RoomStatus::Playing
             })
             .map(|entry| entry.summary())
             .collect();

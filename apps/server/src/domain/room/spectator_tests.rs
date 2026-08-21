@@ -107,6 +107,14 @@ fn projection_is_delayed_public_and_never_contains_hidden_fleets() {
         );
     }
 
+    room.visibility = RoomVisibility::Private;
+    assert_eq!(
+        room.spectator_snapshot_at(attack.created_at + Duration::seconds(30))
+            .unwrap_err(),
+        GameError::RoomNotFound
+    );
+    room.visibility = RoomVisibility::Public;
+
     let surrendering_player_id = room.game.as_ref().unwrap().current_player_id;
     let surrendering_session_id =
         if room.player_for_session(first.id).unwrap().id == surrendering_player_id {
@@ -118,18 +126,11 @@ fn projection_is_delayed_public_and_never_contains_hidden_fleets() {
         .unwrap();
     let game = room.game.as_ref().unwrap();
     let finished_at = game.result.as_ref().unwrap().finished_at;
-    let hidden_result = room
-        .spectator_snapshot_at(game.started_at + Duration::seconds(30))
-        .unwrap();
-    assert_eq!(hidden_result.phase, SpectatorPhase::Live);
-    assert!(hidden_result.result.is_none());
-    let visible_result = room
-        .spectator_snapshot_at(finished_at + Duration::seconds(30))
-        .unwrap();
-    assert_eq!(visible_result.phase, SpectatorPhase::Finished);
-    assert!(visible_result.result.is_some());
-
-    room.visibility = RoomVisibility::Private;
+    assert_eq!(
+        room.spectator_snapshot_at(game.started_at + Duration::seconds(30))
+            .unwrap_err(),
+        GameError::RoomNotFound
+    );
     assert_eq!(
         room.spectator_snapshot_at(finished_at + Duration::seconds(30))
             .unwrap_err(),

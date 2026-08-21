@@ -1781,7 +1781,7 @@ impl GameStore for PostgresRedisStore {
 
     async fn list_spectatable_rooms(&self) -> Result<Vec<RoomSummary>, GameError> {
         let snapshots: Vec<(serde_json::Value, i64, i16, String)> = sqlx::query_as(
-            "SELECT snapshot,persistence_revision,ruleset_version,balance_checksum FROM game_rooms WHERE visibility='PUBLIC' AND status IN ('PLAYING','FINISHED') ORDER BY updated_at DESC LIMIT 100"
+            "SELECT snapshot,persistence_revision,ruleset_version,balance_checksum FROM game_rooms WHERE visibility='PUBLIC' AND status='PLAYING' ORDER BY updated_at DESC LIMIT 100"
         ).fetch_all(&self.pool).await?;
         snapshots
             .into_iter()

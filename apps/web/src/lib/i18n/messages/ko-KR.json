@@ -1004,7 +1004,6 @@
   "spectator.lobbyEyebrow": "공개 작전 관측",
   "spectator.lobbyTitle": "지연 관전 채널",
   "spectator.lobbyDescription": "모든 전황은 공정성을 위해 {seconds}초 늦게 공개됩니다.",
-  "spectator.finishedBadge": "종료 기록",
   "spectator.delayedLiveBadge": "지연 생중계",
   "spectator.operationFeed": "공개 작전 피드",
   "spectator.visibilityFiltered": "기밀 정보 필터링",

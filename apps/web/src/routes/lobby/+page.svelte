@@ -110,7 +110,7 @@
         api.spectatableGames()
       ]);
       rooms = roomResponse.rooms;
-      spectatableRooms = spectatorResponse.rooms;
+      spectatableRooms = spectatorResponse.rooms.filter((room) => room.status === 'PLAYING');
       spectatorDelaySeconds = spectatorResponse.delaySeconds;
       error = '';
     } catch (caught) {

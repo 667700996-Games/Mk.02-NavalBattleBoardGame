@@ -152,6 +152,10 @@ describe("Cloudflare authoritative room domain", () => {
         "2026-08-19T00:00:09.000Z",
       ),
     ).toThrowError(new DomainError("NOT_YOUR_TURN"));
+    const activeSpectator = spectatorSnapshot(room, "2026-08-19T00:00:39.000Z");
+    expect(activeSpectator.phase).toBe("LIVE");
+    expect(JSON.stringify(activeSpectator)).not.toContain('"ships"');
+    expect(JSON.stringify(activeSpectator)).not.toContain("sessionId");
 
     const targets = fleet(5).flatMap((placement) => {
       const size = {
@@ -210,17 +214,12 @@ describe("Cloudflare authoritative room domain", () => {
     expect(() => replayFor(room, crypto.randomUUID())).toThrowError(
       new DomainError("NOT_ROOM_MEMBER"),
     );
-    expect(
-      spectatorSnapshot(room, "2026-08-19T00:01:10.000Z").result,
-    ).toBeNull();
-    const finishedSpectator = spectatorSnapshot(
-      room,
-      "2026-08-19T00:01:11.000Z",
-    );
-    expect(finishedSpectator.phase).toBe("FINISHED");
-    expect(finishedSpectator.timeline).toHaveLength(33);
-    expect(JSON.stringify(finishedSpectator)).not.toContain('"ships"');
-    expect(JSON.stringify(finishedSpectator)).not.toContain("sessionId");
+    expect(() =>
+      spectatorSnapshot(room, "2026-08-19T00:01:10.000Z"),
+    ).toThrowError(new DomainError("ROOM_NOT_FOUND"));
+    expect(() =>
+      spectatorSnapshot(room, "2026-08-19T00:01:11.000Z"),
+    ).toThrowError(new DomainError("ROOM_NOT_FOUND"));
   });
 
   it("uses salvo shot allowance, turn alarms, and reconnect deadlines without client authority", () => {

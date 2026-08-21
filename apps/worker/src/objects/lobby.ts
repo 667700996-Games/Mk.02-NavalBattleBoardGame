@@ -124,7 +124,7 @@ export class LobbyDurableObject extends DurableObject<WorkerEnv> {
         (room) =>
           room.visibility === "PUBLIC" &&
           room.gameId !== null &&
-          ["PLAYING", "FINISHED"].includes(room.status),
+          room.status === "PLAYING",
       )
       .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
       .slice(0, 100)

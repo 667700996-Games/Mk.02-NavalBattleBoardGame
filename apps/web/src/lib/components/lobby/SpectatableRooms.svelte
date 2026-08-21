@@ -11,6 +11,7 @@
   }
 
   let { rooms, delaySeconds, spectate }: Props = $props();
+  let activeRooms = $derived(rooms.filter((room) => room.status === 'PLAYING'));
 
   const age = (createdAt: string) => {
     const minutes = Math.max(0, Math.floor((Date.now() - new Date(createdAt).getTime()) / 60_000));
@@ -18,7 +19,7 @@
   };
 </script>
 
-{#if rooms.length > 0}
+{#if activeRooms.length > 0}
   <section class="room-section" aria-labelledby="spectatable-room-title">
     <div class="section-heading">
       <div>
@@ -32,17 +33,11 @@
       </div>
     </div>
     <div class="room-grid">
-      {#each rooms as room (room.id)}
+      {#each activeRooms as room (room.id)}
         <Surface tone="interactive" padding="md" class="room-card">
           <article>
             <div class="room-card__top">
-              <Badge tone={room.status === 'FINISHED' ? 'neutral' : 'warning'}>
-                {$t(
-                  room.status === 'FINISHED'
-                    ? 'spectator.finishedBadge'
-                    : 'spectator.delayedLiveBadge'
-                )}
-              </Badge>
+              <Badge tone="warning">{$t('spectator.delayedLiveBadge')}</Badge>
               <span>{age(room.createdAt)}</span>
             </div>
             <div class="room-card__title">

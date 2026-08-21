@@ -115,6 +115,21 @@ test('public battles expose only the delayed visibility-filtered spectator proje
     )
     .toBe(true);
 
+  const unavailableResponse = viewer.waitForResponse(
+    (response) =>
+      /\/api\/games\/.+\/spectate$/.test(new URL(response.url()).pathname) &&
+      response.status() === 404
+  );
+  await host.getByRole('button', { name: '작전 포기' }).click();
+  await host.getByRole('dialog').getByRole('button', { name: '기권' }).click();
+  expect((await unavailableResponse).status()).toBe(404);
+  await expect(
+    viewer.getByRole('heading', { name: '관전 채널을 사용할 수 없습니다' })
+  ).toBeVisible();
+  await viewer.getByRole('button', { name: '작전 로비로 복귀' }).click();
+  await expect(viewer).toHaveURL(/\/lobby$/);
+  await expect(viewer.locator('.room-card').filter({ hasText: operationName })).toHaveCount(0);
+
   await hostContext.close();
   await guestContext.close();
   await viewerContext.close();

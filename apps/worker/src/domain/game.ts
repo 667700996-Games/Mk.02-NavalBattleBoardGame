@@ -1184,6 +1184,7 @@ export function replayFor(room: InternalRoom, sessionId: string) {
 
 export function spectatorSnapshot(room: InternalRoom, now: string) {
   if (room.visibility !== "PUBLIC") throw new DomainError("ROOM_NOT_FOUND");
+  if (room.status !== "PLAYING") throw new DomainError("ROOM_NOT_FOUND");
   if (!room.game || !room.gameId) throw new DomainError("INVALID_STATE");
   const visibleThrough = new Date(
     Date.parse(now) - SPECTATOR_DELAY_SECONDS * 1_000,

@@ -1004,7 +1004,6 @@
   "spectator.lobbyEyebrow": "Public operation watch",
   "spectator.lobbyTitle": "Delayed spectator channels",
   "spectator.lobbyDescription": "Every battle update is delayed by {seconds} seconds to protect competitive integrity.",
-  "spectator.finishedBadge": "Completed record",
   "spectator.delayedLiveBadge": "Delayed live",
   "spectator.operationFeed": "Public operation feed",
   "spectator.visibilityFiltered": "Classified data filtered",
