@@ -4,6 +4,6 @@ export { LobbyDurableObject } from "./lobby";
 export { EdgeRateLimitDurableObject } from "./rate-limit";
 export { ProgressionDurableObject } from "./progression";
 export { MatchmakingDurableObject } from "./matchmaking";
-export { SocialDurableObject } from "./social";
+export { SafetyDurableObject } from "./safety";
 export { OperationsDurableObject } from "./operations";
 export { ContentDurableObject } from "./content";

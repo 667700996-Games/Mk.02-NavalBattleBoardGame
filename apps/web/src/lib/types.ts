@@ -191,7 +191,7 @@ export interface AccountDataExport {
   rankedMatchResults?: unknown[];
   rankedRewards?: unknown[];
   leaderboardVisible: boolean;
-  socialRelationships: unknown[];
+  safetyRelationships: unknown[];
   moderationReports: unknown[];
   moderationActions: unknown[];
   integritySignals: unknown[];
@@ -315,80 +315,12 @@ export interface RankedLeaderboardResponse {
   viewerVisible: boolean;
 }
 
-export interface SocialRelationship {
+export interface SafetyRelationship {
   targetIdentityId: string;
   targetNickname: string;
   muted: boolean;
   blocked: boolean;
-  friendState: 'NONE' | 'OUTGOING' | 'INCOMING' | 'FRIEND';
-  friendRequestId: string | null;
-  partyState: 'NONE' | 'OUTGOING_INVITE' | 'INCOMING_INVITE' | 'OWNER' | 'MEMBER';
-  partyId: string | null;
-  gameInvite: DirectGameInvite | null;
-  presence: 'OFFLINE' | 'ONLINE' | 'IN_GAME';
-  currentRoomId: string | null;
   updatedAt: string;
-}
-
-export interface DirectGameInvite {
-  id: string;
-  direction: 'OUTGOING' | 'INCOMING';
-  roomId: string;
-  roomCode: string;
-  roomName: string;
-  expiresAt: string;
-}
-
-export interface SocialPrivacy {
-  allowFriendRequests: boolean;
-  showPresence: boolean;
-  allowGameInvites: boolean;
-  updatedAt: string;
-}
-
-export interface RecentPlayer {
-  accountId: string;
-  handle: string;
-  lastPlayedAt: string;
-  friend: boolean;
-  muted: boolean;
-  blocked: boolean;
-}
-
-export interface SocialOverview {
-  privacy: SocialPrivacy;
-  relationships: SocialRelationship[];
-  recentPlayers: RecentPlayer[];
-}
-
-export type SocialAction =
-  | { action: 'FRIEND_REQUEST'; targetHandle: string }
-  | {
-      action: 'FRIEND_RESPOND';
-      targetAccountId: string;
-      requestId: string;
-      accept: boolean;
-    }
-  | { action: 'FRIEND_REMOVE'; targetAccountId: string }
-  | { action: 'PARTY_INVITE'; targetAccountId: string }
-  | {
-      action: 'PARTY_RESPOND';
-      targetAccountId: string;
-      partyId: string;
-      accept: boolean;
-    }
-  | { action: 'PARTY_LEAVE'; targetAccountId: string }
-  | { action: 'GAME_INVITE'; targetAccountId: string; roomId: string }
-  | {
-      action: 'GAME_INVITE_RESPOND';
-      targetAccountId: string;
-      inviteId: string;
-      accept: boolean;
-    };
-
-export interface SocialActionResponse {
-  overview: SocialOverview;
-  joinCode?: string;
 }
 
 export type ReportCategory = 'CHAT' | 'NAME' | 'CHEATING' | 'STALLING' | 'OTHER';

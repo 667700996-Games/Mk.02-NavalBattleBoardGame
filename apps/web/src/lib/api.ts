@@ -25,10 +25,7 @@ import type {
   RoomSummary,
   RoomVisibility,
   Session,
-  SocialAction,
-  SocialActionResponse,
-  SocialOverview,
-  SocialRelationship,
+  SafetyRelationship,
   SpectatorSnapshot,
   SupportAccountSnapshot
 } from '$lib/types';
@@ -172,30 +169,15 @@ export const api = {
     request<PlayerProgression>(`/profile/missions/${encodeURIComponent(missionId)}/claim`, {
       method: 'POST'
     }),
-  socialRelationships: () =>
-    request<{ relationships: SocialRelationship[] }>('/social/relationships'),
-  socialOverview: () => request<SocialOverview>('/social/overview'),
-  setSocialPrivacy: (privacy: {
-    allowFriendRequests: boolean;
-    showPresence: boolean;
-    allowGameInvites: boolean;
-  }) =>
-    request<SocialOverview>('/social/privacy', {
-      method: 'PUT',
-      body: JSON.stringify(privacy)
-    }),
-  applySocialAction: (action: SocialAction) =>
-    request<SocialActionResponse>('/social/actions', {
-      method: 'POST',
-      body: JSON.stringify(action)
-    }),
-  updateSocialRelationship: (
+  safetyRelationships: () =>
+    request<{ relationships: SafetyRelationship[] }>('/safety/relationships'),
+  updateSafetyRelationship: (
     roomId: string,
     targetPlayerId: string,
     muted: boolean,
     blocked: boolean
   ) =>
-    request<SocialRelationship>('/social/relationships', {
+    request<SafetyRelationship>('/safety/relationships', {
       method: 'POST',
       body: JSON.stringify({ roomId, targetPlayerId, muted, blocked })
     }),

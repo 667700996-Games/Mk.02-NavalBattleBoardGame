@@ -1413,12 +1413,6 @@ async fn postgres_account_export_and_deletion_cover_migrations_and_anonymized_ro
         .execute(&audit_pool)
         .await
         .unwrap();
-    sqlx::query("INSERT INTO player_social_links (actor_account_id,target_account_id,target_handle,friend_state) VALUES ($1,$2,'PrivacyPeer','FRIEND')")
-        .bind(account.id)
-        .bind(relationship_target)
-        .execute(&audit_pool)
-        .await
-        .unwrap();
     sqlx::query("INSERT INTO player_reports (id,reporter_identity_id,target_identity_id,target_nickname,category,details,evidence) VALUES ($1,$2,$3,'Privacy Report Target','OTHER','privacy export fixture','{}')")
         .bind(submitted_report_id)
         .bind(account.id)
@@ -1506,8 +1500,7 @@ async fn postgres_account_export_and_deletion_cover_migrations_and_anonymized_ro
             .len(),
         1
     );
-    assert_eq!(archive["socialRelationships"].as_array().unwrap().len(), 1);
-    assert_eq!(archive["socialLinks"].as_array().unwrap().len(), 1);
+    assert_eq!(archive["safetyRelationships"].as_array().unwrap().len(), 1);
     assert_eq!(archive["moderationReports"].as_array().unwrap().len(), 1);
     assert_eq!(archive["moderationActions"].as_array().unwrap().len(), 1);
     assert_eq!(archive["integritySignals"].as_array().unwrap().len(), 1);
@@ -1589,7 +1582,7 @@ async fn postgres_account_export_and_deletion_cover_migrations_and_anonymized_ro
     assert_ne!(participant_identity.0, account_session.id);
     assert_eq!(participant_identity.1, None);
     let removed_derived_records: i64 = sqlx::query_scalar(
-        "SELECT (SELECT count(*) FROM ranked_ratings WHERE account_id=$1) + (SELECT count(*) FROM ranked_season_standings WHERE account_id=$1) + (SELECT count(*) FROM ranked_reward_ledger WHERE account_id=$1) + (SELECT count(*) FROM progression_reward_ledger WHERE account_id=$1) + (SELECT count(*) FROM ranked_leaderboard_snapshot_entries WHERE account_id=$1) + (SELECT count(*) FROM player_relationships WHERE actor_identity_id=$1 OR target_identity_id=$1) + (SELECT count(*) FROM player_social_links WHERE actor_account_id=$1 OR target_account_id=$1) + (SELECT count(*) FROM player_reports WHERE reporter_identity_id=$1 OR target_identity_id=$1) + (SELECT count(*) FROM player_moderation_actions WHERE target_identity_id=$1) + (SELECT count(*) FROM integrity_signals WHERE subject_identity_id=$1)",
+        "SELECT (SELECT count(*) FROM ranked_ratings WHERE account_id=$1) + (SELECT count(*) FROM ranked_season_standings WHERE account_id=$1) + (SELECT count(*) FROM ranked_reward_ledger WHERE account_id=$1) + (SELECT count(*) FROM progression_reward_ledger WHERE account_id=$1) + (SELECT count(*) FROM ranked_leaderboard_snapshot_entries WHERE account_id=$1) + (SELECT count(*) FROM player_relationships WHERE actor_identity_id=$1 OR target_identity_id=$1) + (SELECT count(*) FROM player_reports WHERE reporter_identity_id=$1 OR target_identity_id=$1) + (SELECT count(*) FROM player_moderation_actions WHERE target_identity_id=$1) + (SELECT count(*) FROM integrity_signals WHERE subject_identity_id=$1)",
     )
     .bind(account.id)
     .fetch_one(&audit_pool)

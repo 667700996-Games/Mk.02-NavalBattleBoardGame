@@ -11,13 +11,13 @@ and total raw-byte limits for JavaScript, CSS, WOFF2 fonts, images, and audio, r
 files, and resolves configured routes through SvelteKit's generated route dictionary to cap their
 code-split entry JavaScript and CSS. The current production artifact is:
 
-| Category | Measured bytes | Total budget |
-| --- | ---: | ---: |
-| JavaScript | 429,740 | 435,000 |
-| CSS | 248,299 | 255,000 |
-| WOFF2 fonts | 633,804 | 1,200,000 |
-| Images | 2,228,129 | 2,250,000 |
-| Audio | 424,592 | 4,000,000 |
+| Category    | Measured bytes | Total budget |
+| ----------- | -------------: | -----------: |
+| JavaScript  |        429,740 |      435,000 |
+| CSS         |        248,299 |      255,000 |
+| WOFF2 fonts |        633,804 |    1,200,000 |
+| Images      |      2,228,129 |    2,250,000 |
+| Audio       |        424,592 |    4,000,000 |
 
 The image total includes both static Open Graph images; route transfer is measured separately and
 does not fetch them. Font generation and the tighter Korean subset limit are documented in
@@ -57,11 +57,10 @@ transfer. Its entry is measured at 8,954 JavaScript and 4,358 CSS bytes and is c
 15,000 / 8,500 caps. Complete-artifact ceilings moved only to 354,000 / 201,500 bytes, leaving 673 /
 532 bytes of headroom; player device-tier transfer limits remain unchanged.
 
-The account social graph and its separately loaded `/social` route bring the verified complete
-artifact to 407,514 JavaScript and 209,311 CSS bytes. The route itself measures 14,593 JavaScript
-and 4,388 CSS bytes against explicit 15,500 / 9,000 byte caps. The localized catalogs total 125,115
-bytes against a 135,000 byte cap. The lobby receives only its small navigation link, and the
-landing-to-result runtime ceilings remain unchanged.
+Retiring the unused player-network route removed its dedicated entry and shifted shared chunks into
+the moderation and replay entries. The measured entries are now 17,182 JavaScript bytes for
+`/admin/moderation` and 10,931 CSS bytes for `/replay/[roomId]`; their narrow caps are 17,500 and
+11,500 bytes. Critical gameplay transfer limits remain unchanged.
 
 The final presentation/audio pass adds the approved ocean WebP, five persisted cosmetic groups,
 three effects tiers, a file-backed Web Audio director, five mixer stages and their localized copy.
@@ -85,22 +84,22 @@ confirmation and the result. Chromium DevTools Protocol applies the configured C
 reports task time and peak sampled heap use. Playwright records decoded unique response bodies,
 long tasks, animation-frame intervals, and WebSocket frames.
 
-| Tier | Viewport | CPU throttle | Frame p95 budget | CPU task budget | Long-task budget |
-| --- | --- | ---: | ---: | ---: | ---: |
-| Desktop | 1440×900 | 1× | 34 ms | 4,000 ms | 500 ms |
-| Mobile | 412×915 | 3× | 67 ms | 8,000 ms | 1,000 ms |
-| Low mobile | 360×640 | 6× | 100 ms | 12,000 ms | 2,000 ms |
+| Tier       | Viewport | CPU throttle | Frame p95 budget | CPU task budget | Long-task budget |
+| ---------- | -------- | -----------: | ---------------: | --------------: | ---------------: |
+| Desktop    | 1440×900 |           1× |            34 ms |        4,000 ms |           500 ms |
+| Mobile     | 412×915  |           3× |            67 ms |        8,000 ms |         1,000 ms |
+| Low mobile | 360×640  |           6× |           100 ms |       12,000 ms |         2,000 ms |
 
 All tiers also cap route JavaScript at 370 KB, CSS at 185 KB, fonts at 500 KB, images at 1.2 MB,
 audio at 500 KB, JavaScript heap at 64 MiB, and WebSocket traffic at 75 KB for the journey.
 
 The August 19, 2026 reference run passed all tiers:
 
-| Tier | JS / CSS / fonts | Heap | CPU tasks | Long tasks | Frame p50 / p95 | WebSocket |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| Desktop | 363,071 / 174,537 / 429,840 B | 11.5 MiB | 1,073 ms | 0 ms | 16.7 / 33.3 ms | 64,595 B |
-| Mobile | 363,071 / 174,537 / 429,840 B | 12.3 MiB | 2,415 ms | 0 ms | 16.7 / 18.4 ms | 64,897 B |
-| Low mobile | 363,071 / 174,537 / 429,840 B | 9.1 MiB | 4,837 ms | 0 ms | 16.7 / 18.6 ms | 64,556 B |
+| Tier       |              JS / CSS / fonts |     Heap | CPU tasks | Long tasks | Frame p50 / p95 | WebSocket |
+| ---------- | ----------------------------: | -------: | --------: | ---------: | --------------: | --------: |
+| Desktop    | 363,071 / 174,537 / 429,840 B | 11.5 MiB |  1,073 ms |       0 ms |  16.7 / 33.3 ms |  64,595 B |
+| Mobile     | 363,071 / 174,537 / 429,840 B | 12.3 MiB |  2,415 ms |       0 ms |  16.7 / 18.4 ms |  64,897 B |
+| Low mobile | 363,071 / 174,537 / 429,840 B |  9.1 MiB |  4,837 ms |       0 ms |  16.7 / 18.6 ms |  64,556 B |
 
 Large translucent surfaces formerly used nested `backdrop-filter` blurs. The reference desktop
 sequence measured 66.7 ms frame p95 before those redundant filters were removed and 33.7 ms in the
@@ -114,7 +113,7 @@ before the full three-tier gate above passed without changing any runtime limit.
 
 ## Interpretation and release use
 
-- Artifact totals prevent unvisited routes and social images from silently growing the release.
+- Artifact totals prevent unvisited routes and optional images from silently growing the release.
 - Route-entry totals prevent the larger post-match analysis from consuming its new headroom without
   an explicit measured budget review.
 - Runtime transfer totals cover only resources actually loaded by the critical gameplay journey.

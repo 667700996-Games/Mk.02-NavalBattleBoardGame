@@ -13,9 +13,8 @@ use crate::{
         IntegritySignalKind, IntegritySignalPage, LiveContentRevision, MatchmakingCriteria,
         MatchmakingQuality, ModerationAction, ModerationCasePage, NewIntegritySignal,
         NewModerationAction, NewPlayerReport, NewSupportAction, PlayerAccount,
-        RankedLeaderboardPage, RankedProfile, RecentPlayer, ReportStatus, RoomSummary,
-        SocialPresence, SocialPrivacy, SocialRelationship, SupportAccountSnapshot, SupportAction,
-        UserSession,
+        RankedLeaderboardPage, RankedProfile, ReportStatus, RoomSummary, SafetyRelationship,
+        SupportAccountSnapshot, SupportAction, UserSession,
     },
     error::GameError,
 };
@@ -199,44 +198,20 @@ pub trait GameStore: Send + Sync {
         candidate: &LiveContentRevision,
     ) -> Result<bool, GameError>;
     async fn identity_for_session(&self, session_id: Uuid) -> Result<Option<Uuid>, GameError>;
-    async fn account_by_handle(&self, handle: &str) -> Result<Option<PlayerAccount>, GameError>;
-    async fn social_privacy(&self, account_id: Uuid) -> Result<SocialPrivacy, GameError>;
-    async fn set_social_privacy(
-        &self,
-        account_id: Uuid,
-        privacy: SocialPrivacy,
-    ) -> Result<(), GameError>;
-    async fn set_social_relationship(
+    async fn set_safety_relationship(
         &self,
         actor_identity_id: Uuid,
-        relationship: SocialRelationship,
+        relationship: SafetyRelationship,
     ) -> Result<(), GameError>;
-    async fn set_social_relationship_pair(
-        &self,
-        first_actor_id: Uuid,
-        first_relationship: SocialRelationship,
-        second_actor_id: Uuid,
-        second_relationship: SocialRelationship,
-    ) -> Result<(), GameError>;
-    async fn social_relationships(
+    async fn safety_relationships(
         &self,
         actor_identity_id: Uuid,
-    ) -> Result<Vec<SocialRelationship>, GameError>;
-    async fn social_relationship_between(
+    ) -> Result<Vec<SafetyRelationship>, GameError>;
+    async fn safety_relationship_between(
         &self,
         actor_identity_id: Uuid,
         target_identity_id: Uuid,
-    ) -> Result<Option<SocialRelationship>, GameError>;
-    async fn social_presence(
-        &self,
-        account_id: Uuid,
-        now: DateTime<Utc>,
-    ) -> Result<(SocialPresence, Option<Uuid>), GameError>;
-    async fn recent_players(
-        &self,
-        account_id: Uuid,
-        limit: usize,
-    ) -> Result<Vec<RecentPlayer>, GameError>;
+    ) -> Result<Option<SafetyRelationship>, GameError>;
     async fn create_player_report(&self, report: &NewPlayerReport) -> Result<(), GameError>;
     async fn moderation_cases(
         &self,

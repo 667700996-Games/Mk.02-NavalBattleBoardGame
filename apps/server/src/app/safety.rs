@@ -1,269 +1,24 @@
 use super::accounts::constant_time_equal;
 use super::*;
-use crate::protocol::SocialActionInput;
 
 impl AppState {
-    pub async fn social_relationships(
+    pub async fn safety_relationships(
         &self,
         session: &UserSession,
-    ) -> Result<Vec<SocialRelationship>, GameError> {
+    ) -> Result<Vec<SafetyRelationship>, GameError> {
         self.store
-            .social_relationships(session.account_id.unwrap_or(session.id))
+            .safety_relationships(session.account_id.unwrap_or(session.id))
             .await
     }
 
-    pub async fn apply_social_action(
-        &self,
-        session: &UserSession,
-        action: SocialActionInput,
-    ) -> Result<(SocialOverview, Option<String>), GameError> {
-        let actor_id = session.account_id.ok_or(GameError::SocialAccountRequired)?;
-        let now = Utc::now();
-        let mut join_code = None;
-
-        let (target_id, target_handle) = match &action {
-            SocialActionInput::FriendRequest { target_handle } => {
-                let target_handle = target_handle.trim();
-                super::accounts::validate_nickname(target_handle)?;
-                let target = self
-                    .store
-                    .account_by_handle(target_handle)
-                    .await?
-                    .ok_or(GameError::InvalidRequest)?;
-                (target.id, target.handle)
-            }
-            SocialActionInput::FriendRespond {
-                target_account_id, ..
-            }
-            | SocialActionInput::FriendRemove { target_account_id }
-            | SocialActionInput::PartyInvite { target_account_id }
-            | SocialActionInput::PartyRespond {
-                target_account_id, ..
-            }
-            | SocialActionInput::PartyLeave { target_account_id }
-            | SocialActionInput::GameInvite {
-                target_account_id, ..
-            }
-            | SocialActionInput::GameInviteRespond {
-                target_account_id, ..
-            } => {
-                let relationship = self
-                    .store
-                    .social_relationship_between(actor_id, *target_account_id)
-                    .await?
-                    .ok_or(GameError::InvalidRequest)?;
-                (*target_account_id, relationship.target_nickname)
-            }
-        };
-        if target_id == actor_id {
-            return Err(GameError::InvalidRequest);
-        }
-
-        let mut actor_relationship = self
-            .store
-            .social_relationship_between(actor_id, target_id)
-            .await?
-            .unwrap_or_else(|| SocialRelationship::new(target_id, target_handle.clone(), now));
-        let mut target_relationship = self
-            .store
-            .social_relationship_between(target_id, actor_id)
-            .await?
-            .unwrap_or_else(|| SocialRelationship::new(actor_id, session.nickname.clone(), now));
-        if actor_relationship.blocked || target_relationship.blocked {
-            return Err(GameError::PlayerBlocked);
-        }
-
-        match action {
-            SocialActionInput::FriendRequest { .. } => {
-                if actor_relationship.friend_state == SocialFriendState::Friend {
-                    return Ok((self.social_overview(session).await?, None));
-                }
-                if !self
-                    .store
-                    .social_privacy(target_id)
-                    .await?
-                    .allow_friend_requests
-                    || actor_relationship.friend_state != SocialFriendState::None
-                    || target_relationship.friend_state != SocialFriendState::None
-                {
-                    return Err(GameError::InvalidState);
-                }
-                let request_id = Uuid::new_v4();
-                actor_relationship.friend_state = SocialFriendState::Outgoing;
-                actor_relationship.friend_request_id = Some(request_id);
-                target_relationship.friend_state = SocialFriendState::Incoming;
-                target_relationship.friend_request_id = Some(request_id);
-            }
-            SocialActionInput::FriendRespond {
-                request_id, accept, ..
-            } => {
-                if actor_relationship.friend_state != SocialFriendState::Incoming
-                    || actor_relationship.friend_request_id != Some(request_id)
-                    || target_relationship.friend_state != SocialFriendState::Outgoing
-                    || target_relationship.friend_request_id != Some(request_id)
-                {
-                    return Err(GameError::InvalidState);
-                }
-                actor_relationship.friend_state = if accept {
-                    SocialFriendState::Friend
-                } else {
-                    SocialFriendState::None
-                };
-                target_relationship.friend_state = actor_relationship.friend_state;
-                actor_relationship.friend_request_id = None;
-                target_relationship.friend_request_id = None;
-            }
-            SocialActionInput::FriendRemove { .. } => {
-                actor_relationship.clear_social_state();
-                target_relationship.clear_social_state();
-            }
-            SocialActionInput::PartyInvite { .. } => {
-                if actor_relationship.friend_state != SocialFriendState::Friend
-                    || target_relationship.friend_state != SocialFriendState::Friend
-                    || actor_relationship.party_state != SocialPartyState::None
-                    || target_relationship.party_state != SocialPartyState::None
-                    || self
-                        .store
-                        .social_relationships(actor_id)
-                        .await?
-                        .iter()
-                        .any(|relationship| relationship.party_state != SocialPartyState::None)
-                    || self
-                        .store
-                        .social_relationships(target_id)
-                        .await?
-                        .iter()
-                        .any(|relationship| relationship.party_state != SocialPartyState::None)
-                {
-                    return Err(GameError::InvalidState);
-                }
-                let party_id = Uuid::new_v4();
-                actor_relationship.party_state = SocialPartyState::OutgoingInvite;
-                actor_relationship.party_id = Some(party_id);
-                target_relationship.party_state = SocialPartyState::IncomingInvite;
-                target_relationship.party_id = Some(party_id);
-            }
-            SocialActionInput::PartyRespond {
-                party_id, accept, ..
-            } => {
-                if actor_relationship.party_state != SocialPartyState::IncomingInvite
-                    || actor_relationship.party_id != Some(party_id)
-                    || target_relationship.party_state != SocialPartyState::OutgoingInvite
-                    || target_relationship.party_id != Some(party_id)
-                {
-                    return Err(GameError::InvalidState);
-                }
-                if accept {
-                    actor_relationship.party_state = SocialPartyState::Member;
-                    target_relationship.party_state = SocialPartyState::Owner;
-                } else {
-                    actor_relationship.party_state = SocialPartyState::None;
-                    actor_relationship.party_id = None;
-                    target_relationship.party_state = SocialPartyState::None;
-                    target_relationship.party_id = None;
-                }
-            }
-            SocialActionInput::PartyLeave { .. } => {
-                if actor_relationship.party_state == SocialPartyState::None {
-                    return Err(GameError::InvalidState);
-                }
-                actor_relationship.party_state = SocialPartyState::None;
-                actor_relationship.party_id = None;
-                target_relationship.party_state = SocialPartyState::None;
-                target_relationship.party_id = None;
-            }
-            SocialActionInput::GameInvite { room_id, .. } => {
-                if actor_relationship.friend_state != SocialFriendState::Friend
-                    || !self
-                        .store
-                        .social_privacy(target_id)
-                        .await?
-                        .allow_game_invites
-                {
-                    return Err(GameError::InvalidState);
-                }
-                let room = self.room(room_id).await?;
-                let room = room.lock().await;
-                room.player_for_session(session.id)?;
-                if room.status != RoomStatus::WaitingForOpponent || room.players.len() != 1 {
-                    return Err(GameError::InvalidState);
-                }
-                let invite_id = Uuid::new_v4();
-                let expires_at = now + chrono::Duration::minutes(15);
-                actor_relationship.game_invite = Some(DirectGameInvite {
-                    id: invite_id,
-                    direction: SocialInviteDirection::Outgoing,
-                    room_id,
-                    room_code: room.code.clone(),
-                    room_name: room.name.clone(),
-                    expires_at,
-                });
-                target_relationship.game_invite = Some(DirectGameInvite {
-                    id: invite_id,
-                    direction: SocialInviteDirection::Incoming,
-                    room_id,
-                    room_code: room.code.clone(),
-                    room_name: room.name.clone(),
-                    expires_at,
-                });
-            }
-            SocialActionInput::GameInviteRespond {
-                invite_id, accept, ..
-            } => {
-                let incoming = actor_relationship
-                    .game_invite
-                    .as_ref()
-                    .filter(|invite| {
-                        invite.id == invite_id
-                            && invite.direction == SocialInviteDirection::Incoming
-                            && invite.expires_at > now
-                    })
-                    .ok_or(GameError::InvalidState)?;
-                let outgoing_matches =
-                    target_relationship
-                        .game_invite
-                        .as_ref()
-                        .is_some_and(|invite| {
-                            invite.id == invite_id
-                                && invite.direction == SocialInviteDirection::Outgoing
-                        });
-                if !outgoing_matches {
-                    return Err(GameError::InvalidState);
-                }
-                if accept {
-                    let room = self.room(incoming.room_id).await?;
-                    let room = room.lock().await;
-                    if room.status != RoomStatus::WaitingForOpponent || room.players.len() != 1 {
-                        return Err(GameError::InvalidState);
-                    }
-                    join_code = Some(incoming.room_code.clone());
-                }
-                actor_relationship.game_invite = None;
-                target_relationship.game_invite = None;
-            }
-        }
-
-        actor_relationship.updated_at = now;
-        target_relationship.updated_at = now;
-        self.store
-            .set_social_relationship_pair(
-                actor_id,
-                actor_relationship,
-                target_id,
-                target_relationship,
-            )
-            .await?;
-        Ok((self.social_overview(session).await?, join_code))
-    }
-
-    pub async fn update_social_relationship(
+    pub async fn update_safety_relationship(
         &self,
         session: &UserSession,
         room_id: Uuid,
         target_player_id: Uuid,
         muted: bool,
         blocked: bool,
-    ) -> Result<SocialRelationship, GameError> {
+    ) -> Result<SafetyRelationship, GameError> {
         let room = self.room(room_id).await?;
         let room = room.lock().await;
         let actor = room.player_for_session(session.id)?;
@@ -287,39 +42,18 @@ impl AppState {
         let now = Utc::now();
         let mut relationship = self
             .store
-            .social_relationship_between(actor_identity_id, target_identity_id)
+            .safety_relationship_between(actor_identity_id, target_identity_id)
             .await?
             .unwrap_or_else(|| {
-                SocialRelationship::new(target_identity_id, target.nickname.clone(), now)
+                SafetyRelationship::new(target_identity_id, target.nickname.clone(), now)
             });
         relationship.target_nickname = target.nickname.clone();
         relationship.muted = muted;
         relationship.blocked = blocked;
         relationship.updated_at = now;
-        if blocked {
-            relationship.clear_social_state();
-            let mut reverse = self
-                .store
-                .social_relationship_between(target_identity_id, actor_identity_id)
-                .await?
-                .unwrap_or_else(|| {
-                    SocialRelationship::new(actor_identity_id, actor.nickname.clone(), now)
-                });
-            reverse.clear_social_state();
-            reverse.updated_at = now;
-            self.store
-                .set_social_relationship_pair(
-                    actor_identity_id,
-                    relationship.clone(),
-                    target_identity_id,
-                    reverse,
-                )
-                .await?;
-        } else {
-            self.store
-                .set_social_relationship(actor_identity_id, relationship.clone())
-                .await?;
-        }
+        self.store
+            .set_safety_relationship(actor_identity_id, relationship.clone())
+            .await?;
         Ok(relationship)
     }
 

@@ -7,7 +7,7 @@ const adminToken = 'integration-admin-token-32-characters-long';
 export default defineConfig({
   testDir: './e2e',
   testMatch:
-    /(?:cloudflare-account|cloudflare-matchmaking|cloudflare-operations|full-game|chat-surrender|spectating|ranked-matchmaking|input-prompts|social|funnel-metrics|performance-rum)\.spec\.ts/,
+    /(?:cloudflare-account|cloudflare-matchmaking|cloudflare-operations|full-game|chat-surrender|spectating|ranked-matchmaking|input-prompts|funnel-metrics|performance-rum)\.spec\.ts/,
   timeout: 180_000,
   fullyParallel: false,
   workers: 1,

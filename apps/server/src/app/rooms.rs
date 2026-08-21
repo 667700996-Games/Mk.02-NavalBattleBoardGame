@@ -457,7 +457,7 @@ impl AppState {
         };
         Ok(self
             .store
-            .social_relationship_between(recipient_identity, sender_identity)
+            .safety_relationship_between(recipient_identity, sender_identity)
             .await?
             .is_some_and(|relationship| relationship.muted || relationship.blocked))
     }
@@ -479,12 +479,12 @@ impl AppState {
             .ok_or(GameError::Unauthorized)?;
         let first_blocks = self
             .store
-            .social_relationship_between(first_identity, second_identity)
+            .safety_relationship_between(first_identity, second_identity)
             .await?
             .is_some_and(|relationship| relationship.blocked);
         let second_blocks = self
             .store
-            .social_relationship_between(second_identity, first_identity)
+            .safety_relationship_between(second_identity, first_identity)
             .await?
             .is_some_and(|relationship| relationship.blocked);
         Ok(first_blocks || second_blocks)

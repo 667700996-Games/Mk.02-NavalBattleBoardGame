@@ -8,7 +8,7 @@ complete because code exists: its acceptance evidence must also be present and p
 
 The program is complete only when all gates below are satisfied in a production-like environment.
 
-- Product: a new player can learn, play, progress, compete, socialize, and return without relying
+- Product: a new player can learn, play, progress, compete, and return without relying
   on an external guide.
 - Gameplay: casual, ranked, practice, and configurable matches are server authoritative, balanced,
   replayable, and protected against abuse.
@@ -119,7 +119,7 @@ The program is complete only when all gates below are satisfied in a production-
   counters. Unit coverage proves expired terminal data is removed while active sessions and open or
   recent safety records survive. Account export/deletion APIs cover credentials, current and
   expired-session history, progression, ranked standings/rewards/deltas, leaderboard entries,
-  social, reports, direct moderation targets, integrity, room/result copies, and both cache layers.
+  safety relationships, reports, direct moderation targets, integrity, room/result copies, and both cache layers.
   The real PostgreSQL/Redis test expires the last session, verifies every export class, anonymizes
   room and result identifiers, evicts Redis, removes all derived rows, and preserves unrelated
   evidence. The automated backup job uses a random per-run key, SHA-256 and GPG AES-256 for both the
@@ -226,9 +226,9 @@ The program is complete only when all gates below are satisfied in a production-
   Chromium/Firefox/WebKit journey proves persistence, actual hull styling and 100 unrevealed target
   cells with no ship names after every cosmetic is changed.
 
-### C4. Social, spectating, and replay
+### C4. Player safety, spectating, and replay
 
-- [x] Friends, parties, direct invites, recent players, presence, privacy, mute, and block exist.
+- [x] In-match mute, block, and report controls protect multiplayer sessions.
 - [x] Spectators receive delayed, visibility-filtered authoritative state.
 - [x] Deterministic replays include ruleset/protocol versions and cannot expose hidden information
       before a match is complete.
@@ -250,15 +250,9 @@ The program is complete only when all gates below are satisfied in a production-
   29/30-second boundary and result delay, the authenticated HTTP test scans serialized output for
   hidden fields, and isolated host/guest/viewer E2E passes in Chromium, Firefox, and WebKit with two
   fleet-free responsive grids. `SPECTATING.md` fixes the privacy and timing contract.
-- Evidence: account-backed mirrored relationships now cover request/accept/remove friends, a
-  deliberately bounded two-person party, 15-minute direct private-room invitations, the 20 most
-  recent account opponents, and friend-only `ONLINE` / `IN_GAME` presence. Independent privacy
-  controls gate requests, presence, and game invites; either-direction blocking clears the social
-  pair while retaining the existing chat and matchmaking safety contract. Memory pair writes are
-  serialized and PostgreSQL writes both directions transactionally in a new additive table that
-  old rolling instances do not touch. Export, deletion, tombstone verification, API integration,
-  and Chromium/Firefox/WebKit WCAG-responsive journeys are covered. `SOCIAL_SYSTEM.md` fixes the
-  state, privacy, expiry, and data-lifecycle contracts.
+- Evidence: room-scoped mute, block, and report controls use server-resolved identities. Blocking
+  is enforced in room admission and matchmaking, while chat suppression respects either-direction
+  blocking and recipient mute state. Account export and deletion cover these safety relationships.
 
 ## Gate D — Presentation and experience
 
@@ -422,7 +416,7 @@ The program is complete only when all gates below are satisfied in a production-
   PostgreSQL remains authoritative when the optional Redis cache cannot connect. The dedicated CI
   job uses health-checked PostgreSQL 16 and Redis 7 containers, requires both URLs so no test can
   silently skip, serializes the thirteen shared-database cases, and blocks browser and backup jobs.
-  Its post-suite restore verifier checks all 21 migrations and retained snapshots, then uploads a
+  Its post-suite restore verifier checks all 20 migrations and retained snapshots, then uploads a
   90-day JSON evidence artifact. `DISTRIBUTED_INTEGRATION.md` fixes the local reproduction, covered
   boundaries, acceptance rules, and failure triage.
 - Evidence: `config/quality-gates.json` assigns component, WCAG 2.2 AA, desktop/mobile golden,
@@ -496,7 +490,7 @@ The program is complete only when all gates below are satisfied in a production-
    matchmaking, and deadline workers.
 3. Engineering gates: generated contracts, module boundaries, CI expansion, database/browser/load
    tests, observability, backup and deployment drills.
-4. Product foundation: account upgrade, tutorial, AI practice, modes, ranked, replay, social safety.
+4. Product foundation: account upgrade, tutorial, AI practice, modes, ranked, replay, player safety.
 5. Production experience: final art/audio/VFX, performance tiers, accessibility, localization.
 6. Live service: progression, seasons, cosmetics, content operations, support, staged launch.
 

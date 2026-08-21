@@ -241,7 +241,7 @@ p {
 
 .app-header__inner {
   display: grid;
-  grid-template-columns: minmax(max-content, 1fr) auto minmax(max-content, 1fr);
+  grid-template-columns: minmax(max-content, 1fr) auto auto;
   min-height: 72px;
   align-items: center;
   gap: var(--space-3);
@@ -311,7 +311,7 @@ p {
 .nav-links {
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-end;
   gap: 4px;
   padding: 4px;
   border: 1px solid rgba(115, 174, 194, 0.1);
@@ -1728,7 +1728,7 @@ p {
   }
 
   .nav-links {
-    justify-self: center;
+    justify-self: end;
   }
 
   .user-chip {

@@ -8,8 +8,8 @@ mod matchmaking;
 mod progression;
 mod ranked;
 mod room;
+mod safety;
 mod session;
-mod social;
 mod support;
 
 pub use balance::*;
@@ -22,8 +22,8 @@ pub use matchmaking::*;
 pub use progression::*;
 pub use ranked::*;
 pub use room::*;
+pub use safety::*;
 pub use session::*;
-pub use social::*;
 pub use support::*;
 
 use serde::{Deserialize, Serialize};

@@ -34,7 +34,7 @@
   },
   "routeEntries": {
     "/admin/moderation": {
-      "javascriptBytes": 17000,
+      "javascriptBytes": 17500,
       "cssBytes": 8500
     },
     "/admin/support": {
@@ -43,7 +43,7 @@
     },
     "/replay/[roomId]": {
       "javascriptBytes": 20500,
-      "cssBytes": 10500
+      "cssBytes": 11500
     },
     "/stats": {
       "javascriptBytes": 20000,
@@ -52,10 +52,6 @@
     "/spectate/[roomId]": {
       "javascriptBytes": 8500,
       "cssBytes": 3800
-    },
-    "/social": {
-      "javascriptBytes": 15500,
-      "cssBytes": 9000
     }
   },
   "tiers": {

@@ -74,8 +74,6 @@ pub enum GameError {
     Unauthorized,
     #[error("랭크 매칭은 계정으로 로그인한 지휘관만 이용할 수 있습니다.")]
     RankedAccountRequired,
-    #[error("소셜 기능은 계정으로 로그인한 지휘관만 이용할 수 있습니다.")]
-    SocialAccountRequired,
     #[error("현재 랭크 시즌이 시작되지 않거나 이미 종료되었습니다.")]
     RankedSeasonUnavailable,
     #[error("허용되지 않은 출처의 연결입니다.")]
@@ -153,7 +151,6 @@ impl GameError {
             Self::AccountHandleTaken => "ACCOUNT_HANDLE_TAKEN",
             Self::Unauthorized => "UNAUTHORIZED",
             Self::RankedAccountRequired => "RANKED_ACCOUNT_REQUIRED",
-            Self::SocialAccountRequired => "SOCIAL_ACCOUNT_REQUIRED",
             Self::RankedSeasonUnavailable => "RANKED_SEASON_UNAVAILABLE",
             Self::OriginNotAllowed => "ORIGIN_NOT_ALLOWED",
             Self::ProtocolVersionMismatch => "SERVER_PROTOCOL_MISMATCH",
@@ -183,7 +180,6 @@ impl GameError {
             Self::OriginNotAllowed
             | Self::PlayerBlocked
             | Self::RankedAccountRequired
-            | Self::SocialAccountRequired
             | Self::AccountSuspended
             | Self::AccountBanned => StatusCode::FORBIDDEN,
             Self::RoomNotFound

@@ -1050,8 +1050,8 @@ export class GameRoomDurableObject extends DurableObject<WorkerEnv> {
     const joiningIdentity = payload.identities.find(
       (identity) => identity.sessionId === joining.id,
     );
-    const social = this.env.SOCIAL.get(this.env.SOCIAL.idFromName("global-v1"));
-    const blocked = await social.fetch(
+    const safety = this.env.SAFETY.get(this.env.SAFETY.idFromName("global-v1"));
+    const blocked = await safety.fetch(
       internalRequest("/blocked", {
         firstIdentityId: existingIdentity?.accountId ?? existing.sessionId,
         secondIdentityId:
@@ -1238,8 +1238,8 @@ export class GameRoomDurableObject extends DurableObject<WorkerEnv> {
     const senderIdentity = identities.identities.find(
       (identity) => identity.sessionId === sender.sessionId,
     );
-    const social = this.env.SOCIAL.get(this.env.SOCIAL.idFromName("global-v1"));
-    const response = await social.fetch(
+    const safety = this.env.SAFETY.get(this.env.SAFETY.idFromName("global-v1"));
+    const response = await safety.fetch(
       internalRequest("/suppressed", {
         recipientIdentityId:
           recipientIdentity?.accountId ??

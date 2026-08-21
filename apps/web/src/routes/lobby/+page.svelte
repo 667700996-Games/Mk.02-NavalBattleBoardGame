@@ -238,9 +238,6 @@
         </div>
         <p class="eyebrow">{$t('lobby.eyebrow')}</p>
         <h1 class="page-title">{$t('lobby.title')}</h1>
-        <p>
-          {$t('lobby.greeting', { commander: $session?.nickname ?? '' })}
-        </p>
       </div>
       <div class="lobby-heading__actions">
         <Button variant="outline" onclick={() => (showJoin = true)}

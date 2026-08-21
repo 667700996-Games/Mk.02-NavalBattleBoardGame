@@ -39,8 +39,8 @@
         "class_name": "MatchmakingDurableObject"
       },
       {
-        "name": "SOCIAL",
-        "class_name": "SocialDurableObject"
+        "name": "SAFETY",
+        "class_name": "SafetyDurableObject"
       },
       {
         "name": "OPERATIONS",
@@ -80,6 +80,11 @@
     {
       "tag": "v7",
       "new_sqlite_classes": ["ContentDurableObject"]
+    },
+    {
+      "tag": "v8",
+      "new_sqlite_classes": ["SafetyDurableObject"],
+      "deleted_classes": ["SocialDurableObject"]
     }
   ]
 }

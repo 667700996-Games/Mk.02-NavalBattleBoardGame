@@ -14,10 +14,9 @@ use crate::{
         NewPlayerReport, NewSupportAction, PlayerAccount, PlayerReport,
         RANKED_LEADERBOARD_MAX_LIMIT, RECENT_OPPONENT_LOOKBACK_MINUTES, RankedLeaderboardEntry,
         RankedLeaderboardPage, RankedLeaderboardSeason, RankedProfile, RankedStandingRecord,
-        RankedTier, RecentPlayer, ReportStatus, RoomStatus, RoomSummary, RoomVisibility,
-        SocialPresence, SocialPrivacy, SocialRelationship, SupportAccountSnapshot, SupportAction,
-        UserSession, matchmaking_quality, next_season_seed, ranked_match_reward_xp,
-        ranked_placement_reward_xp, ranked_season_key,
+        RankedTier, ReportStatus, RoomStatus, RoomSummary, RoomVisibility, SafetyRelationship,
+        SupportAccountSnapshot, SupportAction, UserSession, matchmaking_quality, next_season_seed,
+        ranked_match_reward_xp, ranked_placement_reward_xp, ranked_season_key,
     },
     error::GameError,
 };
@@ -75,9 +74,8 @@ pub struct MemoryStore {
     support_actions: DashMap<Uuid, SupportAction>,
     mission_rewards: DashMap<(Uuid, String, String), u32>,
     live_content_revisions: Mutex<Vec<LiveContentRevision>>,
-    social_relationships: DashMap<(Uuid, Uuid), SocialRelationship>,
-    social_privacy: DashMap<Uuid, SocialPrivacy>,
-    social_mutations: Mutex<()>,
+    safety_relationships: DashMap<(Uuid, Uuid), SafetyRelationship>,
+    safety_mutations: Mutex<()>,
     player_reports: DashMap<Uuid, PlayerReport>,
     moderation_actions: DashMap<Uuid, ModerationAction>,
     moderation_mutations: Mutex<()>,
@@ -599,7 +597,7 @@ impl GameStore for MemoryStore {
         };
         let rewards = self.mission_rewards(account_id).await?;
         let relationships: Vec<_> = self
-            .social_relationships
+            .safety_relationships
             .iter()
             .filter(|relationship| identities.contains(&relationship.key().0))
             .map(|relationship| relationship.value().clone())
@@ -715,8 +713,7 @@ impl GameStore for MemoryStore {
             "rankedRewards": ranked_rewards,
             "rankedLeaderboardEntries": ranked_leaderboard_entries,
             "leaderboardVisible": self.leaderboard_visibility.get(&account_id).is_none_or(|visible| *visible),
-            "socialPrivacy": self.social_privacy.get(&account_id).map(|privacy| *privacy).unwrap_or_else(|| SocialPrivacy::open(generated_at)),
-            "socialRelationships": relationships,
+            "safetyRelationships": relationships,
             "moderationReports": reports,
             "moderationActions": moderation_actions,
             "integritySignals": integrity_signals,
@@ -833,7 +830,7 @@ impl GameStore for MemoryStore {
             self.ranked_rewards.remove(key);
         }
         let relationship_keys: Vec<_> = self
-            .social_relationships
+            .safety_relationships
             .iter()
             .filter(|relationship| {
                 identities.contains(&relationship.key().0)
@@ -842,7 +839,7 @@ impl GameStore for MemoryStore {
             .map(|relationship| *relationship.key())
             .collect();
         for key in &relationship_keys {
-            self.social_relationships.remove(key);
+            self.safety_relationships.remove(key);
         }
         let _moderation_guard = self.moderation_mutations.lock().await;
         let report_ids: Vec<_> = self
@@ -899,7 +896,6 @@ impl GameStore for MemoryStore {
         self.account_id_by_handle
             .remove(&account.handle.to_lowercase());
         self.accounts.remove(&account_id);
-        self.social_privacy.remove(&account_id);
         self.leaderboard_visibility.remove(&account_id);
         for mut snapshot in self.leaderboard_snapshots.iter_mut() {
             snapshot
@@ -1041,84 +1037,27 @@ impl GameStore for MemoryStore {
         }))
     }
 
-    async fn account_by_handle(&self, handle: &str) -> Result<Option<PlayerAccount>, GameError> {
-        let normalized = handle.trim().to_lowercase();
-        Ok(self
-            .account_id_by_handle
-            .get(&normalized)
-            .and_then(|account_id| self.accounts.get(account_id.value()))
-            .map(|account| account.value().0.clone()))
-    }
-
-    async fn social_privacy(&self, account_id: Uuid) -> Result<SocialPrivacy, GameError> {
-        if !self.accounts.contains_key(&account_id) {
-            return Err(GameError::Unauthorized);
-        }
-        Ok(self
-            .social_privacy
-            .get(&account_id)
-            .map(|privacy| *privacy)
-            .unwrap_or_else(|| SocialPrivacy::open(Utc::now())))
-    }
-
-    async fn set_social_privacy(
-        &self,
-        account_id: Uuid,
-        privacy: SocialPrivacy,
-    ) -> Result<(), GameError> {
-        if !self.accounts.contains_key(&account_id) {
-            return Err(GameError::Unauthorized);
-        }
-        self.social_privacy.insert(account_id, privacy);
-        Ok(())
-    }
-
-    async fn set_social_relationship(
+    async fn set_safety_relationship(
         &self,
         actor_identity_id: Uuid,
-        relationship: SocialRelationship,
+        relationship: SafetyRelationship,
     ) -> Result<(), GameError> {
-        let _guard = self.social_mutations.lock().await;
+        let _guard = self.safety_mutations.lock().await;
         let key = (actor_identity_id, relationship.target_identity_id);
         if relationship.has_effect() {
-            self.social_relationships.insert(key, relationship);
+            self.safety_relationships.insert(key, relationship);
         } else {
-            self.social_relationships.remove(&key);
+            self.safety_relationships.remove(&key);
         }
         Ok(())
     }
 
-    async fn set_social_relationship_pair(
-        &self,
-        first_actor_id: Uuid,
-        first_relationship: SocialRelationship,
-        second_actor_id: Uuid,
-        second_relationship: SocialRelationship,
-    ) -> Result<(), GameError> {
-        let _guard = self.social_mutations.lock().await;
-        let first_key = (first_actor_id, first_relationship.target_identity_id);
-        let second_key = (second_actor_id, second_relationship.target_identity_id);
-        if first_relationship.has_effect() {
-            self.social_relationships
-                .insert(first_key, first_relationship);
-        } else {
-            self.social_relationships.remove(&first_key);
-        }
-        if second_relationship.has_effect() {
-            self.social_relationships
-                .insert(second_key, second_relationship);
-        } else {
-            self.social_relationships.remove(&second_key);
-        }
-        Ok(())
-    }
-
-    async fn social_relationships(
+    async fn safety_relationships(
         &self,
         actor_identity_id: Uuid,
-    ) -> Result<Vec<SocialRelationship>, GameError> {
+    ) -> Result<Vec<SafetyRelationship>, GameError> {
         let mut relationships: Vec<_> = self
-            .social_relationships
+            .safety_relationships
             .iter()
             .filter(|relationship| relationship.key().0 == actor_identity_id)
             .map(|relationship| relationship.value().clone())
@@ -1127,86 +1066,15 @@ impl GameStore for MemoryStore {
         Ok(relationships)
     }
 
-    async fn social_relationship_between(
+    async fn safety_relationship_between(
         &self,
         actor_identity_id: Uuid,
         target_identity_id: Uuid,
-    ) -> Result<Option<SocialRelationship>, GameError> {
+    ) -> Result<Option<SafetyRelationship>, GameError> {
         Ok(self
-            .social_relationships
+            .safety_relationships
             .get(&(actor_identity_id, target_identity_id))
             .map(|relationship| relationship.value().clone()))
-    }
-
-    async fn social_presence(
-        &self,
-        account_id: Uuid,
-        now: DateTime<Utc>,
-    ) -> Result<(SocialPresence, Option<Uuid>), GameError> {
-        let sessions: Vec<_> = self
-            .sessions_by_hash
-            .iter()
-            .filter(|session| session.account_id == Some(account_id))
-            .map(|session| session.value().clone())
-            .collect();
-        if let Some(room_id) = sessions.iter().find_map(|session| session.current_room_id) {
-            return Ok((SocialPresence::InGame, Some(room_id)));
-        }
-        if sessions
-            .iter()
-            .any(|session| session.last_seen_at >= now - Duration::minutes(5))
-        {
-            return Ok((SocialPresence::Online, None));
-        }
-        Ok((SocialPresence::Offline, None))
-    }
-
-    async fn recent_players(
-        &self,
-        account_id: Uuid,
-        limit: usize,
-    ) -> Result<Vec<RecentPlayer>, GameError> {
-        let mut recent: HashMap<Uuid, RecentPlayer> = HashMap::new();
-        for room in self.rooms.iter() {
-            let Some(result) = room.game.as_ref().and_then(|game| game.result.as_ref()) else {
-                continue;
-            };
-            let actor_was_present = room.players.iter().any(|player| {
-                self.stored_identity_for_session(player.session_id) == Some(account_id)
-            });
-            if !actor_was_present {
-                continue;
-            }
-            for player in &room.players {
-                let Some(opponent_id) = self.stored_identity_for_session(player.session_id) else {
-                    continue;
-                };
-                if opponent_id == account_id || !self.accounts.contains_key(&opponent_id) {
-                    continue;
-                }
-                let Some(account) = self.accounts.get(&opponent_id) else {
-                    continue;
-                };
-                let candidate = RecentPlayer {
-                    account_id: opponent_id,
-                    handle: account.value().0.handle.clone(),
-                    last_played_at: result.finished_at,
-                    friend: false,
-                    muted: false,
-                    blocked: false,
-                };
-                if recent
-                    .get(&opponent_id)
-                    .is_none_or(|existing| existing.last_played_at < candidate.last_played_at)
-                {
-                    recent.insert(opponent_id, candidate);
-                }
-            }
-        }
-        let mut players: Vec<_> = recent.into_values().collect();
-        players.sort_by_key(|player| std::cmp::Reverse(player.last_played_at));
-        players.truncate(limit);
-        Ok(players)
     }
 
     async fn create_player_report(&self, report: &NewPlayerReport) -> Result<(), GameError> {
@@ -1678,11 +1546,11 @@ impl GameStore for MemoryStore {
                 }
                 let opponent_identity = entry.session.account_id.unwrap_or(entry.session.id);
                 let own_blocks = self
-                    .social_relationships
+                    .safety_relationships
                     .get(&(own_identity, opponent_identity))
                     .is_some_and(|relationship| relationship.blocked);
                 let opponent_blocks = self
-                    .social_relationships
+                    .safety_relationships
                     .get(&(opponent_identity, own_identity))
                     .is_some_and(|relationship| relationship.blocked);
                 if own_blocks || opponent_blocks {

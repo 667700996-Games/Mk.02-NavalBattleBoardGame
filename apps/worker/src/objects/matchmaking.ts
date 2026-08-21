@@ -293,8 +293,8 @@ export class MatchmakingDurableObject extends DurableObject<WorkerEnv> {
 
   private async pairBlocked(firstIdentityId: string, secondIdentityId: string) {
     if (firstIdentityId === secondIdentityId) return true;
-    const social = this.env.SOCIAL.get(this.env.SOCIAL.idFromName("global-v1"));
-    const response = await social.fetch(
+    const safety = this.env.SAFETY.get(this.env.SAFETY.idFromName("global-v1"));
+    const response = await safety.fetch(
       internalRequest("/blocked", { firstIdentityId, secondIdentityId }),
     );
     if (!response.ok) throw new DomainError("INTERNAL_ERROR");

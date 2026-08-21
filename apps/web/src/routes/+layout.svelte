@@ -4,7 +4,7 @@
   import { page } from '$app/state';
   import { onMount } from 'svelte';
   import { resolve } from '$app/paths';
-  import { Crosshair, History, Settings, Users } from '@lucide/svelte';
+  import { Crosshair, History, Settings } from '@lucide/svelte';
   import { ApiError, api } from '$lib/api';
   import { installFunnelAbandonmentTracking } from '$lib/funnel';
   import { installRealUserMonitoring } from '$lib/performance';
@@ -153,37 +153,6 @@
       </span>
     </a>
 
-    <nav class="nav-links" aria-label={$t('layout.mainNavigation')}>
-      {#if $session}
-        <Tooltip text={$t('layout.socialHub')} side="bottom">
-          <a
-            class:active={active('/social')}
-            class="nav-link"
-            aria-label={$t('layout.socialHub')}
-            href={resolve('/social')}><Users size={17} /><span>{$t('layout.socialHub')}</span></a
-          >
-        </Tooltip>
-        <Tooltip text={$t('layout.battleHistory')} side="bottom">
-          <a
-            class:active={active('/stats')}
-            class="nav-link"
-            aria-label={$t('layout.battleHistory')}
-            href={resolve('/stats')}
-            ><History size={17} /><span>{$t('layout.battleHistory')}</span></a
-          >
-        </Tooltip>
-      {/if}
-      <Tooltip text={$t('layout.settings')} side="bottom">
-        <a
-          class:active={active('/settings')}
-          class="nav-link"
-          aria-label={$t('layout.settings')}
-          href={resolve('/settings')}
-          ><Settings size={17} /><span>{$t('layout.settingsShort')}</span></a
-        >
-      </Tooltip>
-    </nav>
-
     <div class="header-operator">
       <label class="locale-control">
         <span class="sr-only">{$t('locale.selector')}</span>
@@ -225,6 +194,29 @@
         <Status label={$t('layout.system')} value={$t('layout.standby')} state="idle" />
       {/if}
     </div>
+
+    <nav class="nav-links" aria-label={$t('layout.mainNavigation')}>
+      {#if $session}
+        <Tooltip text={$t('layout.battleHistory')} side="bottom">
+          <a
+            class:active={active('/stats')}
+            class="nav-link"
+            aria-label={$t('layout.battleHistory')}
+            href={resolve('/stats')}
+            ><History size={17} /><span>{$t('layout.battleHistory')}</span></a
+          >
+        </Tooltip>
+      {/if}
+      <Tooltip text={$t('layout.settings')} side="bottom">
+        <a
+          class:active={active('/settings')}
+          class="nav-link"
+          aria-label={$t('layout.settings')}
+          href={resolve('/settings')}
+          ><Settings size={17} /><span>{$t('layout.settingsShort')}</span></a
+        >
+      </Tooltip>
+    </nav>
   </div>
 </header>
 

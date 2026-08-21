@@ -15,8 +15,7 @@ use crate::{
         NewModerationAction, NewPlayerReport, NewSupportAction, PlayerAccount, PlayerReport,
         RANKED_LEADERBOARD_MAX_LIMIT, RECENT_OPPONENT_LOOKBACK_MINUTES, RankedLeaderboardEntry,
         RankedLeaderboardPage, RankedLeaderboardSeason, RankedProfile, RankedStandingRecord,
-        RankedTier, RecentPlayer, ReportCategory, ReportStatus, RoomStatus, RoomSummary,
-        SocialFriendState, SocialPartyState, SocialPresence, SocialPrivacy, SocialRelationship,
+        RankedTier, ReportCategory, ReportStatus, RoomStatus, RoomSummary, SafetyRelationship,
         SupportAccountSnapshot, SupportAction, SupportActionKind, UserSession, matchmaking_quality,
         next_season_seed, ranked_match_reward_xp, ranked_placement_reward_xp, ranked_season_key,
     },
@@ -29,7 +28,7 @@ use super::{
     RankedRating, RetentionStats, RoomAuthorityLease,
 };
 
-const DELETION_RESURRECTION_COUNT_QUERY: &str = "SELECT (SELECT count(*) FROM player_accounts account JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=account.id) + (SELECT count(*) FROM user_sessions session JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=session.account_id) + (SELECT count(*) FROM progression_reward_ledger reward JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=reward.account_id) + (SELECT count(*) FROM ranked_ratings rating JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=rating.account_id) + (SELECT count(*) FROM ranked_reward_ledger reward JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=reward.account_id) + (SELECT count(*) FROM ranked_season_standings standing JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=standing.account_id) + (SELECT count(*) FROM ranked_match_participants participant JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=participant.account_id) + (SELECT count(*) FROM ranked_leaderboard_snapshot_entries entry JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=entry.account_id) + (SELECT count(*) FROM game_result_participants participant JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=participant.account_id) + (SELECT count(*) FROM game_results result JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=ANY(result.participant_account_ids)) + (SELECT count(*) FROM player_relationships relationship JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=relationship.actor_identity_id OR tombstone.account_id=relationship.target_identity_id) + (SELECT count(*) FROM player_social_links link JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=link.actor_account_id OR tombstone.account_id=link.target_account_id) + (SELECT count(*) FROM player_reports report JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=report.reporter_identity_id OR tombstone.account_id=report.target_identity_id) + (SELECT count(*) FROM player_moderation_actions action JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=action.target_identity_id) + (SELECT count(*) FROM integrity_signals signal JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=signal.subject_identity_id) + (SELECT count(*) FROM player_support_actions action JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=action.account_id)";
+const DELETION_RESURRECTION_COUNT_QUERY: &str = "SELECT (SELECT count(*) FROM player_accounts account JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=account.id) + (SELECT count(*) FROM user_sessions session JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=session.account_id) + (SELECT count(*) FROM progression_reward_ledger reward JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=reward.account_id) + (SELECT count(*) FROM ranked_ratings rating JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=rating.account_id) + (SELECT count(*) FROM ranked_reward_ledger reward JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=reward.account_id) + (SELECT count(*) FROM ranked_season_standings standing JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=standing.account_id) + (SELECT count(*) FROM ranked_match_participants participant JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=participant.account_id) + (SELECT count(*) FROM ranked_leaderboard_snapshot_entries entry JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=entry.account_id) + (SELECT count(*) FROM game_result_participants participant JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=participant.account_id) + (SELECT count(*) FROM game_results result JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=ANY(result.participant_account_ids)) + (SELECT count(*) FROM player_relationships relationship JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=relationship.actor_identity_id OR tombstone.account_id=relationship.target_identity_id) + (SELECT count(*) FROM player_reports report JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=report.reporter_identity_id OR tombstone.account_id=report.target_identity_id) + (SELECT count(*) FROM player_moderation_actions action JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=action.target_identity_id) + (SELECT count(*) FROM integrity_signals signal JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=signal.subject_identity_id) + (SELECT count(*) FROM player_support_actions action JOIN privacy_deletion_tombstones tombstone ON tombstone.account_id=action.account_id)";
 const LIVE_CONTENT_ADVISORY_LOCK: i64 = 7_190_120_260;
 const REDIS_INITIAL_CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
 
@@ -100,12 +99,12 @@ fn decode_room_snapshot(
     Ok(room)
 }
 
-async fn persist_social_relationship(
+async fn persist_safety_relationship(
     transaction: &mut Transaction<'_, Postgres>,
     actor_identity_id: Uuid,
-    relationship: &SocialRelationship,
+    relationship: &SafetyRelationship,
 ) -> Result<(), GameError> {
-    if relationship.muted || relationship.blocked {
+    if relationship.has_effect() {
         sqlx::query(
             "INSERT INTO player_relationships (actor_identity_id,target_identity_id,target_nickname,muted,blocked,updated_at) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (actor_identity_id,target_identity_id) DO UPDATE SET target_nickname=$3,muted=$4,blocked=$5,updated_at=$6",
         )
@@ -120,40 +119,6 @@ async fn persist_social_relationship(
     } else {
         sqlx::query(
             "DELETE FROM player_relationships WHERE actor_identity_id=$1 AND target_identity_id=$2",
-        )
-        .bind(actor_identity_id)
-        .bind(relationship.target_identity_id)
-        .execute(&mut **transaction)
-        .await?;
-    }
-
-    let has_social_state = relationship.friend_state != SocialFriendState::None
-        || relationship.party_state != SocialPartyState::None
-        || relationship.game_invite.is_some();
-    if has_social_state {
-        let game_invite = relationship
-            .game_invite
-            .as_ref()
-            .map(serde_json::to_value)
-            .transpose()
-            .map_err(|_| GameError::Internal)?;
-        sqlx::query(
-            "INSERT INTO player_social_links (actor_account_id,target_account_id,target_handle,friend_state,friend_request_id,party_state,party_id,game_invite,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (actor_account_id,target_account_id) DO UPDATE SET target_handle=$3,friend_state=$4,friend_request_id=$5,party_state=$6,party_id=$7,game_invite=$8,updated_at=$9",
-        )
-        .bind(actor_identity_id)
-        .bind(relationship.target_identity_id)
-        .bind(&relationship.target_nickname)
-        .bind(relationship.friend_state.as_str())
-        .bind(relationship.friend_request_id)
-        .bind(relationship.party_state.as_str())
-        .bind(relationship.party_id)
-        .bind(game_invite)
-        .bind(relationship.updated_at)
-        .execute(&mut **transaction)
-        .await?;
-    } else {
-        sqlx::query(
-            "DELETE FROM player_social_links WHERE actor_account_id=$1 AND target_account_id=$2",
         )
         .bind(actor_identity_id)
         .bind(relationship.target_identity_id)
@@ -1360,12 +1325,6 @@ impl GameStore for PostgresRedisStore {
                 .bind(account_id)
                 .fetch_one(&mut *transaction)
                 .await?;
-        let social_privacy: serde_json::Value = sqlx::query_scalar(
-            "SELECT jsonb_build_object('allowFriendRequests',allow_friend_requests,'showPresence',show_presence,'allowGameInvites',allow_game_invites,'updatedAt',social_privacy_updated_at) FROM player_accounts WHERE id=$1",
-        )
-        .bind(account_id)
-        .fetch_one(&mut *transaction)
-        .await?;
         let mut session_ids: Vec<Uuid> =
             sqlx::query_scalar("SELECT id FROM user_sessions WHERE account_id=$1")
                 .bind(account_id)
@@ -1439,12 +1398,6 @@ impl GameStore for PostgresRedisStore {
         .bind(&identities)
         .fetch_all(&mut *transaction)
         .await?;
-        let social_links: Vec<serde_json::Value> = sqlx::query_scalar(
-            "SELECT jsonb_build_object('targetAccountId',target_account_id,'targetHandle',target_handle,'friendState',friend_state,'friendRequestId',friend_request_id,'partyState',party_state,'partyId',party_id,'gameInvite',game_invite,'updatedAt',updated_at) FROM player_social_links WHERE actor_account_id=$1 ORDER BY updated_at DESC",
-        )
-        .bind(account_id)
-        .fetch_all(&mut *transaction)
-        .await?;
         let reports: Vec<serde_json::Value> = sqlx::query_scalar(
             "SELECT jsonb_build_object('id',id,'direction',CASE WHEN reporter_identity_id=ANY($1) THEN 'SUBMITTED' ELSE 'RECEIVED' END,'targetNickname',target_nickname,'category',category,'details',details,'evidence',evidence,'status',status,'createdAt',created_at,'updatedAt',updated_at) FROM player_reports WHERE reporter_identity_id=ANY($1) OR target_identity_id=ANY($1) ORDER BY created_at DESC",
         )
@@ -1492,9 +1445,7 @@ impl GameStore for PostgresRedisStore {
             "rankedRewards": ranked_rewards,
             "rankedLeaderboardEntries": ranked_leaderboard_entries,
             "leaderboardVisible": leaderboard_visible,
-            "socialPrivacy": social_privacy,
-            "socialRelationships": relationships,
-            "socialLinks": social_links,
+            "safetyRelationships": relationships,
             "moderationReports": reports,
             "moderationActions": moderation_actions,
             "integritySignals": integrity_signals,
@@ -1649,17 +1600,6 @@ impl GameStore for PostgresRedisStore {
         .execute(&mut *transaction)
         .await?
         .rows_affected();
-        let social_links_deleted = sqlx::query(
-            "DELETE FROM player_social_links WHERE actor_account_id=$1 OR target_account_id=$1",
-        )
-        .bind(account_id)
-        .execute(&mut *transaction)
-        .await?
-        .rows_affected();
-        sqlx::query("DELETE FROM player_moderation_actions WHERE target_identity_id=ANY($1)")
-            .bind(&identities)
-            .execute(&mut *transaction)
-            .await?;
         let reports_deleted = sqlx::query(
             "DELETE FROM player_reports WHERE reporter_identity_id=ANY($1) OR target_identity_id=ANY($1)",
         )
@@ -1714,7 +1654,7 @@ impl GameStore for PostgresRedisStore {
         Ok(AccountDeletionStats {
             sessions_deleted,
             rewards_deleted: rewards_deleted.saturating_add(ranked_rewards_deleted),
-            relationships_deleted: relationships_deleted.saturating_add(social_links_deleted),
+            relationships_deleted,
             reports_deleted,
             integrity_signals_deleted,
             rooms_anonymized: affected_room_ids.len() as u64,
@@ -2443,96 +2383,23 @@ impl GameStore for PostgresRedisStore {
             .map_err(Into::into)
     }
 
-    async fn account_by_handle(&self, handle: &str) -> Result<Option<PlayerAccount>, GameError> {
-        let row: Option<(Uuid, String, DateTime<Utc>)> = sqlx::query_as(
-            "SELECT id,handle,created_at FROM player_accounts WHERE lower(handle)=lower($1)",
-        )
-        .bind(handle.trim())
-        .fetch_optional(&self.pool)
-        .await?;
-        Ok(row.map(|(id, handle, created_at)| PlayerAccount {
-            id,
-            handle,
-            created_at,
-        }))
-    }
-
-    async fn social_privacy(&self, account_id: Uuid) -> Result<SocialPrivacy, GameError> {
-        let row: Option<(bool, bool, bool, DateTime<Utc>)> = sqlx::query_as(
-            "SELECT allow_friend_requests,show_presence,allow_game_invites,social_privacy_updated_at FROM player_accounts WHERE id=$1",
-        )
-        .bind(account_id)
-        .fetch_optional(&self.pool)
-        .await?;
-        row.map(
-            |(allow_friend_requests, show_presence, allow_game_invites, updated_at)| {
-                SocialPrivacy {
-                    allow_friend_requests,
-                    show_presence,
-                    allow_game_invites,
-                    updated_at,
-                }
-            },
-        )
-        .ok_or(GameError::Unauthorized)
-    }
-
-    async fn set_social_privacy(
-        &self,
-        account_id: Uuid,
-        privacy: SocialPrivacy,
-    ) -> Result<(), GameError> {
-        let updated = sqlx::query(
-            "UPDATE player_accounts SET allow_friend_requests=$2,show_presence=$3,allow_game_invites=$4,social_privacy_updated_at=$5 WHERE id=$1",
-        )
-        .bind(account_id)
-        .bind(privacy.allow_friend_requests)
-        .bind(privacy.show_presence)
-        .bind(privacy.allow_game_invites)
-        .bind(privacy.updated_at)
-        .execute(&self.pool)
-        .await?;
-        if updated.rows_affected() == 0 {
-            return Err(GameError::Unauthorized);
-        }
-        Ok(())
-    }
-
-    async fn set_social_relationship(
+    async fn set_safety_relationship(
         &self,
         actor_identity_id: Uuid,
-        relationship: SocialRelationship,
+        relationship: SafetyRelationship,
     ) -> Result<(), GameError> {
         let mut transaction = self.pool.begin().await?;
-        persist_social_relationship(&mut transaction, actor_identity_id, &relationship).await?;
+        persist_safety_relationship(&mut transaction, actor_identity_id, &relationship).await?;
         transaction.commit().await?;
         Ok(())
     }
 
-    async fn set_social_relationship_pair(
-        &self,
-        first_actor_id: Uuid,
-        first_relationship: SocialRelationship,
-        second_actor_id: Uuid,
-        second_relationship: SocialRelationship,
-    ) -> Result<(), GameError> {
-        let mut transaction = self.pool.begin().await?;
-        for (actor_id, relationship) in [
-            (first_actor_id, first_relationship),
-            (second_actor_id, second_relationship),
-        ] {
-            persist_social_relationship(&mut transaction, actor_id, &relationship).await?;
-        }
-        transaction.commit().await?;
-        Ok(())
-    }
-
-    async fn social_relationships(
+    async fn safety_relationships(
         &self,
         actor_identity_id: Uuid,
-    ) -> Result<Vec<SocialRelationship>, GameError> {
-        let rows: Vec<(Uuid, String, bool, bool, String, Option<Uuid>, String, Option<Uuid>, Option<serde_json::Value>, DateTime<Utc>)> = sqlx::query_as(
-            "WITH targets AS (SELECT target_identity_id AS target_id FROM player_relationships WHERE actor_identity_id=$1 UNION SELECT target_account_id FROM player_social_links WHERE actor_account_id=$1) SELECT targets.target_id,COALESCE(links.target_handle,safety.target_nickname),COALESCE(safety.muted,false),COALESCE(safety.blocked,false),COALESCE(links.friend_state,'NONE'),links.friend_request_id,COALESCE(links.party_state,'NONE'),links.party_id,links.game_invite,GREATEST(COALESCE(safety.updated_at,'epoch'::timestamptz),COALESCE(links.updated_at,'epoch'::timestamptz)) FROM targets LEFT JOIN player_relationships safety ON safety.actor_identity_id=$1 AND safety.target_identity_id=targets.target_id LEFT JOIN player_social_links links ON links.actor_account_id=$1 AND links.target_account_id=targets.target_id ORDER BY GREATEST(COALESCE(safety.updated_at,'epoch'::timestamptz),COALESCE(links.updated_at,'epoch'::timestamptz)) DESC",
+    ) -> Result<Vec<SafetyRelationship>, GameError> {
+        let rows: Vec<(Uuid, String, bool, bool, DateTime<Utc>)> = sqlx::query_as(
+            "SELECT target_identity_id,target_nickname,muted,blocked,updated_at FROM player_relationships WHERE actor_identity_id=$1 ORDER BY updated_at DESC",
         )
         .bind(actor_identity_id)
         .fetch_all(&self.pool)
@@ -2540,137 +2407,40 @@ impl GameStore for PostgresRedisStore {
         Ok(rows
             .into_iter()
             .map(
-                |(
-                    target_identity_id,
-                    target_nickname,
-                    muted,
-                    blocked,
-                    friend_state,
-                    friend_request_id,
-                    party_state,
-                    party_id,
-                    game_invite,
-                    updated_at,
-                )| {
-                    Ok(SocialRelationship {
+                |(target_identity_id, target_nickname, muted, blocked, updated_at)| {
+                    SafetyRelationship {
                         target_identity_id,
                         target_nickname,
                         muted,
                         blocked,
-                        friend_state: SocialFriendState::parse(&friend_state)
-                            .ok_or(GameError::Internal)?,
-                        friend_request_id,
-                        party_state: SocialPartyState::parse(&party_state)
-                            .ok_or(GameError::Internal)?,
-                        party_id,
-                        game_invite: game_invite
-                            .map(serde_json::from_value)
-                            .transpose()
-                            .map_err(|_| GameError::Internal)?,
-                        presence: SocialPresence::Offline,
-                        current_room_id: None,
                         updated_at,
-                    })
+                    }
                 },
             )
-            .collect::<Result<Vec<_>, GameError>>()?)
+            .collect())
     }
 
-    async fn social_relationship_between(
+    async fn safety_relationship_between(
         &self,
         actor_identity_id: Uuid,
         target_identity_id: Uuid,
-    ) -> Result<Option<SocialRelationship>, GameError> {
-        let row: Option<(String, bool, bool, String, Option<Uuid>, String, Option<Uuid>, Option<serde_json::Value>, DateTime<Utc>)> = sqlx::query_as(
-            "SELECT COALESCE(links.target_handle,safety.target_nickname),COALESCE(safety.muted,false),COALESCE(safety.blocked,false),COALESCE(links.friend_state,'NONE'),links.friend_request_id,COALESCE(links.party_state,'NONE'),links.party_id,links.game_invite,GREATEST(COALESCE(safety.updated_at,'epoch'::timestamptz),COALESCE(links.updated_at,'epoch'::timestamptz)) FROM (SELECT $1::uuid AS actor_id,$2::uuid AS target_id) identity LEFT JOIN player_relationships safety ON safety.actor_identity_id=identity.actor_id AND safety.target_identity_id=identity.target_id LEFT JOIN player_social_links links ON links.actor_account_id=identity.actor_id AND links.target_account_id=identity.target_id WHERE safety.target_identity_id IS NOT NULL OR links.target_account_id IS NOT NULL",
+    ) -> Result<Option<SafetyRelationship>, GameError> {
+        let row: Option<(String, bool, bool, DateTime<Utc>)> = sqlx::query_as(
+            "SELECT target_nickname,muted,blocked,updated_at FROM player_relationships WHERE actor_identity_id=$1 AND target_identity_id=$2",
         )
         .bind(actor_identity_id)
         .bind(target_identity_id)
         .fetch_optional(&self.pool)
         .await?;
-        row.map(
-            |(
+        Ok(row.map(
+            |(target_nickname, muted, blocked, updated_at)| SafetyRelationship {
+                target_identity_id,
                 target_nickname,
                 muted,
                 blocked,
-                friend_state,
-                friend_request_id,
-                party_state,
-                party_id,
-                game_invite,
                 updated_at,
-            )| {
-                Ok(SocialRelationship {
-                    target_identity_id,
-                    target_nickname,
-                    muted,
-                    blocked,
-                    friend_state: SocialFriendState::parse(&friend_state)
-                        .ok_or(GameError::Internal)?,
-                    friend_request_id,
-                    party_state: SocialPartyState::parse(&party_state)
-                        .ok_or(GameError::Internal)?,
-                    party_id,
-                    game_invite: game_invite
-                        .map(serde_json::from_value)
-                        .transpose()
-                        .map_err(|_| GameError::Internal)?,
-                    presence: SocialPresence::Offline,
-                    current_room_id: None,
-                    updated_at,
-                })
             },
-        )
-        .transpose()
-    }
-
-    async fn social_presence(
-        &self,
-        account_id: Uuid,
-        now: DateTime<Utc>,
-    ) -> Result<(SocialPresence, Option<Uuid>), GameError> {
-        let sessions: Vec<(DateTime<Utc>, Option<Uuid>)> = sqlx::query_as(
-            "SELECT last_seen_at,current_room_id FROM user_sessions WHERE account_id=$1",
-        )
-        .bind(account_id)
-        .fetch_all(&self.pool)
-        .await?;
-        if let Some(room_id) = sessions.iter().find_map(|(_, room_id)| *room_id) {
-            return Ok((SocialPresence::InGame, Some(room_id)));
-        }
-        if sessions
-            .iter()
-            .any(|(last_seen_at, _)| *last_seen_at >= now - chrono::Duration::minutes(5))
-        {
-            return Ok((SocialPresence::Online, None));
-        }
-        Ok((SocialPresence::Offline, None))
-    }
-
-    async fn recent_players(
-        &self,
-        account_id: Uuid,
-        limit: usize,
-    ) -> Result<Vec<RecentPlayer>, GameError> {
-        let limit = i64::try_from(limit).unwrap_or(20).clamp(1, 100);
-        let rows: Vec<(Uuid, String, DateTime<Utc>)> = sqlx::query_as(
-            "SELECT opponent.account_id,accounts.handle,max(results.finished_at) AS last_played_at FROM game_result_participants own JOIN game_results results ON results.room_id=own.room_id JOIN game_result_participants opponent ON opponent.room_id=own.room_id AND opponent.player_id<>own.player_id JOIN player_accounts accounts ON accounts.id=opponent.account_id WHERE own.account_id=$1 AND opponent.account_id IS NOT NULL AND opponent.account_id<>$1 GROUP BY opponent.account_id,accounts.handle ORDER BY last_played_at DESC LIMIT $2",
-        )
-        .bind(account_id)
-        .bind(limit)
-        .fetch_all(&self.pool)
-        .await?;
-        Ok(rows
-            .into_iter()
-            .map(|(account_id, handle, last_played_at)| RecentPlayer {
-                account_id,
-                handle,
-                last_played_at,
-                friend: false,
-                muted: false,
-                blocked: false,
-            })
-            .collect())
+        ))
     }
 
     async fn create_player_report(&self, report: &NewPlayerReport) -> Result<(), GameError> {

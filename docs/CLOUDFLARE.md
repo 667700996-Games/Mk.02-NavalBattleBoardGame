@@ -31,13 +31,13 @@ Browser
 | `RATE_LIMITS` | `EdgeRateLimitDurableObject` | IP/세션별 HTTP, 세션 생성, WebSocket 연결 슬라이딩 윈도우                                                                 |
 | `PROGRESSION` | `ProgressionDurableObject`   | 전적, XP, 업적, 임무 보상, 랭크 평점/감쇠/시즌 보상/리더보드                                                              |
 | `MATCHMAKING` | `MatchmakingDurableObject`   | 일반·랭크 영속 큐, 검색 범위 확대, 리전/지연/평점, 재대전 억제, 중복 매칭 방지                                            |
-| `SOCIAL`      | `SocialDurableObject`        | 친구, 파티, 초대, 공개 범위, presence, 최근 상대, 음소거/차단                                                             |
+| `SAFETY`      | `SafetyDurableObject`        | 플레이어 음소거·차단과 채팅·매칭 억제 정책                                                                                |
 | `OPERATIONS`  | `OperationsDurableObject`    | 신고 증거, 운영 조치, 지원 감사, 무결성 신호, 퍼널/RUM 집계                                                               |
 | `CONTENT`     | `ContentDurableObject`       | 시즌·이벤트·기능 플래그·보상 튜닝의 검증, 예약 발행, 감사 리비전, 롤백                                                    |
 
 게임방은 `roomId`별, 속도 제한은 IP/세션 scope key별 인스턴스를 사용하고 나머지
 도메인 색인/원장은 각 namespace의 `global-v1` 인스턴스를 사용합니다. 모든 클래스는
-`new_sqlite_classes` migration `v1`~`v7`으로 선언되어 있습니다. D1, KV, R2,
+`new_sqlite_classes` migration `v1`~`v8`으로 선언되어 있습니다. D1, KV, R2,
 Containers, PostgreSQL, Redis 또는 외부 유료 DB는 Cloudflare 실행의 필수 의존성이
 아닙니다.
 

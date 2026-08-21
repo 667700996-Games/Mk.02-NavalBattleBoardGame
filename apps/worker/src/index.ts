@@ -7,7 +7,7 @@ import { LobbyDurableObject } from "./objects/lobby";
 import { EdgeRateLimitDurableObject } from "./objects/rate-limit";
 import { ProgressionDurableObject } from "./objects/progression";
 import { MatchmakingDurableObject } from "./objects/matchmaking";
-import { SocialDurableObject } from "./objects/social";
+import { SafetyDurableObject } from "./objects/safety";
 import { OperationsDurableObject } from "./objects/operations";
 import { ContentDurableObject } from "./objects/content";
 import {
@@ -47,7 +47,7 @@ export {
   LobbyDurableObject,
   ProgressionDurableObject,
   MatchmakingDurableObject,
-  SocialDurableObject,
+  SafetyDurableObject,
   OperationsDurableObject,
   ContentDurableObject,
 };
@@ -456,56 +456,20 @@ async function api(request: Request, env: WorkerEnv): Promise<Response> {
     );
     return noContent();
   }
-  if (request.method === "GET" && path === "/social/relationships") {
+  if (request.method === "GET" && path === "/safety/relationships") {
     const session = await authenticate(request, env);
     return json(
       await internalJson(
-        social(env).fetch(
+        safety(env).fetch(
           internalRequest("/relationships", {
             identityId: session.accountId ?? session.id,
-            now: new Date().toISOString(),
           }),
         ),
       ),
     );
   }
-  if (request.method === "GET" && path === "/social/overview") {
-    const session = await authenticate(request, env);
-    if (!session.accountId) throw new DomainError("SOCIAL_ACCOUNT_REQUIRED");
-    return json(
-      await internalJson(
-        social(env).fetch(
-          internalRequest("/overview", {
-            accountId: session.accountId,
-            now: new Date().toISOString(),
-          }),
-        ),
-      ),
-    );
-  }
-  if (request.method === "PUT" && path === "/social/privacy") {
-    const session = await authenticate(request, env);
-    if (!session.accountId) throw new DomainError("SOCIAL_ACCOUNT_REQUIRED");
-    const body = await bodyObject(request);
-    return json(
-      await internalJson(
-        social(env).fetch(
-          internalRequest("/privacy", {
-            accountId: session.accountId,
-            allowFriendRequests: body.allowFriendRequests,
-            showPresence: body.showPresence,
-            allowGameInvites: body.allowGameInvites,
-            now: new Date().toISOString(),
-          }),
-        ),
-      ),
-    );
-  }
-  if (request.method === "POST" && path === "/social/actions") {
-    return applySocialAction(request, env);
-  }
-  if (request.method === "POST" && path === "/social/relationships") {
-    return updateSocialRelationship(request, env);
+  if (request.method === "POST" && path === "/safety/relationships") {
+    return updateSafetyRelationship(request, env);
   }
   if (request.method === "POST" && path === "/reports") {
     return reportPlayer(request, env);
@@ -956,50 +920,7 @@ async function enqueueMatchmaking(
   );
 }
 
-async function applySocialAction(
-  request: Request,
-  env: WorkerEnv,
-): Promise<Response> {
-  const session = await authenticate(request, env);
-  if (!session.accountId) throw new DomainError("SOCIAL_ACCOUNT_REQUIRED");
-  const body = await bodyObject(request);
-  const action = requireString(body.action);
-  const allowed = [
-    "FRIEND_REQUEST",
-    "FRIEND_RESPOND",
-    "FRIEND_REMOVE",
-    "PARTY_INVITE",
-    "PARTY_RESPOND",
-    "PARTY_LEAVE",
-    "GAME_INVITE",
-    "GAME_INVITE_RESPOND",
-  ];
-  if (!allowed.includes(action)) throw new DomainError("INVALID_REQUEST");
-  let roomInfo: unknown = undefined;
-  if (action === "GAME_INVITE") {
-    const roomId = requireUuid(body.roomId);
-    roomInfo = await internalJson(
-      room(env, roomId).fetch(
-        internalRequest("/invite-info", { sessionId: session.id }),
-      ),
-    );
-  }
-  return json(
-    await internalJson(
-      social(env).fetch(
-        internalRequest("/actions", {
-          ...body,
-          actorId: session.accountId,
-          actorHandle: session.nickname,
-          roomInfo,
-          now: new Date().toISOString(),
-        }),
-      ),
-    ),
-  );
-}
-
-async function updateSocialRelationship(
+async function updateSafetyRelationship(
   request: Request,
   env: WorkerEnv,
 ): Promise<Response> {
@@ -1040,7 +961,7 @@ async function updateSocialRelationship(
   );
   return json(
     await internalJson(
-      social(env).fetch(
+      safety(env).fetch(
         internalRequest("/relationship", {
           actorIdentityId:
             actorIdentity?.accountId ??
@@ -1050,7 +971,6 @@ async function updateSocialRelationship(
             targetIdentity?.accountId ??
             context.target.accountId ??
             context.target.sessionId,
-          actorNickname: actorIdentity?.nickname ?? context.actor.nickname,
           targetNickname: targetIdentity?.nickname ?? context.target.nickname,
           muted: body.muted,
           blocked: body.blocked,
@@ -1445,8 +1365,8 @@ function matchmaking(env: WorkerEnv) {
   return env.MATCHMAKING.get(env.MATCHMAKING.idFromName(GLOBAL_OBJECT_ID));
 }
 
-function social(env: WorkerEnv) {
-  return env.SOCIAL.get(env.SOCIAL.idFromName(GLOBAL_OBJECT_ID));
+function safety(env: WorkerEnv) {
+  return env.SAFETY.get(env.SAFETY.idFromName(GLOBAL_OBJECT_ID));
 }
 
 function operations(env: WorkerEnv) {

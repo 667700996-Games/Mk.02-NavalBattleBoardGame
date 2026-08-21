@@ -477,9 +477,9 @@ export class AccountDurableObject extends DurableObject<WorkerEnv> {
         }),
       ),
     );
-    const social = this.env.SOCIAL.get(this.env.SOCIAL.idFromName("global-v1"));
-    const socialData = await responseJson<{ relationships: unknown[] }>(
-      social.fetch(internalRequest("/export", { identityId: account.id })),
+    const safety = this.env.SAFETY.get(this.env.SAFETY.idFromName("global-v1"));
+    const safetyData = await responseJson<{ relationships: unknown[] }>(
+      safety.fetch(internalRequest("/export", { identityId: account.id })),
     );
     const operations = this.env.OPERATIONS.get(
       this.env.OPERATIONS.idFromName("global-v1"),
@@ -503,7 +503,7 @@ export class AccountDurableObject extends DurableObject<WorkerEnv> {
       },
       sessions: accountSessionViews(state, account.id),
       ...progressionData,
-      socialRelationships: socialData.relationships,
+      safetyRelationships: safetyData.relationships,
       ...operationsData,
       cacheCopies: "SQLite-backed Durable Objects storage only",
       credentialsExcluded: true,
@@ -638,12 +638,12 @@ export class AccountDurableObject extends DurableObject<WorkerEnv> {
           }),
         ),
       );
-      const social = this.env.SOCIAL.get(
-        this.env.SOCIAL.idFromName("global-v1"),
+      const safety = this.env.SAFETY.get(
+        this.env.SAFETY.idFromName("global-v1"),
       );
-      const socialDeletion = await responseJson<{
+      const safetyDeletion = await responseJson<{
         relationshipsDeleted: number;
-      }>(social.fetch(internalRequest("/delete", { identityId: account.id })));
+      }>(safety.fetch(internalRequest("/delete", { identityId: account.id })));
       const operations = this.env.OPERATIONS.get(
         this.env.OPERATIONS.idFromName("global-v1"),
       );
@@ -689,7 +689,7 @@ export class AccountDurableObject extends DurableObject<WorkerEnv> {
         stats: {
           sessionsDeleted: sessions.length,
           rewardsDeleted: progressionDeletion.rewardsDeleted,
-          relationshipsDeleted: socialDeletion.relationshipsDeleted,
+          relationshipsDeleted: safetyDeletion.relationshipsDeleted,
           reportsDeleted: operationsDeletion.reportsDeleted,
           integritySignalsDeleted: operationsDeletion.integritySignalsDeleted,
           roomsAnonymized,

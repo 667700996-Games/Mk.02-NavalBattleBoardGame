@@ -148,7 +148,7 @@
     safetyNotice = '';
     reportSubmitted = false;
     try {
-      const relationships = (await api.socialRelationships()).relationships;
+      const relationships = (await api.safetyRelationships()).relationships;
       const relationship = relationships.find((item) => item.targetNickname === targetNickname);
       muted = relationship?.muted ?? false;
       blocked = relationship?.blocked ?? false;
@@ -162,7 +162,7 @@
     safetyBusy = true;
     safetyNotice = '';
     try {
-      const relationship = await api.updateSocialRelationship(
+      const relationship = await api.updateSafetyRelationship(
         roomId,
         targetPlayerId,
         nextMuted,

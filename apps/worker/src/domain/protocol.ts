@@ -373,8 +373,6 @@ const ERROR_MESSAGES = {
   UNAUTHORIZED: "인증 세션이 없거나 만료되었습니다.",
   RANKED_ACCOUNT_REQUIRED:
     "랭크 매칭은 계정으로 로그인한 지휘관만 이용할 수 있습니다.",
-  SOCIAL_ACCOUNT_REQUIRED:
-    "소셜 기능은 계정으로 로그인한 지휘관만 이용할 수 있습니다.",
   PLAYER_BLOCKED: "차단된 지휘관과는 이 작업을 수행할 수 없습니다.",
   ACCOUNT_SUSPENDED: "이 계정은 일시 정지되었습니다.",
   ACCOUNT_BANNED: "이 계정은 이용이 금지되었습니다.",
@@ -426,7 +424,6 @@ export function statusForError(code: ErrorCode): number {
   if (
     [
       "RANKED_ACCOUNT_REQUIRED",
-      "SOCIAL_ACCOUNT_REQUIRED",
       "PLAYER_BLOCKED",
       "ACCOUNT_SUSPENDED",
       "ACCOUNT_BANNED",
