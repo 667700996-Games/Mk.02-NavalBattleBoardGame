@@ -79,7 +79,6 @@
   <div class="hero__copy">
     <div class="hero__status-line">
       <Badge tone="success" pulse>{$t('landing.liveNetwork')}</Badge>
-      <span>{$t('landing.liveSummary')}</span>
     </div>
 
     <p class="eyebrow">{$t('landing.eyebrow')}</p>
@@ -89,10 +88,6 @@
         >{$t('landing.titleLineTwo')}</span
       >
     </h1>
-    <p class="hero__lead">
-      {$t('landing.lead')}
-    </p>
-
     <Surface tone="elevated" padding="md" class="command-entry">
       {#if accountLogin && !existingSession}
         <form
@@ -207,7 +202,7 @@
       >
     </div>
     <a class="tutorial-link" href={resolve('/tutorial')}
-      >{$t('landing.tutorialLink')} <ArrowRight size={15} /></a
+      >{$t('landing.tutorialLink')} <ArrowRight size={18} /></a
     >
   </div>
 
@@ -340,16 +335,9 @@
     background-clip: text;
     filter: drop-shadow(0 10px 32px rgba(20, 198, 213, 0.1));
   }
-  .hero__lead {
-    max-width: 700px;
-    margin: 32px 0;
-    color: var(--ink-300);
-    font-size: clamp(14px, 1.4vw, 17px);
-    line-height: 1.9;
-    word-break: keep-all;
-  }
   :global(.command-entry) {
     max-width: 720px;
+    margin-top: 28px;
   }
   :global(.command-entry) form {
     display: grid;
@@ -450,12 +438,15 @@
     letter-spacing: 0.12em;
   }
   .tutorial-link {
-    display: inline-flex;
-    gap: 8px;
+    display: flex;
+    gap: 10px;
     align-items: center;
-    margin-top: 18px;
+    width: fit-content;
+    min-height: 44px;
+    margin: 14px 0 0 auto;
+    padding-left: 12px;
     color: var(--cyan-300);
-    font: 700 10px var(--font-display);
+    font: 700 clamp(13px, 1.1vw, 16px) var(--font-display);
     letter-spacing: 0.04em;
   }
   .tutorial-link:hover {
@@ -902,13 +893,6 @@
       display: block;
       margin-bottom: 32px;
     }
-    .hero__status-line > span {
-      display: none;
-    }
-    .hero__lead {
-      margin-block: 24px;
-      font-size: 14px;
-    }
     .command-entry__controls {
       grid-template-columns: 1fr;
     }
@@ -1001,15 +985,8 @@
     background: linear-gradient(105deg, #d8fbfc 4%, #75e9eb 48%, #4ea4dc 100%);
     background-clip: text;
   }
-  .hero__lead {
-    max-width: 620px;
-    color: var(--ink-300);
-  }
   .hero__status-line {
     margin-bottom: 28px;
-  }
-  .hero__lead {
-    margin-block: 24px 28px;
   }
   :global(.command-entry) {
     border-radius: 8px 3px 8px 3px;
@@ -1096,10 +1073,8 @@
       font-size: clamp(40px, 3.9vw, 58px);
       line-height: 0.94;
     }
-    .hero__lead {
-      margin-block: 20px;
-      font-size: 14px;
-      line-height: 1.7;
+    :global(.command-entry) {
+      margin-top: 20px;
     }
     .trust-row {
       margin-top: 16px;
