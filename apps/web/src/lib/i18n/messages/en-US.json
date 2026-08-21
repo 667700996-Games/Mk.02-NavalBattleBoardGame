@@ -105,7 +105,6 @@
   "singlePlayer.simulationReady": "AI simulation ready",
   "singlePlayer.eyebrow": "Single player / tactical training",
   "singlePlayer.title": "AI Tactical Range",
-  "singlePlayer.description": "Commander {commander}, choose an AI difficulty to begin a practice engagement without another player.",
   "singlePlayer.channelError": "Training channel error",
   "singlePlayer.loading": "Checking AI training channel",
   "singlePlayer.practiceError": "Could not start AI tactical training.",

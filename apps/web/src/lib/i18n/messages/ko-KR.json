@@ -105,7 +105,6 @@
   "singlePlayer.simulationReady": "AI 시뮬레이션 준비됨",
   "singlePlayer.eyebrow": "싱글 플레이 / 전술 훈련",
   "singlePlayer.title": "AI 전술 훈련장",
-  "singlePlayer.description": "{commander} 지휘관, 원하는 AI 난이도를 선택하면 다른 플레이어 없이 연습 교전을 시작합니다.",
   "singlePlayer.channelError": "훈련 채널 오류",
   "singlePlayer.loading": "AI 훈련 채널 확인 중",
   "singlePlayer.practiceError": "AI 전술 훈련을 시작하지 못했습니다.",

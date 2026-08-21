@@ -120,21 +120,6 @@
     </Button>
   </nav>
 
-  <div class="tutorial-actions">
-    <Button variant="secondary" onclick={() => move(step - 1)} disabled={step === 0}
-      ><ArrowLeft size={16} /> {$t('tutorial.previous')}</Button
-    >
-    {#if step < lessons.length - 1}
-      <Button variant="primary" onclick={() => move(step + 1)}
-        >{$t('tutorial.next')} <ArrowRight size={16} /></Button
-      >
-    {:else}
-      <Button variant="success" onclick={finish}
-        ><Check size={16} /> {$t('tutorial.complete')}</Button
-      >
-    {/if}
-  </div>
-
   <header class="tutorial-heading">
     <div>
       <Badge tone="cyan">{$t('tutorial.academy')}</Badge>
@@ -274,6 +259,21 @@
       {/if}
     </Surface>
   </section>
+
+  <footer class="tutorial-actions">
+    <Button variant="secondary" onclick={() => move(step - 1)} disabled={step === 0}
+      ><ArrowLeft size={16} /> {$t('tutorial.previous')}</Button
+    >
+    {#if step < lessons.length - 1}
+      <Button variant="primary" onclick={() => move(step + 1)}
+        >{$t('tutorial.next')} <ArrowRight size={16} /></Button
+      >
+    {:else}
+      <Button variant="success" onclick={finish}
+        ><Check size={16} /> {$t('tutorial.complete')}</Button
+      >
+    {/if}
+  </footer>
 </main>
 
 <style>
@@ -281,7 +281,7 @@
     padding: 42px 0 100px;
   }
   .tutorial-mode-nav {
-    margin-bottom: 14px;
+    margin-bottom: 32px;
   }
   .tutorial-heading {
     display: flex;
@@ -601,7 +601,7 @@
     align-items: center;
     justify-content: space-between;
     gap: 24px;
-    margin-bottom: 32px;
+    margin-top: 20px;
   }
   @keyframes pulse-danger {
     to {

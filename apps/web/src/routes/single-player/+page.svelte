@@ -70,7 +70,6 @@
       <p class="eyebrow">{$t('singlePlayer.eyebrow')}</p>
       <h1 id="single-title" class="page-title">{$t('singlePlayer.title')}</h1>
     </div>
-    <p>{$t('singlePlayer.description', { commander: $session?.nickname ?? '' })}</p>
   </header>
 
   {#if error}
@@ -166,14 +165,6 @@
   .single-heading h1 {
     margin: 0;
     font-size: clamp(40px, 5vw, 64px);
-  }
-  .single-heading > p {
-    max-width: 430px;
-    margin: 0 0 5px;
-    color: var(--ink-300);
-    font-size: 13px;
-    line-height: 1.8;
-    word-break: keep-all;
   }
   .single-alert {
     display: flex;

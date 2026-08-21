@@ -26,16 +26,9 @@ test('tutorial choice can return to play selection while training is in progress
   await expect(
     page.getByText('한 판을 시작하기 전에 핵심 판단과 복구 규칙을 직접 확인합니다.')
   ).toHaveCount(0);
-  const modeNavigation = page.locator('.tutorial-mode-nav');
   const lessonNavigation = page.locator('.tutorial-actions');
   await expect(lessonNavigation).toBeVisible();
-  expect(
-    await modeNavigation.evaluate(
-      (navigation, actions) =>
-        Boolean(navigation.compareDocumentPosition(actions) & Node.DOCUMENT_POSITION_FOLLOWING),
-      await lessonNavigation.elementHandle()
-    )
-  ).toBe(true);
+  await expect(page.locator('.tutorial > :last-child')).toHaveClass(/tutorial-actions/);
   await page.getByRole('button', { name: /다음 훈련/ }).click();
   await page.getByRole('button', { name: '플레이 방식 다시 선택' }).click();
   await expect(page).toHaveURL(/\/play$/);
@@ -48,6 +41,7 @@ test('single-player choice opens the dedicated AI tactical range', async ({ page
 
   await expect(page).toHaveURL(/\/single-player$/);
   await expect(page.getByRole('heading', { name: 'AI 전술 훈련장' })).toBeVisible();
+  await expect(page.getByText(/SoloCaptain 지휘관, 원하는 AI 난이도/)).toHaveCount(0);
   await expect(page.getByRole('button', { name: /신병 RECRUIT/ })).toBeVisible();
   await expect(page.getByRole('button', { name: /장교 OFFICER/ })).toBeVisible();
   await expect(page.getByRole('button', { name: /제독 ADMIRAL/ })).toBeVisible();
