@@ -1,7 +1,10 @@
 /* Lobby presentation styles are kept separate from route orchestration. */
 .lobby-page {
   .lobby {
-    padding: 64px 0 112px;
+    padding: 42px 0 112px;
+  }
+  .lobby-mode-nav {
+    margin-bottom: 32px;
   }
   .lobby-heading {
     display: flex;

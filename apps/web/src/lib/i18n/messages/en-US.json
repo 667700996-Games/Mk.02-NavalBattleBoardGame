@@ -525,6 +525,8 @@
   "lobby.rankedAccountRequired": "Upgrade to an account before using ranked matchmaking.",
   "lobby.matchmakingError": "Could not start quick matchmaking.",
   "lobby.metaTitle": "Operations Lobby · Mk.01",
+  "lobby.navigation": "Multiplayer navigation",
+  "lobby.changeMode": "Choose another play mode",
   "lobby.networkOnline": "Command network online",
   "lobby.sectorAccess": "Sector access / Pacific fleet",
   "lobby.eyebrow": "Operations lobby",

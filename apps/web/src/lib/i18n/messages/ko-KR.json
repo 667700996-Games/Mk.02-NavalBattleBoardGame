@@ -525,6 +525,8 @@
   "lobby.rankedAccountRequired": "랭크 매칭은 계정 업그레이드 후 이용할 수 있습니다.",
   "lobby.matchmakingError": "빠른 매칭을 시작하지 못했습니다.",
   "lobby.metaTitle": "작전 로비 · Mk.01",
+  "lobby.navigation": "멀티 플레이 탐색",
+  "lobby.changeMode": "플레이 방식 다시 선택",
   "lobby.networkOnline": "지휘 네트워크 온라인",
   "lobby.sectorAccess": "해역 접속 / 태평양 함대",
   "lobby.eyebrow": "작전 로비",

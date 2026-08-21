@@ -2,7 +2,7 @@
   import { goto } from '$app/navigation';
   import { resolve } from '$app/paths';
   import { onMount } from 'svelte';
-  import { KeyRound, Plus, Radio } from '@lucide/svelte';
+  import { ArrowLeft, KeyRound, Plus, Radio } from '@lucide/svelte';
   import { api, ApiError } from '$lib/api';
   import { trackFunnelAbandoned, trackFunnelFailure, trackFunnelReached } from '$lib/funnel';
   import { realtime } from '$lib/realtime';
@@ -222,6 +222,13 @@
 
 <div class="lobby-page">
   <div class="lobby shell">
+    <nav class="lobby-mode-nav" aria-label={$t('lobby.navigation')}>
+      <Button variant="secondary" onclick={() => goto(resolve('/play'))}>
+        <ArrowLeft size={17} />
+        {$t('lobby.changeMode')}
+      </Button>
+    </nav>
+
     <header class="lobby-heading">
       <div>
         <div class="heading-signal">
