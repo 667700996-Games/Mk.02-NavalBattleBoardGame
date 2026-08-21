@@ -47,33 +47,6 @@ test('new-player funnel exposes reached, failed, and abandoned checkpoints', asy
     .poll(async () => funnelValue(await metrics(page), 'landing', 'reached'))
     .toBeGreaterThan(initial.landing);
 
-  await page.getByRole('link', { name: /5분 작전 튜토리얼/ }).click();
-  await expect(page.getByRole('heading', { name: '작전 지휘 튜토리얼' })).toBeVisible();
-  await expect
-    .poll(async () => funnelValue(await metrics(page), 'tutorial_started', 'reached'))
-    .toBeGreaterThan(initial.tutorialStarted);
-  await page.getByRole('link', { name: '나중에 계속' }).click();
-  await expect(page).toHaveURL(/\/$/);
-  await expect
-    .poll(async () => funnelValue(await metrics(page), 'tutorial_started', 'abandoned'))
-    .toBeGreaterThan(initial.tutorialAbandoned);
-
-  await page.getByRole('link', { name: /5분 작전 튜토리얼/ }).click();
-  for (let step = 0; step < 4; step += 1) {
-    await page.getByRole('button', { name: /다음 훈련/ }).click();
-  }
-  const landingSessionProbe = page.waitForResponse(
-    (response) =>
-      new URL(response.url()).pathname === '/api/sessions/current' &&
-      response.request().method() === 'GET'
-  );
-  await page.getByRole('button', { name: '훈련 완료' }).click();
-  await expect(page).toHaveURL(/\/$/);
-  await landingSessionProbe;
-  await expect
-    .poll(async () => funnelValue(await metrics(page), 'tutorial_completed', 'reached'))
-    .toBeGreaterThan(initial.tutorialCompleted);
-
   const nickname = page.locator('#nickname');
   await nickname.fill('Funnel Cadet');
   await expect(nickname).toHaveValue('Funnel Cadet');
@@ -89,11 +62,34 @@ test('new-player funnel exposes reached, failed, and abandoned checkpoints', asy
   await page.unroute('**/api/sessions');
 
   await page.getByRole('button', { name: '플레이 방식 선택' }).click();
-  await page.getByRole('button', { name: '멀티 플레이 선택' }).click();
-  await expect(page.getByRole('heading', { name: '작전 로비' })).toBeVisible();
+  await expect(page).toHaveURL(/\/play$/);
   await expect
     .poll(async () => funnelValue(await metrics(page), 'session_created', 'reached'))
     .toBeGreaterThan(initial.sessionCreated);
+
+  await page.getByRole('button', { name: '튜토리얼 선택' }).click();
+  await expect(page.getByRole('heading', { name: '작전 지휘 튜토리얼' })).toBeVisible();
+  await expect
+    .poll(async () => funnelValue(await metrics(page), 'tutorial_started', 'reached'))
+    .toBeGreaterThan(initial.tutorialStarted);
+  await page.getByRole('button', { name: '플레이 방식 다시 선택' }).click();
+  await expect(page).toHaveURL(/\/play$/);
+  await expect
+    .poll(async () => funnelValue(await metrics(page), 'tutorial_started', 'abandoned'))
+    .toBeGreaterThan(initial.tutorialAbandoned);
+
+  await page.getByRole('button', { name: '튜토리얼 선택' }).click();
+  for (let step = 0; step < 4; step += 1) {
+    await page.getByRole('button', { name: /다음 훈련/ }).click();
+  }
+  await page.getByRole('button', { name: '훈련 완료' }).click();
+  await expect(page).toHaveURL(/\/play$/);
+  await expect
+    .poll(async () => funnelValue(await metrics(page), 'tutorial_completed', 'reached'))
+    .toBeGreaterThan(initial.tutorialCompleted);
+
+  await page.getByRole('button', { name: '멀티 플레이 선택' }).click();
+  await expect(page.getByRole('heading', { name: '작전 로비' })).toBeVisible();
   await expect
     .poll(async () => funnelValue(await metrics(page), 'lobby_entered', 'reached'))
     .toBeGreaterThan(initial.lobbyEntered);

@@ -2,7 +2,7 @@
   import { goto } from '$app/navigation';
   import { resolve } from '$app/paths';
   import { onMount } from 'svelte';
-  import { ArrowRight, Crosshair, Radio, ShieldCheck, Users } from '@lucide/svelte';
+  import { ArrowRight, BookOpen, Crosshair, Radio, ShieldCheck, Users } from '@lucide/svelte';
   import { api } from '$lib/api';
   import { t } from '$lib/i18n';
   import { session } from '$lib/stores';
@@ -19,6 +19,10 @@
       await goto(resolve('/'));
     }
   });
+
+  async function chooseTutorial() {
+    await goto(resolve('/tutorial'));
+  }
 
   async function chooseSinglePlayer() {
     await goto(resolve('/single-player'));
@@ -43,6 +47,28 @@
 
   {#if ready}
     <div class="mode-grid">
+      <button
+        type="button"
+        class="mode-card mode-card--tutorial"
+        aria-label={$t('playMode.chooseTutorial')}
+        onclick={chooseTutorial}
+      >
+        <span class="mode-card__index">{$t('playMode.tutorialIndex')}</span>
+        <span class="mode-card__icon"><BookOpen size={34} strokeWidth={1.4} /></span>
+        <span class="mode-card__copy">
+          <small>{$t('playMode.tutorialCode')}</small>
+          <strong>{$t('playMode.tutorialTitle')}</strong>
+          <span>{$t('playMode.tutorialDescription')}</span>
+        </span>
+        <span class="mode-card__features">
+          <span><ShieldCheck size={15} /> {$t('playMode.tutorialFeatureOne')}</span>
+          <span><Radio size={15} /> {$t('playMode.tutorialFeatureTwo')}</span>
+        </span>
+        <span class="mode-card__action"
+          >{$t('playMode.tutorialAction')} <ArrowRight size={19} /></span
+        >
+      </button>
+
       <button
         type="button"
         class="mode-card mode-card--single"
@@ -120,9 +146,9 @@
   }
   .mode-grid {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 18px;
-    width: min(980px, 100%);
+    width: min(1280px, 100%);
     margin-inline: auto;
   }
   .mode-card {
@@ -172,6 +198,11 @@
   .mode-card--multi .mode-card__icon,
   .mode-card--multi .mode-card__action {
     color: var(--green-400);
+  }
+  .mode-card--tutorial .mode-card__icon,
+  .mode-card--tutorial .mode-card__action,
+  .mode-card--tutorial .mode-card__features :global(svg) {
+    color: var(--amber-400);
   }
   .mode-card__index {
     position: absolute;
@@ -257,13 +288,19 @@
     border-radius: 50%;
     animation: mode-spin 0.8s linear infinite;
   }
+  @media (max-width: 1180px) {
+    .mode-grid {
+      grid-template-columns: 1fr;
+      width: min(720px, 100%);
+    }
+    .mode-card {
+      min-height: 320px;
+    }
+  }
   @media (max-width: 760px) {
     .mode-page {
       min-height: auto;
       padding-block: 48px 72px;
-    }
-    .mode-grid {
-      grid-template-columns: 1fr;
     }
     .mode-card {
       min-height: 340px;

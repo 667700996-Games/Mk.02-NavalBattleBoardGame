@@ -192,9 +192,6 @@
         ></span
       >
     </div>
-    <a class="tutorial-link" href={resolve('/tutorial')}>
-      <span>{$t('landing.tutorialLink')}</span><ArrowRight size={18} />
-    </a>
   </div>
 
   <div class="command-visual" aria-hidden="true">
@@ -388,58 +385,6 @@
     font-family: var(--font-display);
     font-size: 7px;
     letter-spacing: 0.12em;
-  }
-  .tutorial-link {
-    position: relative;
-    display: flex;
-    gap: 10px;
-    align-items: center;
-    width: fit-content;
-    min-height: 48px;
-    margin: 18px 0 0 auto;
-    padding: 10px 16px 10px 18px;
-    overflow: hidden;
-    border: 1px solid rgba(83, 233, 232, 0.34);
-    border-radius: 7px 2px 7px 2px;
-    color: var(--cyan-300);
-    background: linear-gradient(145deg, rgba(17, 59, 68, 0.7), rgba(4, 24, 31, 0.9));
-    box-shadow:
-      inset 0 1px rgba(220, 255, 255, 0.05),
-      0 0 20px rgba(40, 223, 232, 0.035);
-    font: 700 clamp(13px, 1.1vw, 16px) var(--font-display);
-    letter-spacing: 0.04em;
-    isolation: isolate;
-    animation: tutorial-glow 5.6s ease-in-out infinite;
-    transition: 180ms var(--ease-out);
-    transition-property: color, border-color, background, transform;
-  }
-  .tutorial-link::before {
-    position: absolute;
-    z-index: 0;
-    inset: 0;
-    content: '';
-    opacity: 0.48;
-    pointer-events: none;
-    background: linear-gradient(
-      110deg,
-      transparent 28%,
-      rgba(184, 255, 255, 0.14) 48%,
-      transparent 68%
-    );
-    transform: translateX(-160%);
-    animation: tutorial-shimmer 5.6s ease-in-out infinite;
-  }
-  .tutorial-link > span,
-  .tutorial-link :global(svg) {
-    position: relative;
-    z-index: 1;
-  }
-  .tutorial-link:hover,
-  .tutorial-link:focus-visible {
-    border-color: rgba(112, 246, 246, 0.62);
-    color: var(--cyan-200);
-    background: linear-gradient(145deg, rgba(20, 71, 79, 0.78), rgba(5, 29, 37, 0.94));
-    transform: translateY(-1px);
   }
   .command-visual {
     position: relative;
@@ -994,29 +939,6 @@
   @keyframes contact-drift-three {
     50% {
       transform: translate(4px, 8px);
-    }
-  }
-  @keyframes tutorial-glow {
-    0%,
-    100% {
-      box-shadow:
-        inset 0 1px rgba(220, 255, 255, 0.05),
-        0 0 16px rgba(40, 223, 232, 0.025);
-    }
-    50% {
-      box-shadow:
-        inset 0 1px rgba(220, 255, 255, 0.08),
-        0 0 25px rgba(40, 223, 232, 0.09);
-    }
-  }
-  @keyframes tutorial-shimmer {
-    0%,
-    58% {
-      transform: translateX(-160%);
-    }
-    86%,
-    100% {
-      transform: translateX(160%);
     }
   }
 </style>

@@ -97,7 +97,12 @@
     preferences.update((value) => ({ ...value, tutorialCompleted: true }));
     trackFunnelReached('tutorial_completed');
     sounds.confirm();
-    await goto(resolve($session ? '/lobby' : '/'));
+    await goto(resolve($session ? '/play' : '/'));
+  }
+
+  async function leaveTutorial() {
+    trackFunnelAbandoned('tutorial_started');
+    await goto(resolve($session ? '/play' : '/'));
   }
 </script>
 
@@ -108,6 +113,13 @@
 
 <main class="tutorial shell">
   <p class="sr-only" aria-live="polite">{announcement}</p>
+  <nav class="tutorial-mode-nav" aria-label={$t('tutorial.navigation')}>
+    <Button variant="secondary" onclick={leaveTutorial}>
+      <ArrowLeft size={17} />
+      {$t('tutorial.changeMode')}
+    </Button>
+  </nav>
+
   <header class="tutorial-heading">
     <div>
       <Badge tone="cyan">{$t('tutorial.academy')}</Badge>
@@ -115,12 +127,6 @@
       <h1 class="page-title">{$t('tutorial.title')}</h1>
       <p>{$t('tutorial.description')}</p>
     </div>
-    <a
-      class="exit-link"
-      href={resolve($session ? '/lobby' : '/')}
-      onclick={() => trackFunnelAbandoned('tutorial_started')}
-      ><ArrowLeft size={16} /> {$t('tutorial.continueLater')}</a
-    >
   </header>
 
   <div
@@ -273,7 +279,10 @@
 
 <style>
   .tutorial {
-    padding: 56px 0 100px;
+    padding: 42px 0 100px;
+  }
+  .tutorial-mode-nav {
+    margin-bottom: 32px;
   }
   .tutorial-heading {
     display: flex;
@@ -287,13 +296,6 @@
   .tutorial-heading p:last-child {
     max-width: 680px;
     color: var(--ink-300);
-  }
-  .exit-link {
-    display: inline-flex;
-    gap: 8px;
-    align-items: center;
-    color: var(--ink-300);
-    font: 700 11px var(--font-display);
   }
   .progress {
     display: grid;

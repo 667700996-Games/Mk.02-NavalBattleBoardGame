@@ -14,6 +14,20 @@ async function registerToPlaySelection(page: Page, nickname: string) {
   await expect(page.getByRole('heading', { name: '전투 방식을 선택하십시오.' })).toBeVisible();
 }
 
+test('tutorial choice can return to play selection while training is in progress', async ({
+  page
+}) => {
+  await registerToPlaySelection(page, 'TutorialCaptain');
+
+  await page.getByRole('button', { name: '튜토리얼 선택' }).click();
+
+  await expect(page).toHaveURL(/\/tutorial$/);
+  await expect(page.getByRole('heading', { name: '작전 지휘 튜토리얼' })).toBeVisible();
+  await page.getByRole('button', { name: /다음 훈련/ }).click();
+  await page.getByRole('button', { name: '플레이 방식 다시 선택' }).click();
+  await expect(page).toHaveURL(/\/play$/);
+});
+
 test('single-player choice opens the dedicated AI tactical range', async ({ page }) => {
   await registerToPlaySelection(page, 'SoloCaptain');
 
@@ -43,4 +57,7 @@ test('multiplayer choice opens a focused lobby and exposes social in the header'
   await expect(page.getByText('AI 연습 교전', { exact: true })).toHaveCount(0);
   await expect(page.locator('.dashboard-side')).toHaveCount(0);
   await expect(page.locator('.app-header').getByRole('link', { name: '소셜 허브' })).toBeVisible();
+  await expect(page.locator('.app-header').getByRole('link', { name: '플레이 선택' })).toHaveCount(
+    0
+  );
 });

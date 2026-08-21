@@ -4,7 +4,7 @@
   import { page } from '$app/state';
   import { onMount } from 'svelte';
   import { resolve } from '$app/paths';
-  import { Crosshair, History, Radio, Settings, Users } from '@lucide/svelte';
+  import { Crosshair, History, Settings, Users } from '@lucide/svelte';
   import { ApiError, api } from '$lib/api';
   import { installFunnelAbandonmentTracking } from '$lib/funnel';
   import { installRealUserMonitoring } from '$lib/performance';
@@ -155,14 +155,6 @@
 
     <nav class="nav-links" aria-label={$t('layout.mainNavigation')}>
       {#if $session}
-        <Tooltip text={$t('layout.playSelection')} side="bottom">
-          <a
-            class:active={active('/play') || active('/single-player')}
-            class="nav-link"
-            aria-label={$t('layout.playSelection')}
-            href={resolve('/play')}><Radio size={17} /><span>{$t('layout.playSelection')}</span></a
-          >
-        </Tooltip>
         <Tooltip text={$t('layout.socialHub')} side="bottom">
           <a
             class:active={active('/social')}
