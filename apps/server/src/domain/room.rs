@@ -11,7 +11,8 @@ use super::{
     ChatTypingEvent, ConnectionState, Coordinate, FinishReason, Game, GameResult,
     GameTimelineEvent, MAX_CHAT_HISTORY, MAX_CHAT_MESSAGE_CHARS, MatchRules, MatchmakingQuality,
     Player, PlayerKind, PlayerReadyState, PlayerRole, QuickCommandId, RankedMatchContext, ShipKind,
-    ShipPlacement, SurrenderRecord, TurnExpiration, UserSession,
+    ShipPlacement, SurrenderRecord, TacticalSkillInventory, TacticalSkillKind,
+    TacticalSkillUseRecord, TurnExpiration, UserSession,
 };
 
 mod chat;
@@ -654,6 +655,66 @@ impl GameRoom {
             expected_turn,
             next_version,
         )?;
+        if record.winner_id.is_some() {
+            self.status = RoomStatus::Finished;
+        }
+        self.bump();
+        if let Some(winner_id) = record.winner_id {
+            let winner = self
+                .players
+                .iter()
+                .find(|player| player.id == winner_id)
+                .map(|player| player.nickname.as_str())
+                .unwrap_or("UNKNOWN");
+            self.push_system_message(format!(
+                "게임이 종료되었습니다. {winner} 지휘관이 적 함대를 전멸시켰습니다."
+            ));
+        }
+        Ok((record, false))
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn fire_skill(
+        &mut self,
+        session_id: Uuid,
+        request_id: Uuid,
+        claimed_player_id: Uuid,
+        skill: TacticalSkillKind,
+        targets: Vec<Coordinate>,
+        expected_version: u64,
+        expected_turn: u32,
+    ) -> Result<(TacticalSkillUseRecord, bool), GameError> {
+        self.require_executable_balance()?;
+        let player_id = self.player_for_session(session_id)?.id;
+        if player_id != claimed_player_id {
+            return Err(GameError::Unauthorized);
+        }
+        if let Some(previous) = self
+            .game
+            .as_ref()
+            .and_then(|game| game.previous_skill_resolution(request_id, player_id))
+        {
+            return Ok((previous, true));
+        }
+        if self.status != RoomStatus::Playing {
+            return Err(GameError::InvalidState);
+        }
+        if self.version != expected_version {
+            return Err(GameError::VersionConflict);
+        }
+        let next_version = self.version + 1;
+        let record = self
+            .game
+            .as_mut()
+            .ok_or(GameError::InvalidState)?
+            .fire_skill(
+                request_id,
+                player_id,
+                skill,
+                targets,
+                expected_turn,
+                next_version,
+            )?;
         if record.winner_id.is_some() {
             self.status = RoomStatus::Finished;
         }

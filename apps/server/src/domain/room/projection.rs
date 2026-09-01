@@ -48,9 +48,8 @@ impl GameRoom {
                         })
                         .collect(),
                 };
-                let target = TargetBoardSnapshot {
-                    attacks: game
-                        .attacks
+                let attacks = if game.timeline.is_empty() {
+                    game.attacks
                         .iter()
                         .filter(|attack| attack.attacker_id == me.id)
                         .map(|attack| TargetAttackSnapshot {
@@ -58,8 +57,36 @@ impl GameRoom {
                             outcome: attack.outcome,
                             sunk_ship: attack.sunk_ship,
                         })
-                        .collect(),
+                        .collect()
+                } else {
+                    game.timeline
+                        .iter()
+                        .flat_map(|event| match event {
+                            GameTimelineEvent::Attack(attack) if attack.attacker_id == me.id => {
+                                vec![TargetAttackSnapshot {
+                                    coordinate: attack.coordinate,
+                                    outcome: attack.outcome,
+                                    sunk_ship: attack.sunk_ship,
+                                }]
+                            }
+                            GameTimelineEvent::SkillAttack(record)
+                                if record.attacker_id == me.id =>
+                            {
+                                record
+                                    .cells
+                                    .iter()
+                                    .map(|cell| TargetAttackSnapshot {
+                                        coordinate: cell.coordinate,
+                                        outcome: cell.outcome,
+                                        sunk_ship: cell.sunk_ship,
+                                    })
+                                    .collect()
+                            }
+                            _ => Vec::new(),
+                        })
+                        .collect()
                 };
+                let target = TargetBoardSnapshot { attacks };
                 let revealed = if self.status == RoomStatus::Finished {
                     game.boards
                         .iter()
@@ -134,6 +161,20 @@ impl GameRoom {
             turn_deadline_at: self.game.as_ref().and_then(|game| game.turn_deadline_at),
             turn_duration_seconds: self.game.as_ref().map(|game| game.turn_duration_seconds),
             shots_remaining_in_turn: self.game.as_ref().map(|game| game.shots_remaining_in_turn),
+            skill_inventories: self
+                .game
+                .as_ref()
+                .map(|game| game.skill_inventories.clone())
+                .unwrap_or_default(),
+            skill_used_this_turn: self.game.as_ref().is_some_and(|game| {
+                game.skill_used_turns.get(&me.id) == Some(&game.turn_number)
+            }),
+            skill_unlock_turn: self
+                .balance
+                .manifest
+                .tactical_skills
+                .as_ref()
+                .map(|rules| rules.unlock_turn),
             server_timestamp: Utc::now(),
         })
     }
@@ -180,6 +221,7 @@ impl GameRoom {
                 .first()
                 .map(|event| match event {
                     GameTimelineEvent::Attack(record) => record.attacker_id,
+                    GameTimelineEvent::SkillAttack(record) => record.attacker_id,
                     GameTimelineEvent::TurnExpired(record) => record.expired_player_id,
                 })
                 .unwrap_or(game.current_player_id)
@@ -228,6 +270,7 @@ impl GameRoom {
             .into_iter()
             .filter(|event| match event {
                 GameTimelineEvent::Attack(record) => record.created_at <= visible_through,
+                GameTimelineEvent::SkillAttack(record) => record.created_at <= visible_through,
                 GameTimelineEvent::TurnExpired(record) => record.expired_at <= visible_through,
             })
             .collect::<Vec<_>>();
@@ -247,6 +290,7 @@ impl GameRoom {
                 .last()
                 .and_then(|event| match event {
                     GameTimelineEvent::Attack(record) => record.next_player_id,
+                    GameTimelineEvent::SkillAttack(record) => record.next_player_id,
                     GameTimelineEvent::TurnExpired(record) => record.next_player_id,
                 })
                 .or_else(|| (!game.first_player_id.is_nil()).then_some(game.first_player_id))
@@ -435,6 +479,11 @@ pub struct GameSnapshot {
     pub turn_deadline_at: Option<DateTime<Utc>>,
     pub turn_duration_seconds: Option<u32>,
     pub shots_remaining_in_turn: Option<u8>,
+    #[serde(default)]
+    pub skill_inventories: HashMap<Uuid, TacticalSkillInventory>,
+    #[serde(default)]
+    pub skill_used_this_turn: bool,
+    pub skill_unlock_turn: Option<u32>,
     pub server_timestamp: DateTime<Utc>,
 }
 
