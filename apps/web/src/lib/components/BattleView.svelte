@@ -13,7 +13,8 @@
     coordinateLabel,
     fleetForBalance,
     type Coordinate,
-    type GameSnapshot
+    type GameSnapshot,
+    type TacticalSkillKind
   } from '$lib/types';
 
   interface Props {
@@ -22,6 +23,7 @@
     disabled?: boolean;
     surrenderPending?: boolean;
     onfire: (coordinate: Coordinate) => void;
+    onskill: (skill: TacticalSkillKind, targets: Coordinate[]) => void;
     onsurrender: () => void;
   }
   let {
@@ -30,10 +32,19 @@
     disabled = false,
     surrenderPending = false,
     onfire,
+    onskill,
     onsurrender
   }: Props = $props();
 
+  const tacticalSkills: TacticalSkillKind[] = [
+    'RAPID_FIRE',
+    'CROSS_FIRE',
+    'AREA_ANNIHILATION'
+  ];
+
   let selected = $state<Coordinate | null>(null);
+  let activeSkill = $state<TacticalSkillKind | null>(null);
+  let skillTargets = $state<Coordinate[]>([]);
   let showSurrender = $state(false);
   let clientNow = $state(Date.now());
   let timerAnnouncement = $state('');
@@ -87,8 +98,50 @@
   let attackedKeys = $derived(
     new Set(snapshot.targetBoard?.attacks.map((attack) => coordinateKey(attack.coordinate)) ?? [])
   );
-  let canFire = $derived(
+  let skillInventory = $derived(snapshot.skillInventories[snapshot.selfPlayerId]);
+  let skillsUnlocked = $derived(
+    snapshot.skillUnlockTurn !== null &&
+      snapshot.turnNumber !== null &&
+      snapshot.turnNumber >= snapshot.skillUnlockTurn
+  );
+  let skillPreviewCells = $derived.by(() => {
+    if (!activeSkill || skillTargets.length === 0) return [];
+    if (activeSkill === 'RAPID_FIRE') return skillTargets;
+    const center = skillTargets[0];
+    if (!center) return [];
+    const offsets =
+      activeSkill === 'CROSS_FIRE'
+        ? [
+            [0, 0],
+            [-1, 0],
+            [0, -1],
+            [0, 1],
+            [1, 0]
+          ]
+        : [
+            [-1, -1],
+            [-1, 0],
+            [-1, 1],
+            [0, -1],
+            [0, 0],
+            [0, 1],
+            [1, -1],
+            [1, 0],
+            [1, 1]
+          ];
+    return offsets
+      .map(([row, col]) => ({ row: center.row + row, col: center.col + col }))
+      .filter(
+        (coordinate) =>
+          coordinate.row >= 0 &&
+          coordinate.row < snapshot.balance.manifest.boardSize &&
+          coordinate.col >= 0 &&
+          coordinate.col < snapshot.balance.manifest.boardSize
+      );
+  });
+  let canNormalFire = $derived(
     Boolean(
+      !activeSkill &&
       selected &&
       !fireSequence &&
       myTurn &&
@@ -96,6 +149,19 @@
       !disabled &&
       remainingSeconds !== 0 &&
       !attackedKeys.has(coordinateKey(selected))
+    )
+  );
+  let canSkillFire = $derived(
+    Boolean(
+      activeSkill &&
+      myTurn &&
+      !pending &&
+      !disabled &&
+      remainingSeconds !== 0 &&
+      skillsUnlocked &&
+      !snapshot.skillUsedThisTurn &&
+      remainingUses(activeSkill) > 0 &&
+      (activeSkill === 'RAPID_FIRE' ? skillTargets.length === 2 : skillTargets.length === 1)
     )
   );
   let sunkShips = $derived(
@@ -125,15 +191,59 @@
       disabled ||
       fireSequence ||
       remainingSeconds === 0 ||
-      attackedKeys.has(coordinateKey(coordinate))
+      (activeSkill === 'RAPID_FIRE' || !activeSkill) &&
+        attackedKeys.has(coordinateKey(coordinate))
     )
       return;
+    if (activeSkill) {
+      if (activeSkill === 'RAPID_FIRE') {
+        const key = coordinateKey(coordinate);
+        if (skillTargets.some((target) => coordinateKey(target) === key)) {
+          skillTargets = skillTargets.filter((target) => coordinateKey(target) !== key);
+        } else if (skillTargets.length < 2) {
+          skillTargets = [...skillTargets, coordinate];
+        }
+      } else {
+        skillTargets = [coordinate];
+      }
+      sounds.select();
+      return;
+    }
     selected = coordinate;
     sounds.select();
   }
 
+  function remainingUses(skill: TacticalSkillKind): number {
+    if (!skillInventory) return 0;
+    if (skill === 'RAPID_FIRE') return skillInventory.rapidFire;
+    if (skill === 'CROSS_FIRE') return skillInventory.crossFire;
+    return skillInventory.areaAnnihilation;
+  }
+
+  function selectSkill(skill: TacticalSkillKind) {
+    if (activeSkill === skill) {
+      activeSkill = null;
+      skillTargets = [];
+      return;
+    }
+    activeSkill = skill;
+    selected = null;
+    skillTargets = [];
+    sounds.select();
+  }
+
   function fire() {
-    if (!selected || !canFire) return;
+    if (activeSkill) {
+      if (!canSkillFire) return;
+      const skill = activeSkill;
+      const targets = [...skillTargets];
+      activeSkill = null;
+      skillTargets = [];
+      onskill(skill, targets);
+      sounds.fire();
+      return;
+    }
+    if (!selected || !canNormalFire) return;
     const coordinate = selected;
     selected = null;
     fireSequence = { coordinate, stage: 'LOCK' };
@@ -167,6 +277,13 @@
       coordinateKey(fireSequence.coordinate) === coordinateKey(attack.coordinate)
     ) {
       fireSequence = null;
+    }
+  });
+
+  $effect(() => {
+    if (!myTurn || snapshot.skillUsedThisTurn) {
+      activeSkill = null;
+      skillTargets = [];
     }
   });
 
@@ -418,7 +535,9 @@
           mode="target"
           label={$t('battle.targetBoardLabel')}
           targetBoard={snapshot.targetBoard}
-          {selected}
+          selected={activeSkill ? (skillTargets[0] ?? null) : selected}
+          previewCells={skillPreviewCells}
+          allowMarkedSelection={activeSkill === 'CROSS_FIRE' || activeSkill === 'AREA_ANNIHILATION'}
           interactive={myTurn && !pending && !fireSequence}
           {disabled}
           oncell={choose}
@@ -443,21 +562,82 @@
             >
           </div>
         </div>
-        <div class:coordinate-lock--active={selected} class="coordinate-lock">
-          <small>{$t('battle.targetLock')}</small><strong
-            >{selected ? coordinateLabel(selected) : '— —'}</strong
-          ><span>{selected ? $t('battle.reticleReady') : $t('battle.selectCoordinate')}</span>
+        {#if snapshot.rules.tacticalSkillsEnabled}
+          <div class="skill-deck" aria-label={$t('battle.skillDeck')}>
+            <div class="skill-deck__heading">
+              <small>{$t('battle.skillDeck')}</small>
+              <span
+                >{!skillsUnlocked
+                  ? $t('battle.skillsUnlock', {
+                      turn: formatNumber(snapshot.skillUnlockTurn ?? 3)
+                    })
+                  : snapshot.skillUsedThisTurn
+                    ? $t('battle.skillUsedThisTurn')
+                    : $t('battle.skillReady')}</span
+              >
+            </div>
+            {#each tacticalSkills as skill (skill)}
+              <button
+                type="button"
+                class:active-skill={activeSkill === skill}
+                disabled={!myTurn ||
+                  pending ||
+                  disabled ||
+                  !skillsUnlocked ||
+                  snapshot.skillUsedThisTurn ||
+                  remainingUses(skill) === 0}
+                onclick={() => selectSkill(skill)}
+              >
+                <b>{$t(`tacticalSkillGrade.${skill}`)}</b>
+                <span>{$t(`tacticalSkill.${skill}`)}</span>
+                <em
+                  >{$t('battle.skillRemaining', {
+                    count: formatNumber(remainingUses(skill))
+                  })}</em
+                >
+              </button>
+            {/each}
+          </div>
+        {/if}
+        <div class:coordinate-lock--active={selected || skillTargets.length > 0} class="coordinate-lock">
+          <small>{activeSkill ? $t('battle.skillTarget') : $t('battle.targetLock')}</small><strong
+            >{activeSkill
+              ? skillTargets.length
+                ? skillTargets.map(coordinateLabel).join(' · ')
+                : '— —'
+              : selected
+                ? coordinateLabel(selected)
+                : '— —'}</strong
+          ><span
+            >{activeSkill
+              ? activeSkill === 'RAPID_FIRE'
+                ? $t('battle.rapidFireTargets', {
+                    count: formatNumber(skillTargets.length)
+                  })
+                : $t('battle.patternPreview', {
+                    count: formatNumber(skillPreviewCells.length)
+                  })
+              : selected
+                ? $t('battle.reticleReady')
+                : $t('battle.selectCoordinate')}</span
+          >
         </div>
         <button
           class="button button--primary button--wide fire-button"
-          disabled={!canFire}
+          disabled={activeSkill ? !canSkillFire : !canNormalFire}
           onclick={fire}
         >
           {#if pending}<span class="mini-spinner"></span>
             {$t('battle.awaitingResult')}{:else}<Crosshair size={17} />
-            {$t('battle.executeAttack')}{/if}
+            {activeSkill ? $t('battle.executeSkill') : $t('battle.executeAttack')}{/if}
         </button>
-        {#if selected}<button class="clear-selection" onclick={() => (selected = null)}
+        {#if selected || activeSkill}<button
+            class="clear-selection"
+            onclick={() => {
+              selected = null;
+              activeSkill = null;
+              skillTargets = [];
+            }}
             ><X size={13} /> {$t('battle.clearSelection')}</button
           >{/if}
 
@@ -973,6 +1153,62 @@
   .fire-control--standby .coordinate-lock,
   .fire-control--standby .fire-button {
     opacity: 0.58;
+  }
+  .skill-deck {
+    display: grid;
+    gap: 6px;
+    margin-top: 13px;
+  }
+  .skill-deck__heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .skill-deck__heading span {
+    color: var(--ink-400);
+    font-size: 8px;
+  }
+  .skill-deck button {
+    display: grid;
+    grid-template-columns: 24px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 7px;
+    padding: 7px 8px;
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    color: var(--ink-200);
+    background: rgba(1, 10, 16, 0.62);
+    cursor: pointer;
+    text-align: left;
+  }
+  .skill-deck button:hover:not(:disabled),
+  .skill-deck button.active-skill {
+    border-color: rgba(83, 233, 232, 0.6);
+    background: rgba(28, 112, 118, 0.24);
+    box-shadow: inset 0 0 16px rgba(83, 233, 232, 0.06);
+  }
+  .skill-deck button:disabled {
+    cursor: not-allowed;
+    opacity: 0.42;
+  }
+  .skill-deck b {
+    display: grid;
+    width: 24px;
+    height: 24px;
+    place-items: center;
+    border: 1px solid currentColor;
+    border-radius: 50%;
+    color: var(--amber-400);
+    font: 700 10px var(--font-display);
+  }
+  .skill-deck button span {
+    font: 700 9px var(--font-display);
+  }
+  .skill-deck button em {
+    color: var(--ink-400);
+    font-size: 8px;
+    font-style: normal;
   }
   .coordinate-lock {
     display: grid;

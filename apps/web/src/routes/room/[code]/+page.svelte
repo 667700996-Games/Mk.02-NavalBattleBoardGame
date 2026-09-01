@@ -25,11 +25,12 @@
     gameError,
     gameSnapshot,
     lastAttack,
+    lastSkill,
     resetRoomRealtimeState,
     session,
     socketStatus
   } from '$lib/stores';
-  import type { Coordinate, ShipPlacement } from '$lib/types';
+  import type { Coordinate, ShipPlacement, TacticalSkillKind } from '$lib/types';
 
   const routeCode = (page.params.code ?? '').toUpperCase();
   let loading = $state(true);
@@ -37,6 +38,7 @@
   let loadErrorKey = $state<MessageKey | null>(null);
   let placementSubmitting = $state(false);
   let attackPending = $state(false);
+  let skillPending = $state(false);
   let surrenderPending = $state(false);
   let readyPending = $state(false);
   let startPending = $state(false);
@@ -144,6 +146,12 @@
   });
 
   $effect(() => {
+    const skill = $lastSkill;
+    if (!skill || skill.attackerId !== snapshot?.selfPlayerId) return;
+    skillPending = false;
+  });
+
+  $effect(() => {
     const attack = $lastAttack;
     if (!attack || attack.requestId === lastSoundRequest) return;
     lastSoundRequest = attack.requestId;
@@ -173,6 +181,7 @@
         trackFunnelFailure('first_attack', 'attack');
         attackPending = false;
       }
+      skillPending = false;
       readyPending = false;
       startPending = false;
       showStart = false;
@@ -284,6 +293,33 @@
       cancelBattleInteraction(requestId);
       attackPending = false;
       trackFunnelFailure('first_attack', 'network');
+      gameError.set({
+        code: 'CONNECTION_REQUIRED',
+        message: $t('room.attackConnectionError'),
+        retryable: true
+      });
+    }
+  }
+
+  function fireSkill(skill: TacticalSkillKind, targets: Coordinate[]) {
+    if (!snapshot || attackPending || skillPending || snapshot.turnNumber === null) return;
+    const requestId = crypto.randomUUID();
+    skillPending = true;
+    gameError.set(null);
+    const sent = realtime.send({
+      type: 'skill:fire',
+      payload: {
+        requestId,
+        roomId: snapshot.room.id,
+        playerId: snapshot.selfPlayerId,
+        skill,
+        targets,
+        expectedVersion: snapshot.version,
+        turnNumber: snapshot.turnNumber
+      }
+    });
+    if (!sent) {
+      skillPending = false;
       gameError.set({
         code: 'CONNECTION_REQUIRED',
         message: $t('room.attackConnectionError'),
@@ -413,9 +449,10 @@
     {:else if snapshot.room.status === 'PLAYING'}
       <BattleView
         {snapshot}
-        pending={attackPending}
+        pending={attackPending || skillPending}
         {surrenderPending}
         onfire={fire}
+        onskill={fireSkill}
         onsurrender={surrender}
       />
     {:else if snapshot.room.status === 'FINISHED'}

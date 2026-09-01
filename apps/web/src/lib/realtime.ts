@@ -9,6 +9,7 @@ import {
   gameSnapshot,
   hudNotifications,
   lastAttack,
+  lastSkill,
   socketStatus,
   type HudNotification,
   type SocketStatus
@@ -77,6 +78,7 @@ class RealtimeClient {
     }
     if (
       event.type !== 'attack:fire' &&
+      event.type !== 'skill:fire' &&
       event.type !== 'game:surrender' &&
       event.type !== 'game:start' &&
       event.type !== 'player:ready' &&
@@ -246,6 +248,30 @@ class RealtimeClient {
         };
         hudNotifications.update((notifications) => [...notifications, notification].slice(-3));
         setTimeout(() => dismissHudNotification(notification.id), 2_800);
+      }
+    } else if (event.type === 'skill:result') {
+      lastSkill.set(event.payload);
+      const snapshot = get(gameSnapshot);
+      if (
+        snapshot &&
+        (event.payload.attackerId === snapshot.selfPlayerId ||
+          event.payload.targetId === snapshot.selfPlayerId)
+      ) {
+        const attackedBySelf = event.payload.attackerId === snapshot.selfPlayerId;
+        const hits = event.payload.cells.filter((cell) => cell.outcome !== 'MISS').length;
+        const notification = {
+          id: `skill-${event.payload.requestId}-${snapshot.selfPlayerId}`,
+          title: attackedBySelf
+            ? message('realtime.skillSelfTitle')
+            : message('realtime.skillOpponentTitle'),
+          message: message('realtime.skillResultMessage', {
+            cells: event.payload.cells.length,
+            hits
+          }),
+          tone: attackedBySelf ? ('success' as const) : ('warning' as const)
+        };
+        hudNotifications.update((notifications) => [...notifications, notification].slice(-3));
+        setTimeout(() => dismissHudNotification(notification.id), 3_200);
       }
     } else if (event.type === 'chat:history') {
       const roomId = get(gameSnapshot)?.room.id;

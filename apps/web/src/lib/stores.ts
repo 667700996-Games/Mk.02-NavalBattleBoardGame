@@ -7,6 +7,7 @@ import type {
   GameSnapshot,
   ProtocolError,
   Session
+  , TacticalSkillUseRecord
 } from '$lib/types';
 
 export type SocketStatus = 'idle' | 'connecting' | 'online' | 'reconnecting' | 'offline';
@@ -17,6 +18,7 @@ export const gameSnapshot = writable<GameSnapshot | null>(null);
 export const socketStatus = writable<SocketStatus>('idle');
 export const inputModality = writable<InputModality>('pointer');
 export const lastAttack = writable<AttackRecord | null>(null);
+export const lastSkill = writable<TacticalSkillUseRecord | null>(null);
 export const gameError = writable<ProtocolError | null>(null);
 export const chatMessages = writable<ChatMessage[]>([]);
 export const chatTyping = writable<ChatTypingEvent | null>(null);
@@ -38,6 +40,8 @@ export function dismissHudNotification(id: string): void {
 }
 
 export function resetRoomRealtimeState(): void {
+  lastAttack.set(null);
+  lastSkill.set(null);
   chatMessages.set([]);
   chatTyping.set(null);
   chatHistoryLoaded.set(false);

@@ -83,8 +83,30 @@ const finishLabelKeys: Record<FinishReason, { title: MessageKey; action: Message
 
 function attacksByPlayer(timeline: GameTimelineEvent[], playerId: string): AttackRecord[] {
   return timeline.flatMap((event) =>
-    event.type === 'ATTACK' && event.payload.attackerId === playerId ? [event.payload] : []
+    event.type !== 'TURN_EXPIRED' && event.payload.attackerId === playerId
+      ? attacksFromEvent(event)
+      : []
   );
+}
+
+function attacksFromEvent(
+  event: Exclude<GameTimelineEvent, { type: 'TURN_EXPIRED' }>
+): AttackRecord[] {
+  if (event.type === 'ATTACK') return [event.payload];
+  return event.payload.cells.map((cell, index) => ({
+    requestId: `${event.payload.requestId}:${index}`,
+    attackerId: event.payload.attackerId,
+    targetId: event.payload.targetId,
+    coordinate: cell.coordinate,
+    outcome: cell.outcome,
+    sunkShip: cell.sunkShip,
+    turnNumber: event.payload.turnNumber,
+    nextPlayerId: event.payload.nextPlayerId,
+    winnerId: index === event.payload.cells.length - 1 ? event.payload.winnerId : null,
+    shotsRemainingInTurn: event.payload.shotsRemainingInTurn,
+    resolvedVersion: event.payload.resolvedVersion,
+    createdAt: event.payload.createdAt
+  }));
 }
 
 function accuracy(hits: number, shots: number): number {
@@ -278,10 +300,11 @@ function rankedMoments(replay: GameReplay, translate: Translator): RankedMoment[
       continue;
     }
 
-    const attack = event.payload;
-    const nextStreak = attack.outcome === 'MISS' ? 0 : (hitStreaks.get(attack.attackerId) ?? 0) + 1;
-    hitStreaks.set(attack.attackerId, nextStreak);
-    if (attack.winnerId) {
+    for (const attack of attacksFromEvent(event)) {
+      const nextStreak =
+        attack.outcome === 'MISS' ? 0 : (hitStreaks.get(attack.attackerId) ?? 0) + 1;
+      hitStreaks.set(attack.attackerId, nextStreak);
+      if (attack.winnerId) {
       hasRecordedFinish = true;
       moments.push({
         eventIndex,
@@ -298,7 +321,7 @@ function rankedMoments(replay: GameReplay, translate: Translator): RankedMoment[
             : translate('replayAnalysis.lastShip')
         })
       });
-    } else if (attack.outcome === 'SUNK') {
+      } else if (attack.outcome === 'SUNK') {
       moments.push({
         eventIndex,
         turnNumber: attack.turnNumber,
@@ -314,7 +337,7 @@ function rankedMoments(replay: GameReplay, translate: Translator): RankedMoment[
             : translate('replayAnalysis.ship')
         })
       });
-    } else if (nextStreak === 3) {
+      } else if (nextStreak === 3) {
       moments.push({
         eventIndex,
         turnNumber: attack.turnNumber,
@@ -327,6 +350,7 @@ function rankedMoments(replay: GameReplay, translate: Translator): RankedMoment[
           coordinate: coordinateLabel(attack)
         })
       });
+      }
     }
   }
 
