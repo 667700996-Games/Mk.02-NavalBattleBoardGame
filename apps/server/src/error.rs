@@ -32,6 +32,16 @@ pub enum GameError {
     TurnConflict,
     #[error("현재 턴의 제한 시간이 이미 만료되었습니다.")]
     TurnExpired,
+    #[error("이 방에서는 전술 스킬이 비활성화되어 있습니다.")]
+    TacticalSkillsDisabled,
+    #[error("양쪽의 첫 공격 기회가 끝난 뒤에 전술 스킬을 사용할 수 있습니다.")]
+    TacticalSkillLocked,
+    #[error("해당 전술 스킬의 사용 횟수를 모두 소진했습니다.")]
+    TacticalSkillExhausted,
+    #[error("이미 이번 턴에 전술 스킬을 사용했습니다.")]
+    TacticalSkillAlreadyUsed,
+    #[error("전술 스킬의 표적 좌표가 올바르지 않습니다.")]
+    InvalidTacticalSkillTargets,
     #[error("방을 찾을 수 없습니다.")]
     RoomNotFound,
     #[error("이미 두 명이 참가한 방입니다.")]
@@ -130,6 +140,11 @@ impl GameError {
             Self::VersionConflict => "VERSION_CONFLICT",
             Self::TurnConflict => "TURN_CONFLICT",
             Self::TurnExpired => "TURN_EXPIRED",
+            Self::TacticalSkillsDisabled => "TACTICAL_SKILLS_DISABLED",
+            Self::TacticalSkillLocked => "TACTICAL_SKILL_LOCKED",
+            Self::TacticalSkillExhausted => "TACTICAL_SKILL_EXHAUSTED",
+            Self::TacticalSkillAlreadyUsed => "TACTICAL_SKILL_ALREADY_USED",
+            Self::InvalidTacticalSkillTargets => "INVALID_TACTICAL_SKILL_TARGETS",
             Self::RoomNotFound => "ROOM_NOT_FOUND",
             Self::RoomFull => "ROOM_FULL",
             Self::RoomAlreadyStarted => "ROOM_ALREADY_STARTED",
@@ -198,6 +213,9 @@ impl GameError {
             | Self::LiveContentRevisionConflict
             | Self::TurnConflict
             | Self::TurnExpired
+            | Self::TacticalSkillLocked
+            | Self::TacticalSkillExhausted
+            | Self::TacticalSkillAlreadyUsed
             | Self::PlacementLocked => StatusCode::CONFLICT,
             Self::RateLimited => StatusCode::TOO_MANY_REQUESTS,
             Self::StorageUnavailable | Self::CapacityReached | Self::RankedSeasonUnavailable => {

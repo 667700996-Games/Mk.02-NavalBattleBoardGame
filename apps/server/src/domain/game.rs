@@ -7,7 +7,10 @@ use uuid::Uuid;
 
 use crate::error::GameError;
 
-use super::{AttackOutcome, BalanceManifest, BalancePin, Board, Coordinate, ShipKind};
+use super::{
+    AttackOutcome, BalanceManifest, BalancePin, Board, Coordinate, ShipKind, TacticalSkillGrade,
+    TacticalSkillKind, TacticalSkillRules,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
@@ -25,6 +28,8 @@ pub struct MatchRules {
     pub mode: GameMode,
     #[serde(default)]
     pub turn_duration_seconds: Option<u32>,
+    #[serde(default)]
+    pub tactical_skills_enabled: bool,
 }
 
 impl MatchRules {
@@ -33,6 +38,9 @@ impl MatchRules {
     }
 
     pub fn validate_for(self, balance: &BalanceManifest) -> Result<Self, GameError> {
+        if self.tactical_skills_enabled && balance.tactical_skills.is_none() {
+            return Err(GameError::InvalidRequest);
+        }
         if self
             .turn_duration_seconds
             .is_some_and(|seconds| seconds > balance.maximum_turn_duration_seconds)
@@ -71,6 +79,75 @@ pub struct AttackRecord {
     pub winner_id: Option<Uuid>,
     #[serde(default = "default_one_shot")]
     pub shots_remaining_in_turn: u8,
+    pub resolved_version: u64,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TacticalSkillInventory {
+    pub rapid_fire: u8,
+    pub cross_fire: u8,
+    pub area_annihilation: u8,
+}
+
+impl TacticalSkillInventory {
+    pub fn from_rules(rules: &TacticalSkillRules) -> Self {
+        let mut inventory = Self::default();
+        for skill in &rules.skills {
+            *inventory.remaining_mut(skill.kind) = skill.uses_per_match;
+        }
+        inventory
+    }
+
+    pub fn remaining(self, kind: TacticalSkillKind) -> u8 {
+        match kind {
+            TacticalSkillKind::RapidFire => self.rapid_fire,
+            TacticalSkillKind::CrossFire => self.cross_fire,
+            TacticalSkillKind::AreaAnnihilation => self.area_annihilation,
+        }
+    }
+
+    fn remaining_mut(&mut self, kind: TacticalSkillKind) -> &mut u8 {
+        match kind {
+            TacticalSkillKind::RapidFire => &mut self.rapid_fire,
+            TacticalSkillKind::CrossFire => &mut self.cross_fire,
+            TacticalSkillKind::AreaAnnihilation => &mut self.area_annihilation,
+        }
+    }
+
+    fn consume(&mut self, kind: TacticalSkillKind) -> Result<u8, GameError> {
+        let remaining = self.remaining_mut(kind);
+        if *remaining == 0 {
+            return Err(GameError::TacticalSkillExhausted);
+        }
+        *remaining -= 1;
+        Ok(*remaining)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TacticalSkillCellResult {
+    pub coordinate: Coordinate,
+    pub outcome: AttackOutcome,
+    pub sunk_ship: Option<ShipKind>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TacticalSkillUseRecord {
+    pub request_id: Uuid,
+    pub attacker_id: Uuid,
+    pub target_id: Uuid,
+    pub skill: TacticalSkillKind,
+    pub grade: TacticalSkillGrade,
+    pub cells: Vec<TacticalSkillCellResult>,
+    pub turn_number: u32,
+    pub next_player_id: Option<Uuid>,
+    pub winner_id: Option<Uuid>,
+    pub shots_remaining_in_turn: u8,
+    pub remaining_uses: u8,
     pub resolved_version: u64,
     pub created_at: DateTime<Utc>,
 }
@@ -148,6 +225,7 @@ pub struct TurnExpiration {
 #[serde(tag = "type", content = "payload", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum GameTimelineEvent {
     Attack(AttackRecord),
+    SkillAttack(TacticalSkillUseRecord),
     TurnExpired(TurnExpiration),
 }
 
@@ -159,11 +237,19 @@ pub struct Game {
     pub boards: HashMap<Uuid, Board>,
     pub attacks: Vec<AttackRecord>,
     #[serde(default)]
+    pub skill_uses: Vec<TacticalSkillUseRecord>,
+    #[serde(default)]
     pub timeline: Vec<GameTimelineEvent>,
     #[serde(default)]
     pub first_player_id: Uuid,
     #[serde(default)]
     pub mode: GameMode,
+    #[serde(default)]
+    pub tactical_skills_enabled: bool,
+    #[serde(default)]
+    pub skill_inventories: HashMap<Uuid, TacticalSkillInventory>,
+    #[serde(default)]
+    pub skill_used_turns: HashMap<Uuid, u32>,
     #[serde(default = "default_one_shot")]
     pub shots_remaining_in_turn: u8,
     pub current_player_id: Uuid,

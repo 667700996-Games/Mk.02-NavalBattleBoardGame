@@ -214,6 +214,12 @@ impl Board {
     pub fn attacks_received(&self) -> &[ReceivedAttack] {
         &self.attacks_received
     }
+
+    pub fn was_attacked(&self, coordinate: Coordinate) -> bool {
+        self.attacks_received
+            .iter()
+            .any(|attack| attack.coordinate == coordinate)
+    }
 }
 
 const fn default_board_size() -> u8 {
