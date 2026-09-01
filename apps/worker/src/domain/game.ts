@@ -698,12 +698,153 @@ export function fire(
   return { record, duplicate: false };
 }
 
+export function fireSkill(
+  room: InternalRoom,
+  sessionId: string,
+  requestId: string,
+  claimedPlayerId: string,
+  skill: TacticalSkillKind,
+  targets: Coordinate[],
+  expectedVersion: number,
+  expectedTurn: number,
+  now: string,
+): { record: TacticalSkillUseRecord; duplicate: boolean } {
+  const player = playerForSession(room, sessionId);
+  if (player.id !== claimedPlayerId) throw new DomainError("UNAUTHORIZED");
+  const previous = room.game?.skillUses?.find(
+    (record) =>
+      record.requestId === requestId && record.attackerId === player.id,
+  );
+  if (previous) return { record: previous, duplicate: true };
+  if (room.status !== "PLAYING" || !room.game)
+    throw new DomainError("INVALID_STATE");
+  if (room.version !== expectedVersion)
+    throw new DomainError("VERSION_CONFLICT");
+  const game = room.game;
+  if (!game.tacticalSkillsEnabled || !room.rules.tacticalSkillsEnabled) {
+    throw new DomainError("TACTICAL_SKILLS_DISABLED");
+  }
+  if (game.result) throw new DomainError("INVALID_STATE");
+  if (game.currentPlayerId !== player.id)
+    throw new DomainError("NOT_YOUR_TURN");
+  if (game.turnNumber !== expectedTurn) throw new DomainError("TURN_CONFLICT");
+  if (
+    game.turnDeadlineAt &&
+    Date.parse(now) >= Date.parse(game.turnDeadlineAt)
+  ) {
+    throw new DomainError("TURN_EXPIRED");
+  }
+  const balance = gameBalance(game);
+  const skillRules = balance.manifest.tacticalSkills;
+  if (!skillRules) throw new DomainError("INVALID_STATE");
+  if (game.turnNumber < skillRules.unlockTurn) {
+    throw new DomainError("TACTICAL_SKILL_LOCKED");
+  }
+  game.skillUsedTurns ??= {};
+  if (game.skillUsedTurns[player.id] === game.turnNumber) {
+    throw new DomainError("TACTICAL_SKILL_ALREADY_USED");
+  }
+  const spec = skillRules.skills.find((candidate) => candidate.kind === skill);
+  if (!spec) throw new DomainError("INVALID_REQUEST");
+  const inventory = game.skillInventories?.[player.id];
+  if (!inventory) throw new DomainError("INVALID_STATE");
+  if (remainingUses(inventory, skill) <= 0) {
+    throw new DomainError("TACTICAL_SKILL_EXHAUSTED");
+  }
+  const target = room.players.find((candidate) => candidate.id !== player.id);
+  if (!target) throw new DomainError("INVALID_STATE");
+  const board = game.boards[target.id];
+  if (!board) throw new DomainError("INVALID_STATE");
+  let coordinates = skillCoordinates(skill, targets, balance);
+  if (
+    skill === "RAPID_FIRE" &&
+    coordinates.some((coordinate) => wasAttacked(board, coordinate))
+  ) {
+    throw new DomainError("INVALID_TACTICAL_SKILL_TARGETS");
+  }
+  coordinates = coordinates.filter(
+    (coordinate) => !wasAttacked(board, coordinate),
+  );
+  const cells = coordinates.map((coordinate) =>
+    attackBoardCell(board, coordinate),
+  );
+  const winnerId = board.ships.every((candidate) =>
+    candidate.cells.every((cell) =>
+      candidate.hits.some((hit) => sameCoordinate(hit, cell)),
+    ),
+  )
+    ? player.id
+    : null;
+  const uses = remainingUses(inventory, skill) - 1;
+  setRemainingUses(inventory, skill, uses);
+  game.skillUsedTurns[player.id] = game.turnNumber;
+  const continuesSalvo =
+    !winnerId && game.mode === "SALVO" && game.shotsRemainingInTurn > 1;
+  const nextPlayerId = winnerId ? null : continuesSalvo ? player.id : target.id;
+  const shotsRemainingInTurn = winnerId
+    ? 0
+    : continuesSalvo
+      ? game.shotsRemainingInTurn - 1
+      : shotsFor(game.boards, target.id, game.mode, balance);
+  const record: TacticalSkillUseRecord = {
+    requestId,
+    attackerId: player.id,
+    targetId: target.id,
+    skill,
+    grade: spec.grade,
+    cells,
+    turnNumber: game.turnNumber,
+    nextPlayerId,
+    winnerId,
+    shotsRemainingInTurn,
+    remainingUses: uses,
+    resolvedVersion: room.version + 1,
+    createdAt: now,
+  };
+  game.skillUses ??= [];
+  game.skillUses.push(record);
+  game.timeline ??= [];
+  game.timeline.push({
+    type: "SKILL_ATTACK",
+    payload: structuredClone(record),
+  });
+  game.consecutiveTimeoutCounts[player.id] = 0;
+  if (winnerId) {
+    finishGame(
+      room,
+      winnerId,
+      target.id,
+      "FLEET_DESTROYED",
+      "NORMAL_VICTORY",
+      now,
+    );
+    game.shotsRemainingInTurn = 0;
+    room.status = "FINISHED";
+  } else if (continuesSalvo) {
+    game.shotsRemainingInTurn -= 1;
+  } else {
+    game.currentPlayerId = target.id;
+    game.turnNumber += 1;
+    startTurn(game, now);
+  }
+  bump(room, now);
+  if (winnerId) {
+    pushSystemMessage(
+      room,
+      `게임이 종료되었습니다. ${player.nickname} 지휘관이 적 함대를 전멸시켰습니다.`,
+      now,
+    );
+  }
+  return { record, duplicate: false };
+}
+
 export function selectAiCoordinate(
   room: InternalRoom,
   aiPlayerId: string,
 ): Coordinate | null {
   const game = room.game;
   if (!game) return null;
+  const balance = gameBalance(game);
   const used = new Set(
     game.attacks
       .filter((attack) => attack.attackerId === aiPlayerId)
@@ -724,9 +865,9 @@ export function selectAiCoordinate(
         const col = attack.coordinate.col + colOffset;
         if (
           row >= 0 &&
-          row < BALANCE.manifest.boardSize &&
+          row < balance.manifest.boardSize &&
           col >= 0 &&
-          col < BALANCE.manifest.boardSize &&
+          col < balance.manifest.boardSize &&
           !used.has(`${row}:${col}`)
         ) {
           return { row, col };
@@ -735,8 +876,8 @@ export function selectAiCoordinate(
     }
   }
   let candidates: Coordinate[] = [];
-  for (let row = 0; row < BALANCE.manifest.boardSize; row += 1) {
-    for (let col = 0; col < BALANCE.manifest.boardSize; col += 1) {
+  for (let row = 0; row < balance.manifest.boardSize; row += 1) {
+    for (let col = 0; col < balance.manifest.boardSize; col += 1) {
       if (!used.has(`${row}:${col}`)) candidates.push({ row, col });
     }
   }
@@ -1021,7 +1162,9 @@ export function expireTurn(
   game.consecutiveTimeoutCounts[expiredPlayerId] = consecutive;
   game.totalTimeoutCounts[expiredPlayerId] = total;
   const winnerId =
-    consecutive >= BALANCE.manifest.consecutiveTimeoutForfeit ? next.id : null;
+    consecutive >= gameBalance(game).manifest.consecutiveTimeoutForfeit
+      ? next.id
+      : null;
   const expiredTurnNumber = game.turnNumber;
   if (winnerId) {
     finishGame(room, winnerId, expiredPlayerId, "TURN_TIMEOUT", "TIMEOUT", now);
@@ -1137,7 +1280,7 @@ export function snapshotFor(
     Object.values(room.disconnectedDeadlines).sort()[0] ?? null;
   return {
     protocolVersion: PROTOCOL_VERSION,
-    balance: BALANCE,
+    balance: balanceFor(room),
     room: roomSummary(room),
     roomId: room.id,
     roomState: room.status,
@@ -1176,13 +1319,7 @@ export function snapshotFor(
     ownBoard: ownBoard ? projectOwnBoard(ownBoard) : null,
     targetBoard: game
       ? {
-          attacks: game.attacks
-            .filter((attack) => attack.attackerId === me.id)
-            .map((attack) => ({
-              coordinate: attack.coordinate,
-              outcome: attack.outcome,
-              sunkShip: attack.sunkShip,
-            })),
+          attacks: targetAttacksFor(game, me.id),
         }
       : null,
     revealedBoard:
@@ -1201,6 +1338,10 @@ export function snapshotFor(
     turnDeadlineAt: game?.turnDeadlineAt ?? null,
     turnDurationSeconds: game?.turnDurationSeconds ?? null,
     shotsRemainingInTurn: game?.shotsRemainingInTurn ?? null,
+    skillInventories: game?.skillInventories ?? {},
+    skillUsedThisTurn: game?.skillUsedTurns?.[me.id] === game?.turnNumber,
+    skillUnlockTurn:
+      balanceFor(room).manifest.tacticalSkills?.unlockTurn ?? null,
     serverTimestamp: now,
   };
 }
@@ -1228,8 +1369,8 @@ export function replayFor(room: InternalRoom, sessionId: string) {
   }
   return {
     protocolVersion: PROTOCOL_VERSION,
-    rulesetVersion: BALANCE.rulesetVersion,
-    balance: BALANCE,
+    rulesetVersion: balanceFor(room).rulesetVersion,
+    balance: balanceFor(room),
     roomId: room.id,
     roomName: room.name,
     gameId: room.gameId,
@@ -1298,7 +1439,7 @@ export function spectatorSnapshot(room: InternalRoom, now: string) {
       nickname: player.nickname,
       kind: player.kind,
     })),
-    balance: BALANCE,
+    balance: balanceFor(room),
     rules: room.rules,
     timeline,
     currentPlayerId,
@@ -1316,10 +1457,44 @@ function timelineFor(game: InternalGame): GameTimelineEvent[] {
       }));
 }
 
+function targetAttacksFor(game: InternalGame, playerId: string) {
+  if (!game.timeline?.length) {
+    return game.attacks
+      .filter((attack) => attack.attackerId === playerId)
+      .map((attack) => ({
+        coordinate: attack.coordinate,
+        outcome: attack.outcome,
+        sunkShip: attack.sunkShip,
+      }));
+  }
+  return game.timeline.flatMap((event) => {
+    if (event.type === "ATTACK" && event.payload.attackerId === playerId) {
+      return [
+        {
+          coordinate: event.payload.coordinate,
+          outcome: event.payload.outcome,
+          sunkShip: event.payload.sunkShip,
+        },
+      ];
+    }
+    if (
+      event.type === "SKILL_ATTACK" &&
+      event.payload.attackerId === playerId
+    ) {
+      return event.payload.cells.map((cell) => ({
+        coordinate: cell.coordinate,
+        outcome: cell.outcome,
+        sunkShip: cell.sunkShip,
+      }));
+    }
+    return [];
+  });
+}
+
 function eventTimestamp(event: GameTimelineEvent): string {
-  return event.type === "ATTACK"
-    ? event.payload.createdAt
-    : event.payload.expiredAt;
+  return event.type === "TURN_EXPIRED"
+    ? event.payload.expiredAt
+    : event.payload.createdAt;
 }
 
 function projectOwnBoard(board: InternalBoard) {
@@ -1410,6 +1585,103 @@ function sameCoordinate(left: Coordinate, right: Coordinate): boolean {
   return left.row === right.row && left.col === right.col;
 }
 
+function wasAttacked(board: InternalBoard, coordinate: Coordinate): boolean {
+  return board.attacksReceived.some((attack) =>
+    sameCoordinate(attack.coordinate, coordinate),
+  );
+}
+
+function attackBoardCell(
+  board: InternalBoard,
+  coordinate: Coordinate,
+): TacticalSkillCellResult {
+  let outcome: AttackOutcome = "MISS";
+  let sunkShip: ShipKind | null = null;
+  const ship = board.ships.find((candidate) =>
+    candidate.cells.some((cell) => sameCoordinate(cell, coordinate)),
+  );
+  if (ship) {
+    ship.hits.push({ ...coordinate });
+    if (
+      ship.cells.every((cell) =>
+        ship.hits.some((hit) => sameCoordinate(hit, cell)),
+      )
+    ) {
+      outcome = "SUNK";
+      sunkShip = ship.kind;
+    } else {
+      outcome = "HIT";
+    }
+  }
+  board.attacksReceived.push({ coordinate: { ...coordinate }, outcome });
+  return { coordinate: { ...coordinate }, outcome, sunkShip };
+}
+
+function skillCoordinates(
+  skill: TacticalSkillKind,
+  targets: Coordinate[],
+  balance: BalancePin,
+): Coordinate[] {
+  if (
+    !Array.isArray(targets) ||
+    (skill === "RAPID_FIRE" ? targets.length !== 2 : targets.length !== 1)
+  ) {
+    throw new DomainError("INVALID_TACTICAL_SKILL_TARGETS");
+  }
+  for (const coordinate of targets) {
+    try {
+      validateCoordinate(coordinate, balance);
+    } catch {
+      throw new DomainError("INVALID_TACTICAL_SKILL_TARGETS");
+    }
+  }
+  if (
+    skill === "RAPID_FIRE" &&
+    sameCoordinate(targets[0]!, targets[1]!)
+  ) {
+    throw new DomainError("INVALID_TACTICAL_SKILL_TARGETS");
+  }
+  if (skill === "RAPID_FIRE") {
+    return targets
+      .map((coordinate) => ({ ...coordinate }))
+      .sort((left, right) => left.row - right.row || left.col - right.col);
+  }
+  const center = targets[0]!;
+  const offsets =
+    skill === "CROSS_FIRE"
+      ? [
+          [0, 0],
+          [-1, 0],
+          [0, -1],
+          [0, 1],
+          [1, 0],
+        ]
+      : [
+          [-1, -1],
+          [-1, 0],
+          [-1, 1],
+          [0, -1],
+          [0, 0],
+          [0, 1],
+          [1, -1],
+          [1, 0],
+          [1, 1],
+        ];
+  return offsets
+    .map(([rowOffset, colOffset]) => ({
+      row: center.row + (rowOffset ?? 0),
+      col: center.col + (colOffset ?? 0),
+    }))
+    .filter(
+      (coordinate) =>
+        coordinate.row >= 0 &&
+        coordinate.col >= 0 &&
+        coordinate.row < balance.manifest.boardSize &&
+        coordinate.col < balance.manifest.boardSize,
+    )
+    .sort((left, right) => left.row - right.row || left.col - right.col);
+}
+
 function shotsFor(
   boards: Record<string, InternalBoard>,
   playerId: string,
@@ -1482,13 +1754,21 @@ function finishGame(
       const attacks = game.attacks.filter(
         (attack) => attack.attackerId === player.id,
       );
-      const hits = attacks.filter((attack) => attack.outcome !== "MISS").length;
+      const skillCells = (game.skillUses ?? [])
+        .filter((record) => record.attackerId === player.id)
+        .flatMap((record) => record.cells);
+      const shots = attacks.length + skillCells.length;
+      const hits =
+        attacks.filter((attack) => attack.outcome !== "MISS").length +
+        skillCells.filter((cell) => cell.outcome !== "MISS").length;
       return {
         playerId: player.id,
-        shots: attacks.length,
+        shots,
         hits,
-        shipsSunk: attacks.filter((attack) => attack.sunkShip).length,
-        accuracy: attacks.length ? hits / attacks.length : 0,
+        shipsSunk:
+          attacks.filter((attack) => attack.sunkShip).length +
+          skillCells.filter((cell) => cell.sunkShip).length,
+        accuracy: shots ? hits / shots : 0,
         totalTimeouts: game.totalTimeoutCounts[player.id] ?? 0,
       };
     }),
