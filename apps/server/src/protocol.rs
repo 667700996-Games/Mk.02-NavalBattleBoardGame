@@ -10,7 +10,8 @@ use crate::{
         MatchmakingRegion, MatchmakingSearchWindow, ModerationAction, ModerationActionKind,
         PlayerAccount, PlayerReadyRecord, PlayerReportReceipt, RankedLeaderboardPage,
         ReportCategory, ReportStatus, RoomSummary, RoomVisibility, SafetyRelationship,
-        ShipPlacement, SupportAction, SurrenderRecord, TurnExpiredRecord,
+        ShipPlacement, SupportAction, SurrenderRecord, TacticalSkillKind,
+        TacticalSkillUseRecord, TurnExpiredRecord,
     },
     error::GameError,
 };
@@ -27,6 +28,7 @@ pub const PROTOCOL_CAPABILITIES: &[&str] = &[
     "explicit-lobby-readiness-v1",
     "ranked-seasons-v1",
     "safe-replay-analysis-v1",
+    "tactical-skills-v1",
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -47,6 +49,7 @@ pub const fn websocket_subprotocol(version: u16) -> Option<&'static str> {
     match version {
         2 => Some("mk01.v2"),
         3 => Some("mk01.v3"),
+        4 => Some("mk01.v4"),
         _ => None,
     }
 }
@@ -639,6 +642,18 @@ pub struct AttackFireInput {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TacticalSkillFireInput {
+    pub request_id: Uuid,
+    pub room_id: Uuid,
+    pub player_id: Uuid,
+    pub skill: TacticalSkillKind,
+    pub targets: Vec<Coordinate>,
+    pub expected_version: u64,
+    pub turn_number: u32,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SurrenderInput {
     pub room_id: Uuid,
     pub player_id: Uuid,
@@ -696,6 +711,8 @@ pub enum ClientEvent {
     GameStart(GameStartInput),
     #[serde(rename = "attack:fire")]
     AttackFire(AttackFireInput),
+    #[serde(rename = "skill:fire")]
+    TacticalSkillFire(TacticalSkillFireInput),
     #[serde(rename = "game:surrender")]
     GameSurrender(SurrenderInput),
     #[serde(rename = "chat:send")]
@@ -749,6 +766,8 @@ pub enum ServerEvent {
     GameTimerSync(GameTimerState),
     #[serde(rename = "attack:result")]
     AttackResult(AttackRecord),
+    #[serde(rename = "skill:result")]
+    TacticalSkillResult(TacticalSkillUseRecord),
     #[serde(rename = "ship:sunk")]
     ShipSunk(AttackRecord),
     #[serde(rename = "game:finished")]
