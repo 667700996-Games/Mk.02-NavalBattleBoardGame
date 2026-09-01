@@ -1,7 +1,7 @@
 import type { GameSnapshot, RoomStatus, ServerEvent, SpectatorSnapshot } from '$lib/types';
 import { message } from '$lib/i18n';
 
-export const GAME_PROTOCOL_VERSION = 3;
+export const GAME_PROTOCOL_VERSION = 4;
 export const LEGACY_DEFAULT_PROTOCOL_VERSION = 3;
 export const MIN_SUPPORTED_PROTOCOL_VERSION = 3;
 export const MAX_SUPPORTED_PROTOCOL_VERSION = GAME_PROTOCOL_VERSION;
@@ -16,7 +16,8 @@ export const PROTOCOL_CAPABILITIES = [
   'balance-pin-v1',
   'explicit-lobby-readiness-v1',
   'ranked-seasons-v1',
-  'safe-replay-analysis-v1'
+  'safe-replay-analysis-v1',
+  'tactical-skills-v1'
 ] as const;
 export type ProtocolCapability = (typeof PROTOCOL_CAPABILITIES)[number];
 
@@ -163,6 +164,7 @@ const SERVER_EVENTS = new Set([
   'game:start:rejected',
   'chat:rejected',
   'attack:result',
+  'skill:result',
   'ship:sunk',
   'game:surrendered',
   'chat:message',

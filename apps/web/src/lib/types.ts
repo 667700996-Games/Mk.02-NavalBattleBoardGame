@@ -29,6 +29,9 @@ export type RankedTier =
 export type ShipKind = 'CARRIER' | 'BATTLESHIP' | 'CRUISER' | 'SUBMARINE' | 'DESTROYER';
 export type Orientation = 'HORIZONTAL' | 'VERTICAL';
 export type AttackOutcome = 'MISS' | 'HIT' | 'SUNK';
+export type TacticalSkillKind = 'RAPID_FIRE' | 'CROSS_FIRE' | 'AREA_ANNIHILATION';
+export type TacticalSkillGrade = 'C' | 'B' | 'A';
+export type TacticalSkillTargetPattern = 'TWO_TARGETS' | 'ORTHOGONAL_CROSS' | 'THREE_BY_THREE';
 export type FinishReason =
   'FLEET_DESTROYED' | 'SURRENDER' | 'TURN_TIMEOUT' | 'DISCONNECT_TIMEOUT' | 'PLAYER_LEFT';
 export type WinType = 'NORMAL_VICTORY' | 'SURRENDER' | 'DISCONNECT' | 'TIMEOUT';
@@ -52,6 +55,14 @@ export interface BalanceShipSpec {
   cells: number;
 }
 
+export interface TacticalSkillSpec {
+  kind: TacticalSkillKind;
+  grade: TacticalSkillGrade;
+  usesPerMatch: number;
+  maxCells: number;
+  targetPattern: TacticalSkillTargetPattern;
+}
+
 export interface BalanceManifest {
   schemaVersion: number;
   rulesetVersion: number;
@@ -67,6 +78,11 @@ export interface BalanceManifest {
   duplicateTargetPolicy: 'REJECT';
   victoryCondition: 'SINK_ALL_SHIPS';
   fleetRevealPolicy: 'MATCH_COMPLETE';
+  tacticalSkills?: {
+    unlockTurn: number;
+    maxSkillsPerTurn: number;
+    skills: TacticalSkillSpec[];
+  };
 }
 
 export interface BalancePin {
@@ -395,6 +411,7 @@ export interface IntegritySignalPage {
 export interface MatchRules {
   mode: GameMode;
   turnDurationSeconds: number | null;
+  tacticalSkillsEnabled: boolean;
 }
 
 export interface RoomSummary {
@@ -575,6 +592,9 @@ export interface GameSnapshot {
   turnDeadlineAt: string | null;
   turnDurationSeconds: number | null;
   shotsRemainingInTurn: number | null;
+  skillInventories: Record<string, TacticalSkillInventory>;
+  skillUsedThisTurn: boolean;
+  skillUnlockTurn: number | null;
   serverTimestamp: string;
 }
 
@@ -589,6 +609,34 @@ export interface AttackRecord {
   nextPlayerId: string | null;
   winnerId: string | null;
   shotsRemainingInTurn: number;
+  resolvedVersion: number;
+  createdAt: string;
+}
+
+export interface TacticalSkillInventory {
+  rapidFire: number;
+  crossFire: number;
+  areaAnnihilation: number;
+}
+
+export interface TacticalSkillCellResult {
+  coordinate: Coordinate;
+  outcome: AttackOutcome;
+  sunkShip: ShipKind | null;
+}
+
+export interface TacticalSkillUseRecord {
+  requestId: string;
+  attackerId: string;
+  targetId: string;
+  skill: TacticalSkillKind;
+  grade: TacticalSkillGrade;
+  cells: TacticalSkillCellResult[];
+  turnNumber: number;
+  nextPlayerId: string | null;
+  winnerId: string | null;
+  shotsRemainingInTurn: number;
+  remainingUses: number;
   resolvedVersion: number;
   createdAt: string;
 }
@@ -640,6 +688,7 @@ export interface ReplayTurnExpiration {
 
 export type GameTimelineEvent =
   | { type: 'ATTACK'; payload: AttackRecord }
+  | { type: 'SKILL_ATTACK'; payload: TacticalSkillUseRecord }
   | { type: 'TURN_EXPIRED'; payload: ReplayTurnExpiration };
 
 export interface GameReplay {
@@ -716,6 +765,18 @@ export type ClientEvent =
         turnNumber: number;
       };
     }
+  | {
+      type: 'skill:fire';
+      payload: {
+        requestId: string;
+        roomId: string;
+        playerId: string;
+        skill: TacticalSkillKind;
+        targets: Coordinate[];
+        expectedVersion: number;
+        turnNumber: number;
+      };
+    }
   | { type: 'game:surrender'; payload: { roomId: string; playerId: string } }
   | {
       type: 'chat:send';
@@ -760,6 +821,7 @@ export type ServerEvent =
       payload: ProtocolError;
     }
   | { type: 'attack:result' | 'ship:sunk'; payload: AttackRecord }
+  | { type: 'skill:result'; payload: TacticalSkillUseRecord }
   | { type: 'game:surrendered'; payload: SurrenderRecord }
   | { type: 'chat:message'; payload: ChatMessage }
   | { type: 'chat:history'; payload: { roomId: string; messages: ChatMessage[] } }

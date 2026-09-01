@@ -95,7 +95,7 @@ export const BALANCE_V1: BalancePin = {
 
 export const BALANCE: BalancePin = {
   rulesetVersion: 2,
-  checksum: "__RULESET_V2_CHECKSUM__",
+  checksum: "b73b72f6dfdba8020f21b86065aefd26c81645a8669932a38fcaa2abe976b8cd",
   manifest: {
     schemaVersion: 1,
     rulesetVersion: 2,

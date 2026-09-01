@@ -370,6 +370,17 @@ mod tests {
     }
 
     #[test]
+    fn v2_manifest_checksum_remains_immutable() {
+        let pin = BalancePin::v2();
+        assert_eq!(
+            pin.checksum,
+            "b73b72f6dfdba8020f21b86065aefd26c81645a8669932a38fcaa2abe976b8cd"
+        );
+        assert!(pin.manifest.tactical_skills.is_some());
+        assert!(pin.is_registered_for_execution());
+    }
+
+    #[test]
     fn changed_or_unknown_rulesets_cannot_execute_silently() {
         let mut changed = BalanceManifest::v1();
         changed.consecutive_timeout_forfeit = 4;
