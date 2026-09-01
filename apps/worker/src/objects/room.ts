@@ -204,7 +204,7 @@ export class GameRoomDurableObject extends DurableObject<WorkerEnv> {
             event: eventType || "unknown",
             errorCode: error.code,
             requestId: requestId ?? null,
-            protocolVersion: 3,
+            protocolVersion: attachment.protocolVersion ?? 3,
           },
         );
       }
@@ -571,13 +571,14 @@ export class GameRoomDurableObject extends DurableObject<WorkerEnv> {
     const offered = (protocolHeader ?? "")
       .split(",")
       .map((value) => value.trim());
-    const protocolVersion = protocolHeader === null
-      ? 3
-      : offered.includes("mk01.v4")
-        ? 4
-        : offered.includes("mk01.v3")
-          ? 3
-          : 0;
+    const protocolVersion =
+      protocolHeader === null
+        ? 3
+        : offered.includes("mk01.v4")
+          ? 4
+          : offered.includes("mk01.v3")
+            ? 3
+            : 0;
     if (protocolVersion === 0) {
       return json(
         protocolError(new DomainError("SERVER_PROTOCOL_MISMATCH")),
@@ -778,7 +779,7 @@ export class GameRoomDurableObject extends DurableObject<WorkerEnv> {
         return;
       }
       case "skill:fire": {
-        if (attachment.protocolVersion < 4) {
+        if ((attachment.protocolVersion ?? 3) < 4) {
           throw new DomainError("SERVER_PROTOCOL_MISMATCH");
         }
         const result = fireSkill(
@@ -1357,11 +1358,9 @@ function coordinates(value: unknown): Coordinate[] {
 }
 
 function tacticalSkill(value: unknown): TacticalSkillKind {
-  if (![
-    "RAPID_FIRE",
-    "CROSS_FIRE",
-    "AREA_ANNIHILATION",
-  ].includes(String(value))) {
+  if (
+    !["RAPID_FIRE", "CROSS_FIRE", "AREA_ANNIHILATION"].includes(String(value))
+  ) {
     throw new DomainError("INVALID_REQUEST");
   }
   return value as TacticalSkillKind;

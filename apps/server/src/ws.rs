@@ -510,10 +510,7 @@ async fn handle_event(
                 }
                 if duplicate {
                     state
-                        .send_to_session(
-                            session.id,
-                            ServerEvent::TacticalSkillResult(record),
-                        )
+                        .send_to_session(session.id, ServerEvent::TacticalSkillResult(record))
                         .await;
                     if let Ok(snapshot) = room.snapshot_for(session.id) {
                         state
@@ -801,7 +798,7 @@ mod tests {
     }
 
     #[test]
-    fn websocket_protocol_negotiation_supports_headerless_v3_and_rejects_unknown_versions() {
+    fn websocket_protocol_negotiation_supports_headerless_v3_v4_and_rejects_unknown_versions() {
         let mut headers = HeaderMap::new();
         assert_eq!(
             negotiate_websocket_protocol(&headers).unwrap(),
@@ -819,7 +816,16 @@ mod tests {
 
         headers.insert(
             SEC_WEBSOCKET_PROTOCOL,
-            HeaderValue::from_static("mk01.v1, mk01.v4"),
+            HeaderValue::from_static("mk01.v4, mk01.v3"),
+        );
+        assert_eq!(
+            negotiate_websocket_protocol(&headers).unwrap(),
+            (NegotiatedProtocol(4), Some("mk01.v4"))
+        );
+
+        headers.insert(
+            SEC_WEBSOCKET_PROTOCOL,
+            HeaderValue::from_static("mk01.v1, mk01.v5"),
         );
         assert_eq!(
             negotiate_websocket_protocol(&headers).unwrap_err(),

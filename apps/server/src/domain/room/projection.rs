@@ -166,9 +166,10 @@ impl GameRoom {
                 .as_ref()
                 .map(|game| game.skill_inventories.clone())
                 .unwrap_or_default(),
-            skill_used_this_turn: self.game.as_ref().is_some_and(|game| {
-                game.skill_used_turns.get(&me.id) == Some(&game.turn_number)
-            }),
+            skill_used_this_turn: self
+                .game
+                .as_ref()
+                .is_some_and(|game| game.skill_used_turns.get(&me.id) == Some(&game.turn_number)),
             skill_unlock_turn: self
                 .balance
                 .manifest

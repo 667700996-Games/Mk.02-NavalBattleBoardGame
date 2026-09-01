@@ -10,8 +10,8 @@ use crate::{
         MatchmakingRegion, MatchmakingSearchWindow, ModerationAction, ModerationActionKind,
         PlayerAccount, PlayerReadyRecord, PlayerReportReceipt, RankedLeaderboardPage,
         ReportCategory, ReportStatus, RoomSummary, RoomVisibility, SafetyRelationship,
-        ShipPlacement, SupportAction, SurrenderRecord, TacticalSkillKind,
-        TacticalSkillUseRecord, TurnExpiredRecord,
+        ShipPlacement, SupportAction, SurrenderRecord, TacticalSkillKind, TacticalSkillUseRecord,
+        TurnExpiredRecord,
     },
     error::GameError,
 };

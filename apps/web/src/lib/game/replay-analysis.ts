@@ -305,51 +305,51 @@ function rankedMoments(replay: GameReplay, translate: Translator): RankedMoment[
         attack.outcome === 'MISS' ? 0 : (hitStreaks.get(attack.attackerId) ?? 0) + 1;
       hitStreaks.set(attack.attackerId, nextStreak);
       if (attack.winnerId) {
-      hasRecordedFinish = true;
-      moments.push({
-        eventIndex,
-        turnNumber: attack.turnNumber,
-        playerId: attack.attackerId,
-        impact: 'CRITICAL',
-        score: 100,
-        title: translate('replayAnalysis.finishingStrikeTitle'),
-        detail: translate('replayAnalysis.finishingStrikeDetail', {
-          name: playerName(replay, attack.attackerId, translate),
-          coordinate: coordinateLabel(attack),
-          ship: attack.sunkShip
-            ? translate(shipMessageKey(attack.sunkShip))
-            : translate('replayAnalysis.lastShip')
-        })
-      });
+        hasRecordedFinish = true;
+        moments.push({
+          eventIndex,
+          turnNumber: attack.turnNumber,
+          playerId: attack.attackerId,
+          impact: 'CRITICAL',
+          score: 100,
+          title: translate('replayAnalysis.finishingStrikeTitle'),
+          detail: translate('replayAnalysis.finishingStrikeDetail', {
+            name: playerName(replay, attack.attackerId, translate),
+            coordinate: coordinateLabel(attack),
+            ship: attack.sunkShip
+              ? translate(shipMessageKey(attack.sunkShip))
+              : translate('replayAnalysis.lastShip')
+          })
+        });
       } else if (attack.outcome === 'SUNK') {
-      moments.push({
-        eventIndex,
-        turnNumber: attack.turnNumber,
-        playerId: attack.attackerId,
-        impact: 'HIGH',
-        score: 50 + attack.turnNumber / Math.max(replay.result.totalTurns, 1),
-        title: translate('replayAnalysis.sunkShiftTitle'),
-        detail: translate('replayAnalysis.sunkShiftDetail', {
-          name: playerName(replay, attack.attackerId, translate),
-          coordinate: coordinateLabel(attack),
-          ship: attack.sunkShip
-            ? translate(shipMessageKey(attack.sunkShip))
-            : translate('replayAnalysis.ship')
-        })
-      });
+        moments.push({
+          eventIndex,
+          turnNumber: attack.turnNumber,
+          playerId: attack.attackerId,
+          impact: 'HIGH',
+          score: 50 + attack.turnNumber / Math.max(replay.result.totalTurns, 1),
+          title: translate('replayAnalysis.sunkShiftTitle'),
+          detail: translate('replayAnalysis.sunkShiftDetail', {
+            name: playerName(replay, attack.attackerId, translate),
+            coordinate: coordinateLabel(attack),
+            ship: attack.sunkShip
+              ? translate(shipMessageKey(attack.sunkShip))
+              : translate('replayAnalysis.ship')
+          })
+        });
       } else if (nextStreak === 3) {
-      moments.push({
-        eventIndex,
-        turnNumber: attack.turnNumber,
-        playerId: attack.attackerId,
-        impact: 'MEDIUM',
-        score: 25,
-        title: translate('replayAnalysis.hitStreakTitle'),
-        detail: translate('replayAnalysis.hitStreakDetail', {
-          name: playerName(replay, attack.attackerId, translate),
-          coordinate: coordinateLabel(attack)
-        })
-      });
+        moments.push({
+          eventIndex,
+          turnNumber: attack.turnNumber,
+          playerId: attack.attackerId,
+          impact: 'MEDIUM',
+          score: 25,
+          title: translate('replayAnalysis.hitStreakTitle'),
+          detail: translate('replayAnalysis.hitStreakDetail', {
+            name: playerName(replay, attack.attackerId, translate),
+            coordinate: coordinateLabel(attack)
+          })
+        });
       }
     }
   }

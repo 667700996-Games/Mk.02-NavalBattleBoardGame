@@ -813,11 +813,11 @@ async function joinRoomRoute(
   );
   const result = await internalJson<{ snapshot: unknown }>(
     room(env, lookup.roomId).fetch(
-          internalRequest("/join", {
-            session,
-            playerId: crypto.randomUUID(),
-            protocolVersion: protocolVersionFor(request),
-            now: new Date().toISOString(),
+      internalRequest("/join", {
+        session,
+        playerId: crypto.randomUUID(),
+        protocolVersion: protocolVersionFor(request),
+        now: new Date().toISOString(),
       }),
     ),
   );

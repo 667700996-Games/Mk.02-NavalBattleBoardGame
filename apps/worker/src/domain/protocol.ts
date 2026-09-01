@@ -27,14 +27,10 @@ export const FLEET = [
 ] as const;
 
 export type TacticalSkillKind =
-  | "RAPID_FIRE"
-  | "CROSS_FIRE"
-  | "AREA_ANNIHILATION";
+  "RAPID_FIRE" | "CROSS_FIRE" | "AREA_ANNIHILATION";
 export type TacticalSkillGrade = "C" | "B" | "A";
 export type TacticalSkillTargetPattern =
-  | "TWO_TARGETS"
-  | "ORTHOGONAL_CROSS"
-  | "THREE_BY_THREE";
+  "TWO_TARGETS" | "ORTHOGONAL_CROSS" | "THREE_BY_THREE";
 
 export interface TacticalSkillSpec {
   kind: TacticalSkillKind;

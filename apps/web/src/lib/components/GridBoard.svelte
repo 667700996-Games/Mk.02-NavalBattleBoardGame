@@ -276,7 +276,10 @@
             data-testid={`${mode}-cell-${coordinate.row}-${coordinate.col}`}
             aria-label={ariaDescription(coordinate)}
             aria-selected={isSelected}
-            tabindex={interactive && !disabled && (!attack || allowMarkedSelection) && activeCell === cellKey
+            tabindex={interactive &&
+            !disabled &&
+            (!attack || allowMarkedSelection) &&
+            activeCell === cellKey
               ? 0
               : -1}
             disabled={disabled ||

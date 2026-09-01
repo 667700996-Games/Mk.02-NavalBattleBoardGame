@@ -1138,10 +1138,7 @@ mod tests {
                 Uuid::new_v4(),
                 first,
                 TacticalSkillKind::RapidFire,
-                vec![
-                    Coordinate { row: 8, col: 8 },
-                    Coordinate { row: 9, col: 9 },
-                ],
+                vec![Coordinate { row: 8, col: 8 }, Coordinate { row: 9, col: 9 }],
                 3,
                 2,
             )

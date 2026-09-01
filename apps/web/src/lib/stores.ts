@@ -6,8 +6,8 @@ import type {
   ChatTypingEvent,
   GameSnapshot,
   ProtocolError,
-  Session
-  , TacticalSkillUseRecord
+  Session,
+  TacticalSkillUseRecord
 } from '$lib/types';
 
 export type SocketStatus = 'idle' | 'connecting' | 'online' | 'reconnecting' | 'offline';

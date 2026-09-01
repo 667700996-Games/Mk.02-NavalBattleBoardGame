@@ -1636,10 +1636,7 @@ function skillCoordinates(
       throw new DomainError("INVALID_TACTICAL_SKILL_TARGETS");
     }
   }
-  if (
-    skill === "RAPID_FIRE" &&
-    sameCoordinate(targets[0]!, targets[1]!)
-  ) {
+  if (skill === "RAPID_FIRE" && sameCoordinate(targets[0]!, targets[1]!)) {
     throw new DomainError("INVALID_TACTICAL_SKILL_TARGETS");
   }
   if (skill === "RAPID_FIRE") {

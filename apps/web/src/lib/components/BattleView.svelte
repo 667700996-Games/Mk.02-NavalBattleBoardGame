@@ -36,11 +36,7 @@
     onsurrender
   }: Props = $props();
 
-  const tacticalSkills: TacticalSkillKind[] = [
-    'RAPID_FIRE',
-    'CROSS_FIRE',
-    'AREA_ANNIHILATION'
-  ];
+  const tacticalSkills: TacticalSkillKind[] = ['RAPID_FIRE', 'CROSS_FIRE', 'AREA_ANNIHILATION'];
 
   let selected = $state<Coordinate | null>(null);
   let activeSkill = $state<TacticalSkillKind | null>(null);
@@ -191,8 +187,8 @@
       disabled ||
       fireSequence ||
       remainingSeconds === 0 ||
-      (activeSkill === 'RAPID_FIRE' || !activeSkill) &&
-        attackedKeys.has(coordinateKey(coordinate))
+      ((activeSkill === 'RAPID_FIRE' || !activeSkill) &&
+        attackedKeys.has(coordinateKey(coordinate)))
     )
       return;
     if (activeSkill) {
@@ -599,7 +595,10 @@
             {/each}
           </div>
         {/if}
-        <div class:coordinate-lock--active={selected || skillTargets.length > 0} class="coordinate-lock">
+        <div
+          class:coordinate-lock--active={selected || skillTargets.length > 0}
+          class="coordinate-lock"
+        >
           <small>{activeSkill ? $t('battle.skillTarget') : $t('battle.targetLock')}</small><strong
             >{activeSkill
               ? skillTargets.length
@@ -637,8 +636,7 @@
               selected = null;
               activeSkill = null;
               skillTargets = [];
-            }}
-            ><X size={13} /> {$t('battle.clearSelection')}</button
+            }}><X size={13} /> {$t('battle.clearSelection')}</button
           >{/if}
 
         <div class="enemy-fleet">
