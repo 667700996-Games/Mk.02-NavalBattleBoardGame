@@ -282,6 +282,7 @@ impl Game {
             MatchRules {
                 mode: GameMode::Classic,
                 turn_duration_seconds: Some(turn_duration_seconds),
+                tactical_skills_enabled: false,
             },
             turn_duration_seconds,
         )
@@ -321,13 +322,30 @@ impl Game {
         let turn_duration_seconds =
             rules.resolved_turn_duration_for(fallback_turn_duration_seconds, &balance.manifest);
         let now = Utc::now();
+        let skill_inventories = if rules.tactical_skills_enabled {
+            let skill_rules = balance
+                .manifest
+                .tactical_skills
+                .as_ref()
+                .ok_or(GameError::InvalidState)?;
+            player_ids
+                .iter()
+                .map(|player_id| (*player_id, TacticalSkillInventory::from_rules(skill_rules)))
+                .collect()
+        } else {
+            HashMap::new()
+        };
         Ok(Self {
             balance,
             boards,
             attacks: Vec::new(),
+            skill_uses: Vec::new(),
             timeline: Vec::new(),
             first_player_id: current_player_id,
             mode: rules.mode,
+            tactical_skills_enabled: rules.tactical_skills_enabled,
+            skill_inventories,
+            skill_used_turns: HashMap::new(),
             shots_remaining_in_turn,
             current_player_id,
             turn_number: 1,
@@ -363,9 +381,13 @@ impl Game {
             balance: BalancePin::current(),
             boards,
             attacks: Vec::new(),
+            skill_uses: Vec::new(),
             timeline: Vec::new(),
             first_player_id: current_player_id,
             mode: GameMode::Classic,
+            tactical_skills_enabled: false,
+            skill_inventories: HashMap::new(),
+            skill_used_turns: HashMap::new(),
             shots_remaining_in_turn: 1,
             current_player_id,
             turn_number: 1,
@@ -384,6 +406,24 @@ impl Game {
             .iter()
             .find(|attack| attack.request_id == request_id && attack.attacker_id == attacker_id)
             .cloned()
+    }
+
+    pub fn previous_skill_resolution(
+        &self,
+        request_id: Uuid,
+        attacker_id: Uuid,
+    ) -> Option<TacticalSkillUseRecord> {
+        self.skill_uses
+            .iter()
+            .find(|record| record.request_id == request_id && record.attacker_id == attacker_id)
+            .cloned()
+    }
+
+    pub fn skill_inventory(&self, player_id: Uuid) -> TacticalSkillInventory {
+        self.skill_inventories
+            .get(&player_id)
+            .copied()
+            .unwrap_or_default()
     }
 
     pub fn fire(
