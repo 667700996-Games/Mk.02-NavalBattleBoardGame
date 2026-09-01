@@ -11,7 +11,8 @@ use axum::{
 };
 use chrono::Utc;
 use mk01_server::{
-    AppState, MAX_SUPPORTED_PROTOCOL_VERSION, MIN_SUPPORTED_PROTOCOL_VERSION, PROTOCOL_VERSION,
+    AppState, LEGACY_DEFAULT_PROTOCOL_VERSION, MAX_SUPPORTED_PROTOCOL_VERSION,
+    MIN_SUPPORTED_PROTOCOL_VERSION, PROTOCOL_VERSION,
     app::hash_token,
     build_router,
     config::{Settings, StorageMode},
@@ -214,10 +215,10 @@ async fn guest_sessions_create_join_and_recover_a_two_player_room() {
     );
     assert_eq!(created["snapshot"]["canStartGame"], false);
     assert_eq!(created["snapshot"]["rules"]["mode"], "SALVO");
-    assert_eq!(created["snapshot"]["balance"]["rulesetVersion"], 1);
+    assert_eq!(created["snapshot"]["balance"]["rulesetVersion"], 2);
     assert_eq!(
         created["snapshot"]["balance"]["checksum"],
-        "6e6a17885e5203e30456ec9fe2f6d663541ec6d01df153cf352bac0314aafa76"
+        "b73b72f6dfdba8020f21b86065aefd26c81645a8669932a38fcaa2abe976b8cd"
     );
     assert_eq!(created["snapshot"]["balance"]["manifest"]["boardSize"], 10);
     assert_eq!(
@@ -444,7 +445,7 @@ async fn completed_history_and_replay_keep_the_original_balance_interpretation()
         .await,
     )
     .await;
-    assert_eq!(history["games"][0]["balance"]["rulesetVersion"], 1);
+    assert_eq!(history["games"][0]["balance"]["rulesetVersion"], 2);
     assert_eq!(
         history["games"][0]["balance"]["manifest"]["consecutiveTimeoutForfeit"],
         3
@@ -462,11 +463,11 @@ async fn completed_history_and_replay_keep_the_original_balance_interpretation()
         .await,
     )
     .await;
-    assert_eq!(replay["rulesetVersion"], 1);
+    assert_eq!(replay["rulesetVersion"], 2);
     assert_eq!(replay["balance"], history["games"][0]["balance"]);
     assert_eq!(
         replay["balance"]["checksum"],
-        "6e6a17885e5203e30456ec9fe2f6d663541ec6d01df153cf352bac0314aafa76"
+        "b73b72f6dfdba8020f21b86065aefd26c81645a8669932a38fcaa2abe976b8cd"
     );
 }
 
@@ -970,7 +971,7 @@ async fn protocol_window_accepts_headerless_v3_and_rejects_unsupported_clients()
     assert_eq!(legacy_response.status(), StatusCode::OK);
     assert_eq!(
         legacy_response.headers()[PROTOCOL_VERSION_HEADER],
-        PROTOCOL_VERSION.to_string()
+        LEGACY_DEFAULT_PROTOCOL_VERSION.to_string()
     );
     assert_eq!(
         legacy_response.headers()[PROTOCOL_MIN_VERSION_HEADER],
@@ -986,7 +987,10 @@ async fn protocol_window_accepts_headerless_v3_and_rejects_unsupported_clients()
     );
     let descriptor = json_body(legacy_response).await;
     assert_eq!(descriptor["currentVersion"], PROTOCOL_VERSION);
-    assert_eq!(descriptor["legacyDefaultVersion"], PROTOCOL_VERSION);
+    assert_eq!(
+        descriptor["legacyDefaultVersion"],
+        LEGACY_DEFAULT_PROTOCOL_VERSION
+    );
     assert_eq!(
         descriptor["capabilities"].as_array().unwrap().len(),
         PROTOCOL_CAPABILITIES.len()
@@ -1003,7 +1007,7 @@ async fn protocol_window_accepts_headerless_v3_and_rejects_unsupported_clients()
     .await;
     assert_eq!(explicit_response.status(), StatusCode::OK);
 
-    for unsupported in ["1", "2", "4", "invalid"] {
+    for unsupported in ["1", "2", "5", "invalid"] {
         let response = send(
             &app,
             Request::builder()
@@ -1025,7 +1029,11 @@ async fn protocol_window_accepts_headerless_v3_and_rejects_unsupported_clients()
     }
     assert_eq!(
         state.metrics.protocol_http_negotiations[0].load(Ordering::Relaxed),
-        2
+        1
+    );
+    assert_eq!(
+        state.metrics.protocol_http_negotiations[1].load(Ordering::Relaxed),
+        1
     );
     assert_eq!(
         state
@@ -1037,7 +1045,7 @@ async fn protocol_window_accepts_headerless_v3_and_rejects_unsupported_clients()
 }
 
 #[tokio::test]
-async fn websocket_handshake_supports_headerless_and_explicit_v3_clients() {
+async fn websocket_handshake_supports_headerless_and_explicit_v3_v4_clients() {
     let state = AppState::with_store(test_settings(), Arc::new(MemoryStore::default()));
     let app = build_router(state.clone());
     let (cookie, _) = create_session(&app, "Protocol Captain").await;
@@ -1091,6 +1099,14 @@ async fn websocket_handshake_supports_headerless_and_explicit_v3_clients() {
     );
     v3_socket.close(None).await.unwrap();
 
+    let (mut v4_socket, v4_response) = connect_async(request(Some("mk01.v4"))).await.unwrap();
+    assert_eq!(v4_response.status(), StatusCode::SWITCHING_PROTOCOLS);
+    assert_eq!(
+        v4_response.headers()[header::SEC_WEBSOCKET_PROTOCOL],
+        "mk01.v4"
+    );
+    v4_socket.close(None).await.unwrap();
+
     let error = connect_async(request(Some("mk01.v2"))).await.unwrap_err();
     let WebSocketError::Http(response) = error else {
         panic!("expected an HTTP protocol rejection, got {error}");
@@ -1099,6 +1115,10 @@ async fn websocket_handshake_supports_headerless_and_explicit_v3_clients() {
     assert_eq!(
         state.metrics.protocol_websocket_negotiations[0].load(Ordering::Relaxed),
         2
+    );
+    assert_eq!(
+        state.metrics.protocol_websocket_negotiations[1].load(Ordering::Relaxed),
+        1
     );
     assert_eq!(
         state

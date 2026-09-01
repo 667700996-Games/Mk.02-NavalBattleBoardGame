@@ -135,7 +135,7 @@ describe('game protocol compatibility', () => {
       { ...valid, currentVersion: 2 },
       { ...valid, currentVersion: 5 },
       { ...valid, legacyDefaultVersion: 2 },
-      { ...valid, legacyDefaultVersion: 4 },
+      { ...valid, legacyDefaultVersion: 5 },
       { ...valid, compatibilityWindowDays: 29 },
       { ...valid, capabilities: [3] },
       { ...valid, capabilities: ['balance-pin-v1', 'balance-pin-v1'] }
