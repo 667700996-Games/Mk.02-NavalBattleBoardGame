@@ -65,7 +65,7 @@ test('Cloudflare account upgrade rotates credentials and supports login and remo
   await first.evaluate(
     () =>
       new Promise<void>((resolve, reject) => {
-        const socket = new WebSocket(`${location.origin.replace(/^http/, 'ws')}/ws`, 'mk01.v3');
+        const socket = new WebSocket(`${location.origin.replace(/^http/, 'ws')}/ws`, 'mk01.v4');
         (window as typeof window & { revokedSocket?: WebSocket }).revokedSocket = socket;
         socket.addEventListener('open', () => resolve(), { once: true });
         socket.addEventListener('error', () => reject(new Error('WebSocket did not open')), {

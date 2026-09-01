@@ -58,34 +58,34 @@ describe('game protocol compatibility', () => {
     expect(isCompatibleProtocolEnvelope({ protocolVersion: GAME_PROTOCOL_VERSION })).toBe(true);
   });
 
-  it('negotiates HTTP and WebSocket V3 while retaining the headerless stable fallback', () => {
-    expect(websocketProtocol()).toBe('mk01.v3');
+  it('negotiates HTTP and WebSocket V4 while retaining the headerless stable fallback', () => {
+    expect(websocketProtocol()).toBe('mk01.v4');
     expect(acceptWebsocketProtocol('')).toBe(true);
-    expect(acceptWebsocketProtocol('mk01.v3')).toBe(true);
-    expect(acceptWebsocketProtocol('mk01.v2')).toBe(false);
+    expect(acceptWebsocketProtocol('mk01.v4')).toBe(true);
+    expect(acceptWebsocketProtocol('mk01.v3')).toBe(false);
     expect(acceptProtocolHeaders(new Headers())).toBe(true);
 
     const compatible = new Headers({
-      [PROTOCOL_VERSION_HEADER]: '3',
+      [PROTOCOL_VERSION_HEADER]: '4',
       [PROTOCOL_MIN_VERSION_HEADER]: '3',
-      [PROTOCOL_MAX_VERSION_HEADER]: '3',
+      [PROTOCOL_MAX_VERSION_HEADER]: '4',
       [PROTOCOL_CAPABILITIES_HEADER]: PROTOCOL_CAPABILITIES.join(',')
     });
     expect(acceptProtocolHeaders(compatible)).toBe(true);
     expect(supportsProtocolCapability('balance-pin-v1')).toBe(true);
 
-    compatible.set(PROTOCOL_VERSION_HEADER, '4');
+    compatible.set(PROTOCOL_VERSION_HEADER, '5');
     expect(acceptProtocolHeaders(compatible)).toBe(false);
     compatible.set(PROTOCOL_VERSION_HEADER, 'invalid');
     expect(acceptProtocolHeaders(compatible)).toBe(false);
   });
 
-  it('accepts a newer server that retains V3 and rejects a V4-only window', () => {
+  it('accepts a V4 server window and rejects a window that excludes V4', () => {
     expect(
       acceptProtocolCompatibility({
-        currentVersion: 3,
+        currentVersion: 4,
         minimumSupportedVersion: 3,
-        maximumSupportedVersion: 3,
+        maximumSupportedVersion: 4,
         legacyDefaultVersion: 3,
         compatibilityWindowDays: 30,
         capabilities: [...PROTOCOL_CAPABILITIES]
@@ -93,20 +93,20 @@ describe('game protocol compatibility', () => {
     ).toBe(true);
     expect(
       acceptProtocolCompatibility({
-        currentVersion: 4,
-        minimumSupportedVersion: 3,
-        maximumSupportedVersion: 4,
-        legacyDefaultVersion: 3,
+        currentVersion: 5,
+        minimumSupportedVersion: 4,
+        maximumSupportedVersion: 5,
+        legacyDefaultVersion: 4,
         compatibilityWindowDays: 30,
         capabilities: [...PROTOCOL_CAPABILITIES, 'future-capability-v1']
       })
     ).toBe(true);
     expect(
       acceptProtocolCompatibility({
-        currentVersion: 4,
-        minimumSupportedVersion: 4,
-        maximumSupportedVersion: 4,
-        legacyDefaultVersion: 4,
+        currentVersion: 5,
+        minimumSupportedVersion: 5,
+        maximumSupportedVersion: 5,
+        legacyDefaultVersion: 5,
         compatibilityWindowDays: 30,
         capabilities: []
       })
@@ -115,9 +115,9 @@ describe('game protocol compatibility', () => {
 
   it('rejects every malformed compatibility window and returns an isolated legacy fallback', () => {
     const valid = {
-      currentVersion: 3,
+      currentVersion: 4,
       minimumSupportedVersion: 3,
-      maximumSupportedVersion: 3,
+      maximumSupportedVersion: 4,
       legacyDefaultVersion: 3,
       compatibilityWindowDays: 30,
       capabilities: [...PROTOCOL_CAPABILITIES]
@@ -127,13 +127,13 @@ describe('game protocol compatibility', () => {
       { ...valid, capabilities: 'not-an-array' },
       { ...valid, currentVersion: 1.5 },
       { ...valid, minimumSupportedVersion: 1.5 },
-      { ...valid, maximumSupportedVersion: 3.5 },
+      { ...valid, maximumSupportedVersion: 4.5 },
       { ...valid, legacyDefaultVersion: 1.5 },
       { ...valid, compatibilityWindowDays: 30.5 },
-      { ...valid, minimumSupportedVersion: 4, currentVersion: 4, maximumSupportedVersion: 4 },
-      { ...valid, maximumSupportedVersion: 2 },
+      { ...valid, minimumSupportedVersion: 5, currentVersion: 5, maximumSupportedVersion: 5 },
+      { ...valid, maximumSupportedVersion: 3 },
       { ...valid, currentVersion: 2 },
-      { ...valid, currentVersion: 4 },
+      { ...valid, currentVersion: 5 },
       { ...valid, legacyDefaultVersion: 2 },
       { ...valid, legacyDefaultVersion: 4 },
       { ...valid, compatibilityWindowDays: 29 },
@@ -155,13 +155,13 @@ describe('game protocol compatibility', () => {
         [PROTOCOL_MIN_VERSION_HEADER]: minimum,
         [PROTOCOL_MAX_VERSION_HEADER]: maximum
       });
-    expect(acceptProtocolHeaders(headers('3', '3', '3'))).toBe(true);
+    expect(acceptProtocolHeaders(headers('4', '3', '4'))).toBe(true);
     expect(acceptProtocolHeaders(headers('invalid', '3', '3'))).toBe(false);
     expect(acceptProtocolHeaders(headers('3', 'invalid', '3'))).toBe(false);
     expect(acceptProtocolHeaders(headers('3', '3', 'invalid'))).toBe(false);
-    expect(acceptProtocolHeaders(headers('4', '3', '4'))).toBe(false);
-    expect(acceptProtocolHeaders(headers('3', '4', '4'))).toBe(false);
-    expect(acceptProtocolHeaders(headers('3', '2', '2'))).toBe(false);
+    expect(acceptProtocolHeaders(headers('3', '3', '4'))).toBe(false);
+    expect(acceptProtocolHeaders(headers('4', '5', '5'))).toBe(false);
+    expect(acceptProtocolHeaders(headers('4', '2', '3'))).toBe(false);
   });
 
   it('rejects legacy WAITING and auto-PLACEMENT snapshots', () => {
@@ -254,7 +254,7 @@ describe('game protocol compatibility', () => {
   it('rejects malformed snapshot identity, state, and player fields', () => {
     const invalidSnapshots = [
       null,
-      { ...currentSnapshot, protocolVersion: 4 },
+      { ...currentSnapshot, protocolVersion: 3 },
       { ...currentSnapshot, room: null },
       { ...currentSnapshot, room: { status: 'UNKNOWN' } },
       { ...currentSnapshot, roomId: 3 },
@@ -274,7 +274,7 @@ describe('game protocol compatibility', () => {
     expect(isCompatibleSpectatorSnapshot(currentSpectatorSnapshot)).toBe(true);
     const invalidSnapshots = [
       null,
-      { ...currentSpectatorSnapshot, protocolVersion: 4 },
+      { ...currentSpectatorSnapshot, protocolVersion: 3 },
       { ...currentSpectatorSnapshot, room: null },
       { ...currentSpectatorSnapshot, room: { status: 'UNKNOWN' } },
       { ...currentSpectatorSnapshot, balance: null },
