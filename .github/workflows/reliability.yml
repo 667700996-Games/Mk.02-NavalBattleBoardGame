@@ -14,13 +14,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: "1.88"
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: "22"
       - name: Run 30-minute authenticated HTTP and WebSocket soak
@@ -28,7 +28,7 @@ jobs:
           RELIABILITY_DURATION: 30m
           RELIABILITY_VUS: "4"
         run: npm run test:soak
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: soak-evidence-${{ github.run_id }}
@@ -42,7 +42,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@master
@@ -54,7 +54,7 @@ jobs:
           FUZZ_TOOLCHAIN: nightly-2026-08-18
           FUZZ_SECONDS: "600"
         run: npm run test:fuzz
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: scheduled-fuzz-failures-${{ github.run_id }}
