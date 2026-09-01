@@ -533,6 +533,165 @@ impl Game {
         Ok(record)
     }
 
+    pub fn fire_skill(
+        &mut self,
+        request_id: Uuid,
+        attacker_id: Uuid,
+        skill: TacticalSkillKind,
+        targets: Vec<Coordinate>,
+        expected_turn: u32,
+        resolved_version: u64,
+    ) -> Result<TacticalSkillUseRecord, GameError> {
+        self.fire_skill_at(
+            request_id,
+            attacker_id,
+            skill,
+            targets,
+            expected_turn,
+            resolved_version,
+            Utc::now(),
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn fire_skill_at(
+        &mut self,
+        request_id: Uuid,
+        attacker_id: Uuid,
+        skill: TacticalSkillKind,
+        targets: Vec<Coordinate>,
+        expected_turn: u32,
+        resolved_version: u64,
+        now: DateTime<Utc>,
+    ) -> Result<TacticalSkillUseRecord, GameError> {
+        if !self.balance.is_registered_for_execution() {
+            return Err(GameError::InvalidState);
+        }
+        if !self.tactical_skills_enabled {
+            return Err(GameError::TacticalSkillsDisabled);
+        }
+        if self.result.is_some() {
+            return Err(GameError::InvalidState);
+        }
+        if self.current_player_id != attacker_id {
+            return Err(GameError::NotYourTurn);
+        }
+        if self.turn_number != expected_turn {
+            return Err(GameError::TurnConflict);
+        }
+        if self
+            .turn_deadline_at
+            .is_some_and(|deadline| now >= deadline)
+        {
+            return Err(GameError::TurnExpired);
+        }
+        let skill_rules = self
+            .balance
+            .manifest
+            .tactical_skills
+            .as_ref()
+            .ok_or(GameError::InvalidState)?;
+        if self.turn_number < skill_rules.unlock_turn {
+            return Err(GameError::TacticalSkillLocked);
+        }
+        if self.skill_used_turns.get(&attacker_id) == Some(&self.turn_number) {
+            return Err(GameError::TacticalSkillAlreadyUsed);
+        }
+        let spec = skill_rules.spec(skill).ok_or(GameError::InvalidRequest)?;
+        if self.skill_inventory(attacker_id).remaining(skill) == 0 {
+            return Err(GameError::TacticalSkillExhausted);
+        }
+        let target_id = self
+            .boards
+            .keys()
+            .copied()
+            .find(|player_id| *player_id != attacker_id)
+            .ok_or(GameError::InvalidState)?;
+        let board = self.boards.get(&target_id).ok_or(GameError::InvalidState)?;
+        let mut coordinates = skill_coordinates(skill, &targets, self.balance.manifest.board_size)?;
+        if skill == TacticalSkillKind::RapidFire
+            && coordinates
+                .iter()
+                .any(|coordinate| board.was_attacked(*coordinate))
+        {
+            return Err(GameError::InvalidTacticalSkillTargets);
+        }
+        coordinates.retain(|coordinate| !board.was_attacked(*coordinate));
+
+        let board = self
+            .boards
+            .get_mut(&target_id)
+            .ok_or(GameError::InvalidState)?;
+        let mut cells = Vec::with_capacity(coordinates.len());
+        for coordinate in coordinates {
+            let result = board.attack(coordinate)?;
+            cells.push(TacticalSkillCellResult {
+                coordinate,
+                outcome: result.outcome,
+                sunk_ship: result.sunk_ship,
+            });
+        }
+        let winner_id = board
+            .ships()
+            .iter()
+            .all(|ship| ship.is_sunk())
+            .then_some(attacker_id);
+        let remaining_uses = self
+            .skill_inventories
+            .get_mut(&attacker_id)
+            .ok_or(GameError::InvalidState)?
+            .consume(skill)?;
+        self.skill_used_turns.insert(attacker_id, self.turn_number);
+
+        let continues_salvo =
+            winner_id.is_none() && self.mode == GameMode::Salvo && self.shots_remaining_in_turn > 1;
+        let next_player_id = if winner_id.is_some() {
+            None
+        } else if continues_salvo {
+            Some(attacker_id)
+        } else {
+            Some(target_id)
+        };
+        let shots_remaining_in_turn = if winner_id.is_some() {
+            0
+        } else if continues_salvo {
+            self.shots_remaining_in_turn.saturating_sub(1)
+        } else {
+            shots_for_mode(&self.boards, target_id, self.mode, &self.balance.manifest)
+        };
+        let record = TacticalSkillUseRecord {
+            request_id,
+            attacker_id,
+            target_id,
+            skill,
+            grade: spec.grade,
+            cells,
+            turn_number: self.turn_number,
+            next_player_id,
+            winner_id,
+            shots_remaining_in_turn,
+            remaining_uses,
+            resolved_version,
+            created_at: now,
+        };
+        self.skill_uses.push(record.clone());
+        self.timeline
+            .push(GameTimelineEvent::SkillAttack(record.clone()));
+        self.consecutive_timeout_counts.insert(attacker_id, 0);
+
+        if winner_id.is_some() {
+            self.finish_at(attacker_id, target_id, FinishReason::FleetDestroyed, now);
+            self.shots_remaining_in_turn = 0;
+        } else if continues_salvo {
+            self.shots_remaining_in_turn = self.shots_remaining_in_turn.saturating_sub(1);
+        } else {
+            self.current_player_id = target_id;
+            self.turn_number += 1;
+            self.start_turn_at(now);
+        }
+        Ok(record)
+    }
+
     pub fn ensure_turn_timer(&mut self, turn_duration_seconds: u32, now: DateTime<Utc>) -> bool {
         if self.result.is_some() {
             return false;
@@ -660,11 +819,21 @@ impl Game {
                     .iter()
                     .filter(|attack| attack.attacker_id == *player_id)
                     .collect();
+                let skill_cells: Vec<_> = self
+                    .skill_uses
+                    .iter()
+                    .filter(|record| record.attacker_id == *player_id)
+                    .flat_map(|record| record.cells.iter())
+                    .collect();
                 let hits = attacks
                     .iter()
                     .filter(|attack| attack.outcome != AttackOutcome::Miss)
-                    .count() as u32;
-                let shots = attacks.len() as u32;
+                    .count() as u32
+                    + skill_cells
+                        .iter()
+                        .filter(|cell| cell.outcome != AttackOutcome::Miss)
+                        .count() as u32;
+                let shots = (attacks.len() + skill_cells.len()) as u32;
                 PlayerStatistics {
                     player_id: *player_id,
                     shots,
@@ -672,7 +841,11 @@ impl Game {
                     ships_sunk: attacks
                         .iter()
                         .filter(|attack| attack.sunk_ship.is_some())
-                        .count() as u8,
+                        .count() as u8
+                        + skill_cells
+                            .iter()
+                            .filter(|cell| cell.sunk_ship.is_some())
+                            .count() as u8,
                     accuracy: if shots == 0 {
                         0.0
                     } else {
@@ -701,6 +874,76 @@ impl Game {
 
 fn default_one_shot() -> u8 {
     1
+}
+
+fn skill_coordinates(
+    skill: TacticalSkillKind,
+    targets: &[Coordinate],
+    board_size: u8,
+) -> Result<Vec<Coordinate>, GameError> {
+    let validate = |coordinate: Coordinate| {
+        Coordinate::new_for_board(coordinate.row, coordinate.col, board_size)
+            .map_err(|_| GameError::InvalidTacticalSkillTargets)
+    };
+    let mut coordinates = match skill {
+        TacticalSkillKind::RapidFire => {
+            if targets.len() != 2 || targets[0] == targets[1] {
+                return Err(GameError::InvalidTacticalSkillTargets);
+            }
+            vec![validate(targets[0])?, validate(targets[1])?]
+        }
+        TacticalSkillKind::CrossFire => {
+            if targets.len() != 1 {
+                return Err(GameError::InvalidTacticalSkillTargets);
+            }
+            let center = validate(targets[0])?;
+            coordinates_for_offsets(
+                center,
+                board_size,
+                &[(0, 0), (-1, 0), (0, -1), (0, 1), (1, 0)],
+            )
+        }
+        TacticalSkillKind::AreaAnnihilation => {
+            if targets.len() != 1 {
+                return Err(GameError::InvalidTacticalSkillTargets);
+            }
+            let center = validate(targets[0])?;
+            let offsets = [
+                (-1, -1),
+                (-1, 0),
+                (-1, 1),
+                (0, -1),
+                (0, 0),
+                (0, 1),
+                (1, -1),
+                (1, 0),
+                (1, 1),
+            ];
+            coordinates_for_offsets(center, board_size, &offsets)
+        }
+    };
+    coordinates.sort_by_key(|coordinate| (coordinate.row, coordinate.col));
+    coordinates.dedup();
+    Ok(coordinates)
+}
+
+fn coordinates_for_offsets(
+    center: Coordinate,
+    board_size: u8,
+    offsets: &[(i16, i16)],
+) -> Vec<Coordinate> {
+    offsets
+        .iter()
+        .filter_map(|(row_offset, col_offset)| {
+            let row = i16::from(center.row) + row_offset;
+            let col = i16::from(center.col) + col_offset;
+            (row >= 0 && col >= 0 && row < i16::from(board_size) && col < i16::from(board_size))
+                .then_some(Coordinate {
+                    row: row as u8,
+                    col: col as u8,
+                })
+        })
+        .collect()
 }
 
 fn shots_for_mode(
