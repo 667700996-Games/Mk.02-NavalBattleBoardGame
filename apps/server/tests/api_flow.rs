@@ -1045,6 +1045,59 @@ async fn protocol_window_accepts_headerless_v3_and_rejects_unsupported_clients()
 }
 
 #[tokio::test]
+async fn tactical_rooms_require_v4_and_pin_the_tactical_balance() {
+    let app = test_app();
+    let (cookie, _) = create_session(&app, "Tactical Captain").await;
+    let body = json!({
+        "name": "Tactical Fleet",
+        "visibility": "PRIVATE",
+        "rules": {
+            "mode": "CLASSIC",
+            "turnDurationSeconds": 60,
+            "tacticalSkillsEnabled": true
+        }
+    });
+    let created = send(
+        &app,
+        Request::builder()
+            .method("POST")
+            .uri("/api/rooms")
+            .header(header::COOKIE, &cookie)
+            .header(PROTOCOL_VERSION_HEADER, PROTOCOL_VERSION.to_string())
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(body.to_string()))
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(created.status(), StatusCode::CREATED);
+    let created = json_body(created).await;
+    assert_eq!(created["snapshot"]["rules"]["tacticalSkillsEnabled"], true);
+    assert_eq!(created["snapshot"]["balance"]["rulesetVersion"], 2);
+    assert_eq!(
+        created["snapshot"]["balance"]["manifest"]["tacticalSkills"]["unlockTurn"],
+        3
+    );
+
+    let rejected = send(
+        &app,
+        Request::builder()
+            .method("POST")
+            .uri("/api/rooms")
+            .header(header::COOKIE, &cookie)
+            .header(PROTOCOL_VERSION_HEADER, LEGACY_DEFAULT_PROTOCOL_VERSION.to_string())
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(body.to_string()))
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(rejected.status(), StatusCode::UPGRADE_REQUIRED);
+    assert_eq!(
+        json_body(rejected).await["code"],
+        "SERVER_PROTOCOL_MISMATCH"
+    );
+}
+
+#[tokio::test]
 async fn websocket_handshake_supports_headerless_and_explicit_v3_v4_clients() {
     let state = AppState::with_store(test_settings(), Arc::new(MemoryStore::default()));
     let app = build_router(state.clone());
