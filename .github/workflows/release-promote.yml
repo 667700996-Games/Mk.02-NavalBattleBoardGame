@@ -34,14 +34,14 @@ jobs:
     environment: ${{ inputs.environment }}
     steps:
       - name: Download immutable release bundle
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v8
         with:
           name: release-bundle
           path: ${{ runner.temp }}/incoming/release
           run-id: ${{ inputs.release_run_id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Download environment evidence
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v8
         with:
           name: release-evidence-${{ inputs.environment }}
           path: ${{ runner.temp }}/incoming/evidence
@@ -56,14 +56,14 @@ jobs:
           evidence="$(find "${{ runner.temp }}/incoming/evidence" -name '*.json' -type f | head -1)"
           test -n "$evidence"
           echo "evidence=$evidence" >> "$GITHUB_OUTPUT"
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           ref: ${{ steps.release.outputs.sha }}
           fetch-depth: 0
           persist-credentials: false
       - name: Download previous production rollback bundle
         if: inputs.environment == 'production'
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v8
         with:
           name: release-bundle
           path: ${{ runner.temp }}/incoming/previous
@@ -108,7 +108,7 @@ jobs:
             test -f "$previous"
           fi
           scripts/deploy-release.sh "${{ inputs.environment }}" "$MANIFEST" "$EVIDENCE" "$previous"
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         with:
           name: deployment-receipt-${{ inputs.environment }}-${{ inputs.release_run_id }}
           path: |

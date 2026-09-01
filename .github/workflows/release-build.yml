@@ -51,7 +51,7 @@ jobs:
       TEST_REDIS_URL: redis://127.0.0.1:6379/
       REQUIRE_DISTRIBUTED_INTEGRATION: "true"
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.ref }}
           fetch-depth: 0
@@ -60,7 +60,7 @@ jobs:
         with:
           toolchain: "1.88"
           components: rustfmt, clippy
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: "22"
           cache: npm
@@ -196,7 +196,7 @@ jobs:
             --signature "oci://${{ steps.metadata.outputs.server_name }}@${{ steps.server.outputs.digest }}#cosign,oci://${{ steps.metadata.outputs.web_name }}@${{ steps.web.outputs.digest }}#cosign" \
             --output .artifacts/release-manifest.json
           node tools/release-gate.mjs --manifest-only true --manifest .artifacts/release-manifest.json
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         with:
           name: release-bundle
           path: |

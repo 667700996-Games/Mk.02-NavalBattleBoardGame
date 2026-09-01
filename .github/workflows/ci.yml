@@ -11,14 +11,14 @@ jobs:
   quality:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: "1.88"
           components: rustfmt, clippy
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: "22"
           cache: npm
@@ -65,14 +65,14 @@ jobs:
       TEST_REDIS_URL: redis://127.0.0.1:6379/
       REQUIRE_DISTRIBUTED_INTEGRATION: "true"
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: "1.88"
           components: llvm-tools-preview
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: "22"
           cache: npm
@@ -81,7 +81,7 @@ jobs:
       - run: npm run test:coverage:web
       - run: npm run test:coverage:rust
       - run: node tools/check-quality-gates.mjs --coverage
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         with:
           name: risk-coverage-${{ github.sha }}
           path: |
@@ -95,7 +95,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@master
@@ -105,7 +105,7 @@ jobs:
       - run: npm run test:fuzz
         env:
           FUZZ_TOOLCHAIN: nightly-2026-08-18
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: protocol-fuzz-failures-${{ github.sha }}
@@ -144,13 +144,13 @@ jobs:
       TEST_REDIS_URL: redis://127.0.0.1:6379/
       REQUIRE_DISTRIBUTED_INTEGRATION: "true"
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: "1.88"
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: "22"
       - name: Run serialized service-backed integration suite
@@ -164,7 +164,7 @@ jobs:
           cargo run -p mk01-server -- --verify-restore | tee .artifacts/distributed-database-verification.json
           expected_migrations="$(awk 'NF { count += 1 } END { print count }' apps/server/migrations/checksums.sha256)"
           jq -e --argjson expected "$expected_migrations" '.migrationsApplied == $expected and .rooms > 0 and .results > 0 and .balanceRulesets >= 1' .artifacts/distributed-database-verification.json
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         with:
           name: postgres-redis-integration-${{ github.sha }}
           path: .artifacts/distributed-database-verification.json
@@ -175,13 +175,13 @@ jobs:
     runs-on: ubuntu-latest
     needs: [quality, postgres-redis-integration]
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: "1.88"
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: "22"
           cache: npm
@@ -201,10 +201,10 @@ jobs:
     runs-on: ubuntu-latest
     needs: [quality]
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: "22"
           cache: npm
@@ -218,18 +218,18 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: "1.88"
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: "22"
       - name: Run authenticated HTTP and WebSocket load test
         run: npm run test:load
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: load-evidence-${{ github.sha }}
@@ -272,13 +272,13 @@ jobs:
           - 15432:15432
           - 16379:16379
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: "1.88"
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: "22"
       - name: Configure dependency proxies
@@ -315,7 +315,7 @@ jobs:
       - name: Stop chaos server
         if: always()
         run: kill "$(cat .artifacts/chaos-server.pid)" 2>/dev/null || true
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: chaos-evidence-${{ github.sha }}
@@ -328,7 +328,7 @@ jobs:
   observability-config:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - name: Validate Prometheus alert rules with promtool
@@ -365,7 +365,7 @@ jobs:
       DATABASE_URL: postgres://mk01:mk01@127.0.0.1:5432/mk01_backup_source
       STORAGE_MODE: postgres
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@master
@@ -404,7 +404,7 @@ jobs:
           jq -e '.database.sessions == 0 and .database.rankedRatings == 0 and .database.rankedStandings == 0 and .database.rankedRewards == 0 and .database.deletionTombstones == 1 and .database.rankedLeaderboardSnapshots == 1 and .deletionLedgerApplication.applied == 1 and .deletionLedgerApplication.remainingPersonalRecords == 0 and .restoreSeconds <= .rtoGateSeconds and .backupAgeSeconds <= .rpoGateSeconds and .deletionLedgerAgeSeconds <= .deletionLedgerFreshnessGateSeconds' .artifacts/restore-evidence.json
           retained_evidence="$(psql 'postgres://mk01:mk01@127.0.0.1:5432/mk01_restore' -Atc "SELECT (SELECT count(*) FROM player_reports WHERE id='00000000-0000-4000-8000-000000000041'),(SELECT count(*) FROM player_moderation_actions WHERE id='00000000-0000-4000-8000-000000000042')")"
           test "$retained_evidence" = '1|0'
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         with:
           name: postgres-restore-drill-${{ github.sha }}
           path: .artifacts/restore-evidence.json
