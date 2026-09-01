@@ -1084,7 +1084,10 @@ async fn tactical_rooms_require_v4_and_pin_the_tactical_balance() {
             .method("POST")
             .uri("/api/rooms")
             .header(header::COOKIE, &cookie)
-            .header(PROTOCOL_VERSION_HEADER, LEGACY_DEFAULT_PROTOCOL_VERSION.to_string())
+            .header(
+                PROTOCOL_VERSION_HEADER,
+                LEGACY_DEFAULT_PROTOCOL_VERSION.to_string(),
+            )
             .header(header::CONTENT_TYPE, "application/json")
             .body(Body::from(body.to_string()))
             .unwrap(),

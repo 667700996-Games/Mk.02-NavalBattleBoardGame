@@ -12,8 +12,11 @@
     AttackRecord,
     SpectatorPhase,
     SpectatorSnapshot,
+    TacticalSkillKind,
     TargetBoardSnapshot
   } from '$lib/types';
+
+  type SpectatorAttack = AttackRecord & { skill?: TacticalSkillKind };
 
   let snapshot = $state<SpectatorSnapshot | null>(null);
   let error = $state('');
@@ -44,9 +47,25 @@
   });
 
   let attacks = $derived.by(() =>
-    (snapshot?.timeline ?? [])
-      .filter((event) => event.type === 'ATTACK')
-      .map((event) => event.payload as AttackRecord)
+    (snapshot?.timeline ?? []).flatMap((event): SpectatorAttack[] => {
+      if (event.type === 'TURN_EXPIRED') return [];
+      if (event.type === 'ATTACK') return [event.payload];
+      return event.payload.cells.map((cell, index) => ({
+        requestId: `${event.payload.requestId}:${index}`,
+        attackerId: event.payload.attackerId,
+        targetId: event.payload.targetId,
+        coordinate: cell.coordinate,
+        outcome: cell.outcome,
+        sunkShip: cell.sunkShip,
+        turnNumber: event.payload.turnNumber,
+        nextPlayerId: event.payload.nextPlayerId,
+        winnerId: index === event.payload.cells.length - 1 ? event.payload.winnerId : null,
+        shotsRemainingInTurn: event.payload.shotsRemainingInTurn,
+        resolvedVersion: event.payload.resolvedVersion,
+        createdAt: event.payload.createdAt,
+        skill: event.payload.skill
+      }));
+    })
   );
   let recentAttacks = $derived(attacks.slice(-8).reverse());
   let winner = $derived(
@@ -170,6 +189,7 @@
                     >{String.fromCharCode(65 + attack.coordinate.row)}{attack.coordinate.col +
                       1}</code
                   >
+                  {#if attack.skill}<small>{$t(`tacticalSkill.${attack.skill}`)}</small>{/if}
                   <Badge
                     tone={attack.outcome === 'MISS'
                       ? 'neutral'

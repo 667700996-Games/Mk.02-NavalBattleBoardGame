@@ -119,6 +119,11 @@
               <span><Radio size={13} /> {$t('lobbyRooms.publicChannel')}</span><span
                 ><KeyRound size={13} /> {room.code}</span
               ><span>{$t(gameModeMessageKey(room.rules.mode))}</span>
+              <span
+                >{$t('lobbyRooms.tacticalSkills')} · {$t(
+                  room.rules.tacticalSkillsEnabled ? 'common.on' : 'common.off'
+                )}</span
+              >
             </div>
             <Button
               variant="secondary"
