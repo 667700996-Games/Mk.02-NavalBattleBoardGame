@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   confirmPlacement,
+  createPracticeRoom,
   createRoom,
   expireTurn,
   fire,
@@ -28,6 +29,7 @@ const HOST_SESSION = "00000000-0000-4000-8000-000000000001";
 const GUEST_SESSION = "00000000-0000-4000-8000-000000000002";
 const HOST_PLAYER = "00000000-0000-4000-8000-000000000011";
 const GUEST_PLAYER = "00000000-0000-4000-8000-000000000012";
+const AI_PLAYER = "00000000-0000-4000-8000-000000000013";
 const ROOM_ID = "00000000-0000-4000-8000-000000000021";
 const GAME_ID = "00000000-0000-4000-8000-000000000031";
 const T0 = "2026-08-19T00:00:00.000Z";
@@ -126,6 +128,46 @@ function readyRoom(
 }
 
 describe("Cloudflare authoritative room domain", () => {
+  it("enables tactical skills and inventories in single-player practice", () => {
+    const room = createPracticeRoom(
+      {
+        roomId: ROOM_ID,
+        code: "AI1234",
+        name: "AI Tactical Training",
+        visibility: "PRIVATE",
+        session: session(HOST_SESSION, "Alpha"),
+        playerId: HOST_PLAYER,
+        now: T0,
+      },
+      "OFFICER",
+      session(GUEST_SESSION, "MK-AI OFFICER"),
+      AI_PLAYER,
+    );
+    expect(room.rules.tacticalSkillsEnabled).toBe(true);
+    placeShips(room, HOST_SESSION, fleet(0), "2026-08-19T00:00:01.000Z");
+    confirmPlacement(
+      room,
+      HOST_SESSION,
+      fleet(0),
+      60,
+      HOST_PLAYER,
+      "2026-08-19T00:00:02.000Z",
+    );
+    const snapshot = snapshotFor(
+      room,
+      HOST_SESSION,
+      "2026-08-19T00:00:03.000Z",
+    );
+    expect(snapshot.roomState).toBe("PLAYING");
+    expect(snapshot.rules.tacticalSkillsEnabled).toBe(true);
+    expect(snapshot.skillUnlockTurn).toBe(3);
+    expect(snapshot.skillInventories[HOST_PLAYER]).toEqual({
+      rapidFire: 3,
+      crossFire: 2,
+      areaAnnihilation: 1,
+    });
+  });
+
   it("preserves the explicit ready/start/placement transitions and private projections", () => {
     const room = readyRoom();
     expect(room.status).toBe("PLAYING");

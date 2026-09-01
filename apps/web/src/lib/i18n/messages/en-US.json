@@ -109,6 +109,7 @@
   "singlePlayer.loading": "Checking AI training channel",
   "singlePlayer.practiceError": "Could not start AI tactical training.",
   "singlePlayer.tacticalCore": "AI / TACTICAL CORE",
+  "singlePlayer.tacticalSkillsEnabled": "Rapid Fire, Crossfire, and Area Annihilation are available from turn 3 in single-player battles.",
   "singlePlayer.selectDifficulty": "Choose a difficulty to begin immediately",
   "singlePlayer.recruitDescription": "Basic attack patterns suited to commanders beginning their training.",
   "singlePlayer.officerDescription": "Balanced battlefield decisions that adapt throughout the engagement.",

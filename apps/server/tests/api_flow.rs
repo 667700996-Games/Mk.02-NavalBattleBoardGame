@@ -354,6 +354,7 @@ async fn practice_room_is_server_authoritative_and_keeps_the_ai_fleet_private() 
             .uri("/api/practice")
             .header(header::CONTENT_TYPE, "application/json")
             .header(header::COOKIE, &cookie)
+            .header(PROTOCOL_VERSION_HEADER, PROTOCOL_VERSION.to_string())
             .body(Body::from(json!({ "difficulty": "OFFICER" }).to_string()))
             .unwrap(),
     )
@@ -364,6 +365,8 @@ async fn practice_room_is_server_authoritative_and_keeps_the_ai_fleet_private() 
     assert_eq!(snapshot["roomState"], "PLACEMENT");
     assert_eq!(snapshot["room"]["status"], "PLACEMENT");
     assert_eq!(snapshot["practiceDifficulty"], "OFFICER");
+    assert_eq!(snapshot["rules"]["tacticalSkillsEnabled"], true);
+    assert_eq!(snapshot["skillUnlockTurn"], 3);
     assert!(snapshot["ownBoard"].is_null());
     assert!(snapshot["targetBoard"].is_null());
     assert!(snapshot["revealedBoard"].is_null());
@@ -389,6 +392,23 @@ async fn practice_room_is_server_authoritative_and_keeps_the_ai_fleet_private() 
             .find(|player| player["kind"] == "AI")
             .is_some_and(|player| player["placementConfirmed"] == true)
     );
+
+    let legacy = send(
+        &app,
+        Request::builder()
+            .method("POST")
+            .uri("/api/practice")
+            .header(header::CONTENT_TYPE, "application/json")
+            .header(header::COOKIE, &cookie)
+            .header(
+                PROTOCOL_VERSION_HEADER,
+                LEGACY_DEFAULT_PROTOCOL_VERSION.to_string(),
+            )
+            .body(Body::from(json!({ "difficulty": "OFFICER" }).to_string()))
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(legacy.status(), StatusCode::UPGRADE_REQUIRED);
 }
 
 #[tokio::test]

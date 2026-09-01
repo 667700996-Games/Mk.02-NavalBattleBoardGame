@@ -109,6 +109,7 @@
   "singlePlayer.loading": "AI 훈련 채널 확인 중",
   "singlePlayer.practiceError": "AI 전술 훈련을 시작하지 못했습니다.",
   "singlePlayer.tacticalCore": "AI / 전술 코어",
+  "singlePlayer.tacticalSkillsEnabled": "싱글 플레이에서도 3턴부터 속사, 십자포화, 구역 섬멸을 사용할 수 있습니다.",
   "singlePlayer.selectDifficulty": "난이도를 선택하면 즉시 교전을 시작합니다",
   "singlePlayer.recruitDescription": "기본적인 공격 패턴으로 처음 시작하는 지휘관에게 적합합니다.",
   "singlePlayer.officerDescription": "전황에 대응하는 균형 잡힌 판단으로 교전합니다.",

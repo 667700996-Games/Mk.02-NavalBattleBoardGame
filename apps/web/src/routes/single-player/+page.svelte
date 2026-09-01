@@ -114,6 +114,7 @@
       <div class="practice-divider">
         <span></span><small>{$t('singlePlayer.tacticalCore')}</small>
       </div>
+      <p class="skill-notice">{$t('singlePlayer.tacticalSkillsEnabled')}</p>
 
       <div class="difficulty-heading">
         <div>
@@ -235,6 +236,16 @@
     height: 1px;
     flex: 1;
     background: var(--line);
+  }
+  .skill-notice {
+    margin: 0;
+    padding: 10px 12px;
+    border: 1px solid rgba(83, 233, 232, 0.22);
+    border-radius: 6px;
+    color: var(--ink-300);
+    background: rgba(25, 105, 112, 0.1);
+    font-size: 11px;
+    line-height: 1.55;
   }
   .difficulty-heading {
     display: flex;
