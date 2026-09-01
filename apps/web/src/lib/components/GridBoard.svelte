@@ -28,6 +28,7 @@
     previewCells?: Coordinate[];
     previewValid?: boolean;
     interactive?: boolean;
+    allowMarkedSelection?: boolean;
     disabled?: boolean;
     oncell?: (coordinate: Coordinate) => void;
     onhover?: (coordinate: Coordinate | null) => void;
@@ -48,6 +49,7 @@
     previewCells = [],
     previewValid = true,
     interactive = false,
+    allowMarkedSelection = false,
     disabled = false,
     oncell,
     onhover,
@@ -266,7 +268,7 @@
             class:cell--miss={attack === 'MISS'}
             class:cell--hit={attack === 'HIT'}
             class:cell--sunk={attack === 'SUNK'}
-            class:cell--interactive={interactive && !attack && !disabled}
+            class:cell--interactive={interactive && (!attack || allowMarkedSelection) && !disabled}
             class="board-cell"
             type="button"
             role="gridcell"
@@ -274,8 +276,11 @@
             data-testid={`${mode}-cell-${coordinate.row}-${coordinate.col}`}
             aria-label={ariaDescription(coordinate)}
             aria-selected={isSelected}
-            tabindex={interactive && !disabled && !attack && activeCell === cellKey ? 0 : -1}
-            disabled={disabled || (mode === 'target' && (Boolean(attack) || !interactive))}
+            tabindex={interactive && !disabled && (!attack || allowMarkedSelection) && activeCell === cellKey
+              ? 0
+              : -1}
+            disabled={disabled ||
+              (mode === 'target' && ((!allowMarkedSelection && Boolean(attack)) || !interactive))}
             draggable={mode === 'placement' && Boolean(kind) && !disabled}
             onclick={() => oncell?.(coordinate)}
             onkeydown={(event) => handleKeyboard(event, coordinate)}

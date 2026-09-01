@@ -34,6 +34,7 @@
   let visibility: RoomVisibility = 'PUBLIC';
   let gameMode: GameMode = 'CLASSIC';
   let turnDurationSeconds = 60;
+  let tacticalSkillsEnabled = true;
   let roomCode = '';
   let submitting = false;
   let matching = false;
@@ -130,7 +131,8 @@
     try {
       const response = await api.createRoom(roomName, visibility, {
         mode: gameMode,
-        turnDurationSeconds: gameMode === 'RAPID' ? 30 : turnDurationSeconds
+        turnDurationSeconds: gameMode === 'RAPID' ? 30 : turnDurationSeconds,
+        tacticalSkillsEnabled
       });
       gameSnapshot.set(response.snapshot);
       trackFunnelReached('room_joined');
@@ -280,6 +282,7 @@
       bind:visibility
       bind:gameMode
       bind:turnDurationSeconds
+      bind:tacticalSkillsEnabled
       bind:roomCode
       {loadRooms}
       {createRoom}

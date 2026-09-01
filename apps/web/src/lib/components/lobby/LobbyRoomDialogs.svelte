@@ -11,6 +11,7 @@
     visibility: RoomVisibility;
     gameMode: GameMode;
     turnDurationSeconds: number;
+    tacticalSkillsEnabled: boolean;
     roomCode: string;
     submitting: boolean;
     createRoom: () => void | Promise<void>;
@@ -24,6 +25,7 @@
     visibility = $bindable(),
     gameMode = $bindable(),
     turnDurationSeconds = $bindable(),
+    tacticalSkillsEnabled = $bindable(),
     roomCode = $bindable(),
     submitting,
     createRoom,
@@ -112,6 +114,15 @@
           {/each}
         </select>
       </label>
+      <label class="duration-choice" for="tactical-skills">
+        <span
+          ><strong>{$t('lobbyRooms.tacticalSkills')}</strong><small
+            >{$t('lobbyRooms.tacticalSkillsCode')}</small
+          ></span
+        >
+        <input id="tactical-skills" type="checkbox" bind:checked={tacticalSkillsEnabled} />
+      </label>
+      <p class="tactical-skill-note">{$t('lobbyRooms.tacticalSkillsDescription')}</p>
     </fieldset>
     <Button variant="primary" size="lg" type="submit" loading={submitting} full
       >{$t('lobbyRooms.create')} <ArrowRight size={17} /></Button

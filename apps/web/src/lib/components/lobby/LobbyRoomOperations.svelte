@@ -18,6 +18,7 @@
     visibility: RoomVisibility;
     gameMode: GameMode;
     turnDurationSeconds: number;
+    tacticalSkillsEnabled: boolean;
     roomCode: string;
     loadRooms: () => void | Promise<void>;
     createRoom: () => void | Promise<void>;
@@ -37,6 +38,7 @@
     visibility = $bindable(),
     gameMode = $bindable(),
     turnDurationSeconds = $bindable(),
+    tacticalSkillsEnabled = $bindable(),
     roomCode = $bindable(),
     loadRooms,
     createRoom,
@@ -140,6 +142,7 @@
   bind:visibility
   bind:gameMode
   bind:turnDurationSeconds
+  bind:tacticalSkillsEnabled
   bind:roomCode
   {submitting}
   {createRoom}

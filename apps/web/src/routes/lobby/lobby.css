@@ -388,6 +388,17 @@
   .duration-choice select:disabled {
     opacity: 0.55;
   }
+  .duration-choice input[type='checkbox'] {
+    width: 20px;
+    height: 20px;
+    accent-color: var(--tactical);
+  }
+  .tactical-skill-note {
+    margin: 6px 2px 0;
+    color: var(--ink-400);
+    font-size: 10px;
+    line-height: 1.5;
+  }
   .choice {
     position: relative;
   }
