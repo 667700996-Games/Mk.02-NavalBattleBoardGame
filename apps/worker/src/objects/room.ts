@@ -7,6 +7,7 @@ import {
   expireDisconnects,
   expireTurn,
   fire,
+  fireSkill,
   joinRoom,
   leaveRoom,
   placeShips,
@@ -35,6 +36,7 @@ import {
   type ServerEvent,
   type SessionRecord,
   type ShipPlacement,
+  type TacticalSkillKind,
 } from "../domain/protocol";
 import {
   bodyObject,
@@ -49,6 +51,7 @@ import type { WorkerEnv } from "../env";
 interface SocketAttachment {
   sessionId: string;
   playerId: string;
+  protocolVersion: number;
   eventTimes: number[];
 }
 
@@ -135,7 +138,7 @@ export class GameRoomDurableObject extends DurableObject<WorkerEnv> {
       await this.recordIntegritySignal(attachment, "AUTOMATION", 3, 0.88, {
         detector: "WEBSOCKET_EVENT_BURST",
         eventsPerSecondLimit: 60,
-        protocolVersion: 3,
+        protocolVersion: attachment.protocolVersion ?? 3,
       });
       this.send(socket, {
         type: "error",
@@ -345,6 +348,12 @@ export class GameRoomDurableObject extends DurableObject<WorkerEnv> {
 
   private async join(input: Record<string, unknown>): Promise<Response> {
     const room = await this.load();
+    if (
+      room.rules.tacticalSkillsEnabled &&
+      requireNumber(input.protocolVersion) < 4
+    ) {
+      throw new DomainError("SERVER_PROTOCOL_MISMATCH");
+    }
     const session = input.session as SessionRecord;
     const now = requireString(input.now);
     await this.ensureNotBlocked(room, session);
@@ -562,7 +571,14 @@ export class GameRoomDurableObject extends DurableObject<WorkerEnv> {
     const offered = (protocolHeader ?? "")
       .split(",")
       .map((value) => value.trim());
-    if (protocolHeader !== null && !offered.includes("mk01.v3")) {
+    const protocolVersion = protocolHeader === null
+      ? 3
+      : offered.includes("mk01.v4")
+        ? 4
+        : offered.includes("mk01.v3")
+          ? 3
+          : 0;
+    if (protocolVersion === 0) {
       return json(
         protocolError(new DomainError("SERVER_PROTOCOL_MISMATCH")),
         426,
@@ -570,12 +586,19 @@ export class GameRoomDurableObject extends DurableObject<WorkerEnv> {
     }
     const sessionId = requireUuid(request.headers.get("x-mk01-session-id"));
     const room = await this.load();
+    if (room.rules.tacticalSkillsEnabled && protocolVersion < 4) {
+      return json(
+        protocolError(new DomainError("SERVER_PROTOCOL_MISMATCH")),
+        426,
+      );
+    }
     const player = playerForSession(room, sessionId);
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);
     const attachment: SocketAttachment = {
       sessionId,
       playerId: player.id,
+      protocolVersion,
       eventTimes: [],
     };
     server.serializeAttachment(attachment);
@@ -605,7 +628,7 @@ export class GameRoomDurableObject extends DurableObject<WorkerEnv> {
     if (timer) this.send(server, { type: "game:timer-sync", payload: timer });
     const responseHeaders = new Headers();
     if (protocolHeader !== null)
-      responseHeaders.set("sec-websocket-protocol", "mk01.v3");
+      responseHeaders.set("sec-websocket-protocol", `mk01.v${protocolVersion}`);
     return new Response(null, {
       status: 101,
       webSocket: client,
@@ -742,6 +765,42 @@ export class GameRoomDurableObject extends DurableObject<WorkerEnv> {
           this.broadcast({ type: "attack:result", payload: result.record });
           if (result.record.sunkShip)
             this.broadcast({ type: "ship:sunk", payload: result.record });
+          await this.broadcastNewChat(room, chatCount);
+          this.broadcastSnapshots(
+            room,
+            result.record.winnerId ? "game:finished" : "turn:changed",
+            now,
+          );
+          const timer = timerState(room, now);
+          if (timer) this.broadcast({ type: "turn:started", payload: timer });
+          await this.runAiTurns(room);
+        }
+        return;
+      }
+      case "skill:fire": {
+        if (attachment.protocolVersion < 4) {
+          throw new DomainError("SERVER_PROTOCOL_MISMATCH");
+        }
+        const result = fireSkill(
+          room,
+          attachment.sessionId,
+          requireUuid(payload.requestId),
+          requireUuid(payload.playerId),
+          tacticalSkill(payload.skill),
+          coordinates(payload.targets),
+          requireNumber(payload.expectedVersion),
+          requireNumber(payload.turnNumber),
+          now,
+        );
+        if (!result.duplicate) await this.persist(room);
+        if (result.duplicate) {
+          this.send(socket, { type: "skill:result", payload: result.record });
+          this.send(socket, {
+            type: "game:snapshot",
+            payload: snapshotFor(room, attachment.sessionId, now),
+          });
+        } else {
+          this.broadcast({ type: "skill:result", payload: result.record });
           await this.broadcastNewChat(room, chatCount);
           this.broadcastSnapshots(
             room,
@@ -1290,6 +1349,22 @@ function coordinate(value: unknown): Coordinate {
     row: requireNumber(candidate.row),
     col: requireNumber(candidate.col),
   };
+}
+
+function coordinates(value: unknown): Coordinate[] {
+  if (!Array.isArray(value)) throw new DomainError("INVALID_REQUEST");
+  return value.map(coordinate);
+}
+
+function tacticalSkill(value: unknown): TacticalSkillKind {
+  if (![
+    "RAPID_FIRE",
+    "CROSS_FIRE",
+    "AREA_ANNIHILATION",
+  ].includes(String(value))) {
+    throw new DomainError("INVALID_REQUEST");
+  }
+  return value as TacticalSkillKind;
 }
 
 function placements(value: unknown): ShipPlacement[] {

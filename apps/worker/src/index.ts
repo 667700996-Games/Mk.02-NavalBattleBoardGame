@@ -696,6 +696,16 @@ async function createRoomRoute(
   const session = await authenticate(request, env);
   if (session.currentRoomId) throw new DomainError("ALREADY_JOINED");
   const body = await bodyObject(request);
+  const protocolVersion = protocolVersionFor(request);
+  if (
+    protocolVersion < 4 &&
+    body.rules &&
+    typeof body.rules === "object" &&
+    !Array.isArray(body.rules) &&
+    (body.rules as Record<string, unknown>).tacticalSkillsEnabled === true
+  ) {
+    throw new DomainError("SERVER_PROTOCOL_MISMATCH");
+  }
   const roomId = crypto.randomUUID();
   let code = "";
   let result: { snapshot: unknown } | null = null;
@@ -710,6 +720,7 @@ async function createRoomRoute(
             name: requireString(body.name),
             visibility: body.visibility,
             rules: body.rules,
+            protocolVersion,
             session,
             playerId: crypto.randomUUID(),
             now: new Date().toISOString(),
@@ -802,10 +813,11 @@ async function joinRoomRoute(
   );
   const result = await internalJson<{ snapshot: unknown }>(
     room(env, lookup.roomId).fetch(
-      internalRequest("/join", {
-        session,
-        playerId: crypto.randomUUID(),
-        now: new Date().toISOString(),
+          internalRequest("/join", {
+            session,
+            playerId: crypto.randomUUID(),
+            protocolVersion: protocolVersionFor(request),
+            now: new Date().toISOString(),
       }),
     ),
   );
@@ -1337,6 +1349,11 @@ function acceptsProtocol(request: Request): boolean {
     version >= MIN_PROTOCOL_VERSION &&
     version <= MAX_PROTOCOL_VERSION
   );
+}
+
+function protocolVersionFor(request: Request): number {
+  const value = request.headers.get("x-mk01-protocol-version");
+  return value === null ? 3 : Number(value);
 }
 
 function requireToken(request: Request): string {
