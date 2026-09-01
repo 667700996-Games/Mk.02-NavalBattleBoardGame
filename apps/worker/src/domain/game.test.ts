@@ -4,6 +4,7 @@ import {
   createRoom,
   expireTurn,
   fire,
+  fireSkill,
   joinRoom,
   placeShips,
   reconnect,
@@ -58,13 +59,16 @@ function fleet(rowOffset: number): ShipPlacement[] {
   }));
 }
 
-function readyRoom(mode: "CLASSIC" | "SALVO" = "CLASSIC"): InternalRoom {
+function readyRoom(
+  mode: "CLASSIC" | "SALVO" = "CLASSIC",
+  tacticalSkillsEnabled = false,
+): InternalRoom {
   const room = createRoom({
     roomId: ROOM_ID,
     code: "ABC123",
     name: "North Sea",
     visibility: "PRIVATE",
-    rules: { mode, turnDurationSeconds: 60 },
+    rules: { mode, turnDurationSeconds: 60, tacticalSkillsEnabled },
     session: session(HOST_SESSION, "Alpha"),
     playerId: HOST_PLAYER,
     now: T0,
@@ -128,7 +132,7 @@ describe("Cloudflare authoritative room domain", () => {
     expect(room.game?.currentPlayerId).toBe(HOST_PLAYER);
     const host = snapshotFor(room, HOST_SESSION, "2026-08-19T00:00:09.000Z");
     const guest = snapshotFor(room, GUEST_SESSION, "2026-08-19T00:00:09.000Z");
-    expect(host.protocolVersion).toBe(3);
+    expect(host.protocolVersion).toBe(4);
     expect(host.ownBoard?.ships).toHaveLength(5);
     expect(host.targetBoard?.attacks).toEqual([]);
     expect(host.revealedBoard).toBeNull();
@@ -256,6 +260,94 @@ describe("Cloudflare authoritative room domain", () => {
     const expired = expireTurn(room, "2026-08-19T00:00:12.000Z");
     expect(expired?.expiredPlayerId).toBe(HOST_PLAYER);
     expect(room.game?.currentPlayerId).toBe(GUEST_PLAYER);
+  });
+
+  it("resolves tactical patterns server-side with inventory, lock, and idempotency", () => {
+    const room = readyRoom("CLASSIC", true);
+    expect(() =>
+      fireSkill(
+        room,
+        HOST_SESSION,
+        "00000000-0000-4000-8000-000000000301",
+        HOST_PLAYER,
+        "CROSS_FIRE",
+        [{ row: 5, col: 2 }],
+        room.version,
+        1,
+        "2026-08-19T00:00:09.000Z",
+      ),
+    ).toThrowError(new DomainError("TACTICAL_SKILL_LOCKED"));
+
+    room.game!.turnNumber = 3;
+    const requestId = "00000000-0000-4000-8000-000000000302";
+    const resolved = fireSkill(
+      room,
+      HOST_SESSION,
+      requestId,
+      HOST_PLAYER,
+      "CROSS_FIRE",
+      [{ row: 5, col: 2 }],
+      room.version,
+      3,
+      "2026-08-19T00:00:10.000Z",
+    );
+    expect(resolved.record.cells.map((cell) => cell.coordinate)).toEqual([
+      { row: 4, col: 2 },
+      { row: 5, col: 1 },
+      { row: 5, col: 2 },
+      { row: 5, col: 3 },
+      { row: 6, col: 2 },
+    ]);
+    expect(resolved.record.remainingUses).toBe(1);
+    expect(resolved.record.nextPlayerId).toBe(GUEST_PLAYER);
+    expect(room.game?.timeline?.at(-1)?.type).toBe("SKILL_ATTACK");
+    expect(
+      fireSkill(
+        room,
+        HOST_SESSION,
+        requestId,
+        HOST_PLAYER,
+        "CROSS_FIRE",
+        [{ row: 0, col: 0 }],
+        0,
+        0,
+        "2026-08-19T00:00:11.000Z",
+      ).duplicate,
+    ).toBe(true);
+  });
+
+  it("spends one salvo shell and forbids a second skill in the same turn", () => {
+    const room = readyRoom("SALVO", true);
+    room.game!.turnNumber = 3;
+    const resolved = fireSkill(
+      room,
+      HOST_SESSION,
+      "00000000-0000-4000-8000-000000000303",
+      HOST_PLAYER,
+      "RAPID_FIRE",
+      [
+        { row: 8, col: 9 },
+        { row: 9, col: 9 },
+      ],
+      room.version,
+      3,
+      "2026-08-19T00:00:09.000Z",
+    );
+    expect(resolved.record.shotsRemainingInTurn).toBe(4);
+    expect(resolved.record.nextPlayerId).toBe(HOST_PLAYER);
+    expect(() =>
+      fireSkill(
+        room,
+        HOST_SESSION,
+        "00000000-0000-4000-8000-000000000304",
+        HOST_PLAYER,
+        "AREA_ANNIHILATION",
+        [{ row: 0, col: 0 }],
+        room.version,
+        3,
+        "2026-08-19T00:00:10.000Z",
+      ),
+    ).toThrowError(new DomainError("TACTICAL_SKILL_ALREADY_USED"));
   });
 
   it("persists bounded chat and finishes surrender with the same wire semantics", () => {

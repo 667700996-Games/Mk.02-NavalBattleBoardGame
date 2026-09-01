@@ -103,7 +103,7 @@ function replay(
       totalTurns: Math.max(
         1,
         ...timeline.map((event) =>
-          event.type === 'ATTACK' ? event.payload.turnNumber : event.payload.expiredTurnNumber
+          event.type === 'TURN_EXPIRED' ? event.payload.expiredTurnNumber : event.payload.turnNumber
         )
       ),
       durationSeconds: 300,

@@ -49,24 +49,26 @@
   let currentEvent = $derived(step > 0 ? replay?.timeline[step - 1] : null);
   let analysis = $derived(replay ? analyzeReplay(replay, $t) : null);
 
-  function attacksFor(playerId: string): Extract<GameTimelineEvent, { type: 'ATTACK' }>[] {
-    return visibleEvents.filter(
-      (event): event is Extract<GameTimelineEvent, { type: 'ATTACK' }> =>
-        event.type === 'ATTACK' && event.payload.targetId === playerId
-    );
+  function attacksFor(playerId: string): CellAttackSnapshot[] {
+    return visibleEvents.flatMap((event) => {
+      if (event.type === 'TURN_EXPIRED' || event.payload.targetId !== playerId) return [];
+      if (event.type === 'ATTACK') {
+        return [{ coordinate: event.payload.coordinate, outcome: event.payload.outcome }];
+      }
+      return event.payload.cells.map((cell) => ({
+        coordinate: cell.coordinate,
+        outcome: cell.outcome
+      }));
+    });
   }
 
   function boardFor(player: ReplayPlayer): OwnBoardSnapshot {
     const attacks = attacksFor(player.id);
     const hitKeys = new Set(
       attacks
-        .filter((event) => event.payload.outcome !== 'MISS')
-        .map((event) => `${event.payload.coordinate.row}:${event.payload.coordinate.col}`)
+        .filter((attack) => attack.outcome !== 'MISS')
+        .map((attack) => `${attack.coordinate.row}:${attack.coordinate.col}`)
     );
-    const attacksReceived: CellAttackSnapshot[] = attacks.map((event) => ({
-      coordinate: event.payload.coordinate,
-      outcome: event.payload.outcome
-    }));
     return {
       ships: player.fleet.map((ship) => {
         const hits = ship.cells.filter((cell) => hitKeys.has(`${cell.row}:${cell.col}`));
@@ -77,7 +79,7 @@
           sunk: hits.length === ship.cells.length
         };
       }),
-      attacksReceived
+      attacksReceived: attacks
     };
   }
 
@@ -93,6 +95,14 @@
       return $t('replay.timeoutEvent', {
         turn: event.payload.expiredTurnNumber,
         player: playerName(event.payload.expiredPlayerId)
+      });
+    }
+    if (event.type === 'SKILL_ATTACK') {
+      return $t('replay.skillEvent', {
+        turn: event.payload.turnNumber,
+        player: playerName(event.payload.attackerId),
+        skill: $t(`tacticalSkill.${event.payload.skill}`),
+        count: event.payload.cells.length
       });
     }
     const coordinate = `${String.fromCharCode(65 + event.payload.coordinate.row)}${event.payload.coordinate.col + 1}`;

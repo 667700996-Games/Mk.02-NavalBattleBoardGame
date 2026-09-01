@@ -1339,7 +1339,8 @@ export function snapshotFor(
     turnDurationSeconds: game?.turnDurationSeconds ?? null,
     shotsRemainingInTurn: game?.shotsRemainingInTurn ?? null,
     skillInventories: game?.skillInventories ?? {},
-    skillUsedThisTurn: game?.skillUsedTurns?.[me.id] === game?.turnNumber,
+    skillUsedThisTurn:
+      game !== null && game.skillUsedTurns?.[me.id] === game.turnNumber,
     skillUnlockTurn:
       balanceFor(room).manifest.tacticalSkills?.unlockTurn ?? null,
     serverTimestamp: now,
