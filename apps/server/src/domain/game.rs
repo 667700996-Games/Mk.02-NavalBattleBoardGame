@@ -1070,4 +1070,98 @@ mod tests {
         assert_eq!(game.turn_number, 2);
         assert_eq!(game.shots_remaining_in_turn, 5);
     }
+
+    fn tactical_game(first: Uuid, second: Uuid, mode: GameMode) -> Game {
+        let mut game = Game::new_with_rules_and_balance(
+            HashMap::from([(first, board_at(0)), (second, board_at(5))]),
+            MatchRules {
+                mode,
+                turn_duration_seconds: Some(60),
+                tactical_skills_enabled: true,
+            },
+            60,
+            BalancePin::v2(),
+        )
+        .unwrap();
+        game.first_player_id = first;
+        game.current_player_id = first;
+        game.turn_number = 3;
+        game.shots_remaining_in_turn = if mode == GameMode::Salvo { 5 } else { 1 };
+        game
+    }
+
+    #[test]
+    fn tactical_cross_fire_is_server_generated_and_consumes_one_classic_turn() {
+        let first = Uuid::new_v4();
+        let second = Uuid::new_v4();
+        let mut game = tactical_game(first, second, GameMode::Classic);
+        let request_id = Uuid::new_v4();
+        let record = game
+            .fire_skill(
+                request_id,
+                first,
+                TacticalSkillKind::CrossFire,
+                vec![Coordinate { row: 0, col: 0 }],
+                3,
+                2,
+            )
+            .unwrap();
+        assert_eq!(
+            record
+                .cells
+                .iter()
+                .map(|cell| cell.coordinate)
+                .collect::<Vec<_>>(),
+            vec![
+                Coordinate { row: 0, col: 0 },
+                Coordinate { row: 0, col: 1 },
+                Coordinate { row: 1, col: 0 },
+            ]
+        );
+        assert_eq!(record.remaining_uses, 1);
+        assert_eq!(record.next_player_id, Some(second));
+        assert_eq!(game.current_player_id, second);
+        assert_eq!(game.turn_number, 4);
+        assert_eq!(
+            game.previous_skill_resolution(request_id, first),
+            Some(record)
+        );
+    }
+
+    #[test]
+    fn tactical_salvo_uses_one_shell_and_rejects_a_second_skill_in_the_same_turn() {
+        let first = Uuid::new_v4();
+        let second = Uuid::new_v4();
+        let mut game = tactical_game(first, second, GameMode::Salvo);
+        let record = game
+            .fire_skill(
+                Uuid::new_v4(),
+                first,
+                TacticalSkillKind::RapidFire,
+                vec![
+                    Coordinate { row: 8, col: 8 },
+                    Coordinate { row: 9, col: 9 },
+                ],
+                3,
+                2,
+            )
+            .unwrap();
+        assert_eq!(record.cells.len(), 2);
+        assert_eq!(record.remaining_uses, 2);
+        assert_eq!(record.shots_remaining_in_turn, 4);
+        assert_eq!(game.current_player_id, first);
+        assert_eq!(game.turn_number, 3);
+        assert_eq!(
+            game.fire_skill(
+                Uuid::new_v4(),
+                first,
+                TacticalSkillKind::AreaAnnihilation,
+                vec![Coordinate { row: 4, col: 4 }],
+                3,
+                3,
+            )
+            .unwrap_err(),
+            GameError::TacticalSkillAlreadyUsed
+        );
+    }
 }

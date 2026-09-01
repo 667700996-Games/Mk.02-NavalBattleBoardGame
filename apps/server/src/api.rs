@@ -1,5 +1,5 @@
 use axum::{
-    Json, Router,
+    Extension, Json, Router,
     body::Bytes,
     extract::{
         ConnectInfo, Path, Query, State,
@@ -32,7 +32,7 @@ use crate::{
         CreateSessionInput, FunnelEventInput, FunnelOutcome, HealthResponse, IntegritySignalQuery,
         JoinRoomInput, LiveContentHistoryQuery, LiveContentHistoryResponse, MatchmakingResponse,
         MatchmakingTicket, ModerationActionInput, ModerationActionResponse, ModerationReportQuery,
-        PlayerReportInput, PlayerReportResponse, ProtocolCompatibilityResponse,
+        NegotiatedProtocol, PlayerReportInput, PlayerReportResponse, ProtocolCompatibilityResponse,
         PublishLiveContentInput, RankedLeaderboardQuery, RankedLeaderboardResponse,
         RankedLeaderboardVisibilityInput, RankedLeaderboardVisibilityResponse,
         RollbackLiveContentInput, RoomCreatedResponse, RoomListResponse, RumMetricInput,
@@ -652,11 +652,19 @@ async fn list_rooms(State(state): State<AppState>) -> Result<Json<RoomListRespon
 
 async fn create_room(
     State(state): State<AppState>,
+    Extension(protocol): Extension<NegotiatedProtocol>,
     jar: CookieJar,
     headers: HeaderMap,
     input: Result<Json<CreateRoomInput>, JsonRejection>,
 ) -> Result<impl IntoResponse, GameError> {
     let input = parse_json(input)?;
+    if protocol.0 < 4
+        && input
+            .rules
+            .is_some_and(|rules| rules.tactical_skills_enabled)
+    {
+        return Err(GameError::ProtocolVersionMismatch);
+    }
     let session = authenticate(&state, &jar, &headers).await?;
     let room = state.create_room(&session, input).await?;
     let snapshot = room.snapshot_for(session.id)?;

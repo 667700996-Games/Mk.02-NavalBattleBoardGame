@@ -231,6 +231,7 @@ async fn handle_event(
         ClientEvent::PlayerUnready(input) => Some(input.request_id),
         ClientEvent::GameStart(input) => Some(input.request_id),
         ClientEvent::AttackFire(input) => Some(input.request_id),
+        ClientEvent::TacticalSkillFire(input) => Some(input.request_id),
         ClientEvent::ChatSend(input) => Some(input.client_message_id),
         _ => None,
     };
@@ -488,6 +489,74 @@ async fn handle_event(
             }
             .await
         }
+        ClientEvent::TacticalSkillFire(input) => {
+            async {
+                if state.hub.protocol_version(session.id).unwrap_or_default() < 4 {
+                    return Err(GameError::ProtocolVersionMismatch);
+                }
+                let room_ref = state.room(input.room_id).await?;
+                let mut room = room_ref.lock().await;
+                let (record, duplicate) = room.fire_skill(
+                    session.id,
+                    input.request_id,
+                    input.player_id,
+                    input.skill,
+                    input.targets,
+                    input.expected_version,
+                    input.turn_number,
+                )?;
+                if !duplicate {
+                    state.save_room(&mut room).await?;
+                }
+                if duplicate {
+                    state
+                        .send_to_session(
+                            session.id,
+                            ServerEvent::TacticalSkillResult(record),
+                        )
+                        .await;
+                    if let Ok(snapshot) = room.snapshot_for(session.id) {
+                        state
+                            .send_to_session(session.id, ServerEvent::GameSnapshot(snapshot))
+                            .await;
+                    }
+                } else {
+                    let timer = room.timer_state(Utc::now());
+                    for player in &room.players {
+                        state
+                            .send_to_session(
+                                player.session_id,
+                                ServerEvent::TacticalSkillResult(record.clone()),
+                            )
+                            .await;
+                    }
+                    if record.winner_id.is_some() {
+                        state.broadcast_latest_chat_message(&room).await;
+                    }
+                    state
+                        .broadcast_snapshots(
+                            &room,
+                            if record.winner_id.is_some() {
+                                SnapshotEvent::GameFinished
+                            } else {
+                                SnapshotEvent::TurnChanged
+                            },
+                        )
+                        .await;
+                    if record.winner_id.is_some() {
+                        state.cancel_turn_expiry(room.id);
+                    } else {
+                        state
+                            .broadcast_timer_state(&room, ServerEvent::TurnStarted)
+                            .await;
+                        state.schedule_turn_expiry(timer);
+                        state.schedule_ai_turn(room.id);
+                    }
+                }
+                Ok(())
+            }
+            .await
+        }
         ClientEvent::GameSurrender(input) => {
             async {
                 let room_ref = state.room(input.room_id).await?;
@@ -673,6 +742,7 @@ fn integrity_event_context(event: &ClientEvent) -> (Option<Uuid>, &'static str) 
         ClientEvent::PlayerUnready(input) => (Some(input.room_id), "player:unready"),
         ClientEvent::GameStart(input) => (Some(input.room_id), "game:start"),
         ClientEvent::AttackFire(input) => (Some(input.room_id), "attack:fire"),
+        ClientEvent::TacticalSkillFire(input) => (Some(input.room_id), "skill:fire"),
         ClientEvent::GameSurrender(input) => (Some(input.room_id), "game:surrender"),
         ClientEvent::ChatSend(input) => (Some(input.room_id), "chat:send"),
         ClientEvent::ChatTyping(input) => (Some(input.room_id), "chat:typing"),
