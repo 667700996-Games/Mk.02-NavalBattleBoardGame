@@ -677,11 +677,15 @@ async fn create_room(
 
 async fn create_practice(
     State(state): State<AppState>,
+    Extension(protocol): Extension<NegotiatedProtocol>,
     jar: CookieJar,
     headers: HeaderMap,
     input: Result<Json<CreatePracticeInput>, JsonRejection>,
 ) -> Result<Json<GameSnapshot>, GameError> {
     let input = parse_json(input)?;
+    if protocol.0 < 4 {
+        return Err(GameError::ProtocolVersionMismatch);
+    }
     let session = authenticate(&state, &jar, &headers).await?;
     Ok(Json(
         state

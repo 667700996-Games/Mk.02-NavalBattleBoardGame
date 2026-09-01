@@ -257,7 +257,14 @@ export function createPracticeRoom(
   if (!["RECRUIT", "OFFICER", "ADMIRAL"].includes(difficulty)) {
     throw new DomainError("INVALID_REQUEST");
   }
-  const room = createRoom(command);
+  const room = createRoom({
+    ...command,
+    rules: {
+      mode: "CLASSIC",
+      turnDurationSeconds: null,
+      tacticalSkillsEnabled: true,
+    },
+  });
   joinRoom(room, aiSession, aiPlayerId, command.now);
   const ai = playerForSession(room, aiSession.id);
   ai.kind = "AI";

@@ -748,6 +748,9 @@ async function createPracticeRoute(
   request: Request,
   env: WorkerEnv,
 ): Promise<Response> {
+  if (protocolVersionFor(request) < 4) {
+    throw new DomainError("SERVER_PROTOCOL_MISMATCH");
+  }
   const token = requireToken(request);
   const session = await authenticate(request, env);
   if (session.currentRoomId) throw new DomainError("ALREADY_JOINED");

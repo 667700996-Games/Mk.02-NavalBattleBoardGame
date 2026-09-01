@@ -137,7 +137,11 @@ impl AppState {
                 CreateRoomInput {
                     name: "AI 전술 훈련".to_string(),
                     visibility: RoomVisibility::Private,
-                    rules: None,
+                    rules: Some(crate::domain::MatchRules {
+                        mode: crate::domain::GameMode::Classic,
+                        turn_duration_seconds: None,
+                        tactical_skills_enabled: true,
+                    }),
                 },
             )
             .await?;
