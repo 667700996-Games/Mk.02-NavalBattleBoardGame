@@ -1,6 +1,6 @@
-export const PROTOCOL_VERSION = 3;
-export const MIN_PROTOCOL_VERSION = 2;
-export const MAX_PROTOCOL_VERSION = 3;
+export const PROTOCOL_VERSION = 4;
+export const MIN_PROTOCOL_VERSION = 3;
+export const MAX_PROTOCOL_VERSION = 4;
 export const PROTOCOL_CAPABILITIES = [
   "account-sessions-v1",
   "authoritative-room-v2",
@@ -8,6 +8,7 @@ export const PROTOCOL_CAPABILITIES = [
   "explicit-lobby-readiness-v1",
   "ranked-seasons-v1",
   "safe-replay-analysis-v1",
+  "tactical-skills-v1",
 ] as const;
 
 export const PROTOCOL_HEADERS = {
@@ -25,7 +26,53 @@ export const FLEET = [
   { kind: "DESTROYER", cells: 2 },
 ] as const;
 
-export const BALANCE = {
+export type TacticalSkillKind =
+  | "RAPID_FIRE"
+  | "CROSS_FIRE"
+  | "AREA_ANNIHILATION";
+export type TacticalSkillGrade = "C" | "B" | "A";
+export type TacticalSkillTargetPattern =
+  | "TWO_TARGETS"
+  | "ORTHOGONAL_CROSS"
+  | "THREE_BY_THREE";
+
+export interface TacticalSkillSpec {
+  kind: TacticalSkillKind;
+  grade: TacticalSkillGrade;
+  usesPerMatch: number;
+  maxCells: number;
+  targetPattern: TacticalSkillTargetPattern;
+}
+
+export interface BalanceManifest {
+  schemaVersion: number;
+  rulesetVersion: number;
+  label: string;
+  boardSize: number;
+  fleet: ReadonlyArray<{ kind: ShipKind; cells: number }>;
+  classicShotsPerTurn: number;
+  rapidTurnDurationSeconds: number;
+  maximumTurnDurationSeconds: number;
+  consecutiveTimeoutForfeit: number;
+  salvoShotPolicy: "SURVIVING_SHIPS";
+  turnAdvancePolicy: "AFTER_SHOT_ALLOWANCE";
+  duplicateTargetPolicy: "REJECT";
+  victoryCondition: "SINK_ALL_SHIPS";
+  fleetRevealPolicy: "MATCH_COMPLETE";
+  tacticalSkills?: {
+    unlockTurn: number;
+    maxSkillsPerTurn: number;
+    skills: TacticalSkillSpec[];
+  };
+}
+
+export interface BalancePin {
+  rulesetVersion: number;
+  checksum: string;
+  manifest: BalanceManifest;
+}
+
+export const BALANCE_V1: BalancePin = {
   rulesetVersion: 1,
   checksum: "6e6a17885e5203e30456ec9fe2f6d663541ec6d01df153cf352bac0314aafa76",
   manifest: {
@@ -44,7 +91,55 @@ export const BALANCE = {
     victoryCondition: "SINK_ALL_SHIPS",
     fleetRevealPolicy: "MATCH_COMPLETE",
   },
-} as const;
+};
+
+export const BALANCE: BalancePin = {
+  rulesetVersion: 2,
+  checksum: "__RULESET_V2_CHECKSUM__",
+  manifest: {
+    schemaVersion: 1,
+    rulesetVersion: 2,
+    label: "Tactical Fleet",
+    boardSize: 10,
+    fleet: FLEET,
+    classicShotsPerTurn: 1,
+    rapidTurnDurationSeconds: 30,
+    maximumTurnDurationSeconds: 300,
+    consecutiveTimeoutForfeit: 3,
+    salvoShotPolicy: "SURVIVING_SHIPS",
+    turnAdvancePolicy: "AFTER_SHOT_ALLOWANCE",
+    duplicateTargetPolicy: "REJECT",
+    victoryCondition: "SINK_ALL_SHIPS",
+    fleetRevealPolicy: "MATCH_COMPLETE",
+    tacticalSkills: {
+      unlockTurn: 3,
+      maxSkillsPerTurn: 1,
+      skills: [
+        {
+          kind: "RAPID_FIRE",
+          grade: "C",
+          usesPerMatch: 3,
+          maxCells: 2,
+          targetPattern: "TWO_TARGETS",
+        },
+        {
+          kind: "CROSS_FIRE",
+          grade: "B",
+          usesPerMatch: 2,
+          maxCells: 5,
+          targetPattern: "ORTHOGONAL_CROSS",
+        },
+        {
+          kind: "AREA_ANNIHILATION",
+          grade: "A",
+          usesPerMatch: 1,
+          maxCells: 9,
+          targetPattern: "THREE_BY_THREE",
+        },
+      ],
+    },
+  },
+};
 
 export type RoomStatus =
   | "WAITING_FOR_OPPONENT"
@@ -96,6 +191,7 @@ export interface ShipPlacement {
 export interface MatchRules {
   mode: GameMode;
   turnDurationSeconds: number | null;
+  tacticalSkillsEnabled: boolean;
 }
 
 export interface SessionRecord {
@@ -157,6 +253,34 @@ export interface AttackRecord {
   createdAt: string;
 }
 
+export interface TacticalSkillInventory {
+  rapidFire: number;
+  crossFire: number;
+  areaAnnihilation: number;
+}
+
+export interface TacticalSkillCellResult {
+  coordinate: Coordinate;
+  outcome: AttackOutcome;
+  sunkShip: ShipKind | null;
+}
+
+export interface TacticalSkillUseRecord {
+  requestId: string;
+  attackerId: string;
+  targetId: string;
+  skill: TacticalSkillKind;
+  grade: TacticalSkillGrade;
+  cells: TacticalSkillCellResult[];
+  turnNumber: number;
+  nextPlayerId: string | null;
+  winnerId: string | null;
+  shotsRemainingInTurn: number;
+  remainingUses: number;
+  resolvedVersion: number;
+  createdAt: string;
+}
+
 export interface GameResult {
   winnerId: string;
   loserId: string;
@@ -181,11 +305,16 @@ export interface GameResult {
 }
 
 export interface InternalGame {
+  balance?: BalancePin;
   boards: Record<string, InternalBoard>;
   attacks: AttackRecord[];
+  skillUses?: TacticalSkillUseRecord[];
   timeline?: GameTimelineEvent[];
   firstPlayerId: string;
   mode: GameMode;
+  tacticalSkillsEnabled?: boolean;
+  skillInventories?: Record<string, TacticalSkillInventory>;
+  skillUsedTurns?: Record<string, number>;
   shotsRemainingInTurn: number;
   currentPlayerId: string;
   turnNumber: number;
@@ -215,6 +344,7 @@ export interface InternalRoom {
   name: string;
   visibility: RoomVisibility;
   rules: MatchRules;
+  balance?: BalancePin;
   status: RoomStatus;
   hostPlayerId: string;
   players: RoomPlayer[];
@@ -281,13 +411,14 @@ export interface ReplayTurnExpiration {
 
 export type GameTimelineEvent =
   | { type: "ATTACK"; payload: AttackRecord }
+  | { type: "SKILL_ATTACK"; payload: TacticalSkillUseRecord }
   | { type: "TURN_EXPIRED"; payload: ReplayTurnExpiration };
 
 export interface HistoryItem {
   roomId: string;
   roomName: string;
   selfPlayerId: string;
-  balance: typeof BALANCE;
+  balance: BalancePin;
   result: GameResult;
 }
 
@@ -350,6 +481,12 @@ const ERROR_MESSAGES = {
   VERSION_CONFLICT: "게임 상태가 갱신되었습니다. 최신 상태를 불러왔습니다.",
   TURN_CONFLICT: "턴 번호가 일치하지 않습니다.",
   TURN_EXPIRED: "현재 턴의 제한 시간이 이미 만료되었습니다.",
+  TACTICAL_SKILLS_DISABLED: "이 방에서는 전술 스킬이 비활성화되어 있습니다.",
+  TACTICAL_SKILL_LOCKED:
+    "양쪽의 첫 공격 기회가 끝난 뒤에 전술 스킬을 사용할 수 있습니다.",
+  TACTICAL_SKILL_EXHAUSTED: "해당 전술 스킬의 사용 횟수를 모두 소진했습니다.",
+  TACTICAL_SKILL_ALREADY_USED: "이미 이번 턴에 전술 스킬을 사용했습니다.",
+  INVALID_TACTICAL_SKILL_TARGETS: "전술 스킬의 표적 좌표가 올바르지 않습니다.",
   ROOM_NOT_FOUND: "방을 찾을 수 없습니다.",
   ROOM_FULL: "이미 두 명이 참가한 방입니다.",
   ROOM_ALREADY_STARTED: "이미 시작된 방에는 참가할 수 없습니다.",

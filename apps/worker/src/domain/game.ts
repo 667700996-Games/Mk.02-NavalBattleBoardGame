@@ -1,10 +1,12 @@
 import {
   BALANCE,
+  BALANCE_V1,
   DomainError,
   FLEET,
   PROTOCOL_VERSION,
   type AttackOutcome,
   type AttackRecord,
+  type BalancePin,
   type AiDifficulty,
   type ChatMessage,
   type ChatMessageType,
@@ -25,6 +27,10 @@ import {
   type ShipKind,
   type ShipPlacement,
   type SurrenderRecord,
+  type TacticalSkillCellResult,
+  type TacticalSkillInventory,
+  type TacticalSkillKind,
+  type TacticalSkillUseRecord,
 } from "./protocol";
 
 const SPECTATOR_DELAY_SECONDS = 30;
@@ -60,6 +66,47 @@ export interface CreateRoomCommand {
   session: SessionRecord;
   playerId: string;
   now: string;
+}
+
+function balanceFor(room: InternalRoom): BalancePin {
+  return room.balance ?? room.game?.balance ?? BALANCE_V1;
+}
+
+function gameBalance(game: InternalGame): BalancePin {
+  return game.balance ?? BALANCE_V1;
+}
+
+function inventoryFor(
+  skills: ReadonlyArray<{ kind: TacticalSkillKind; usesPerMatch: number }>,
+): TacticalSkillInventory {
+  const inventory: TacticalSkillInventory = {
+    rapidFire: 0,
+    crossFire: 0,
+    areaAnnihilation: 0,
+  };
+  for (const skill of skills) {
+    setRemainingUses(inventory, skill.kind, skill.usesPerMatch);
+  }
+  return inventory;
+}
+
+function remainingUses(
+  inventory: TacticalSkillInventory,
+  skill: TacticalSkillKind,
+): number {
+  if (skill === "RAPID_FIRE") return inventory.rapidFire;
+  if (skill === "CROSS_FIRE") return inventory.crossFire;
+  return inventory.areaAnnihilation;
+}
+
+function setRemainingUses(
+  inventory: TacticalSkillInventory,
+  skill: TacticalSkillKind,
+  value: number,
+): void {
+  if (skill === "RAPID_FIRE") inventory.rapidFire = value;
+  else if (skill === "CROSS_FIRE") inventory.crossFire = value;
+  else inventory.areaAnnihilation = value;
 }
 
 const PRACTICE_FLEET: ShipPlacement[] = [
@@ -115,6 +162,7 @@ export function validateHandle(handle: unknown): string {
 function validatedRules(input?: Partial<MatchRules> | null): MatchRules {
   const mode = input?.mode ?? "CLASSIC";
   const turnDurationSeconds = input?.turnDurationSeconds ?? null;
+  const tacticalSkillsEnabled = input?.tacticalSkillsEnabled ?? false;
   if (!["CLASSIC", "RAPID", "SALVO"].includes(mode)) {
     throw new DomainError("INVALID_REQUEST");
   }
@@ -126,7 +174,10 @@ function validatedRules(input?: Partial<MatchRules> | null): MatchRules {
   ) {
     throw new DomainError("INVALID_REQUEST");
   }
-  return { mode, turnDurationSeconds };
+  if (typeof tacticalSkillsEnabled !== "boolean") {
+    throw new DomainError("INVALID_REQUEST");
+  }
+  return { mode, turnDurationSeconds, tacticalSkillsEnabled };
 }
 
 function newPlayer(
@@ -166,6 +217,7 @@ export function createRoom(command: CreateRoomCommand): InternalRoom {
     name,
     visibility: command.visibility,
     rules: validatedRules(command.rules),
+    balance: structuredClone(BALANCE),
     status: "WAITING_FOR_OPPONENT",
     hostPlayerId: host.id,
     players: [host],
@@ -429,7 +481,7 @@ export function placeShips(
   if (room.status !== "PLACEMENT") throw new DomainError("INVALID_STATE");
   const player = playerForSession(room, sessionId);
   if (player.placementConfirmed) throw new DomainError("PLACEMENT_LOCKED");
-  boardFromPlacements(placements);
+  boardFromPlacements(placements, balanceFor(room));
   room.pendingPlacements[player.id] = structuredClone(placements);
   bump(room, now);
 }
@@ -447,7 +499,7 @@ export function confirmPlacement(
   const player = playerForSession(room, sessionId);
   const stored = room.pendingPlacements[player.id];
   if (!stored) throw new DomainError("INCOMPLETE_FLEET");
-  boardFromPlacements(submittedPlacements);
+  boardFromPlacements(submittedPlacements, balanceFor(room));
   if (JSON.stringify(stored) !== JSON.stringify(submittedPlacements)) {
     throw new DomainError("PLACEMENT_MISMATCH");
   }
@@ -468,19 +520,39 @@ export function confirmPlacement(
   for (const candidate of room.players) {
     const placements = room.pendingPlacements[candidate.id];
     if (!placements) throw new DomainError("INCOMPLETE_FLEET");
-    boards[candidate.id] = boardFromPlacements(placements);
+    boards[candidate.id] = boardFromPlacements(placements, balanceFor(room));
   }
+  const balance = balanceFor(room);
   const duration = resolvedTurnDuration(
     room.rules,
     fallbackTurnDurationSeconds,
+    balance,
   );
+  const skillInventories: Record<string, TacticalSkillInventory> = {};
+  if (room.rules.tacticalSkillsEnabled) {
+    const skillRules = balance.manifest.tacticalSkills;
+    if (!skillRules) throw new DomainError("INVALID_STATE");
+    for (const candidate of room.players) {
+      skillInventories[candidate.id] = inventoryFor(skillRules.skills);
+    }
+  }
   room.game = {
+    balance: structuredClone(balance),
     boards,
     attacks: [],
+    skillUses: [],
     timeline: [],
     firstPlayerId,
     mode: room.rules.mode,
-    shotsRemainingInTurn: shotsFor(boards, firstPlayerId, room.rules.mode),
+    tacticalSkillsEnabled: room.rules.tacticalSkillsEnabled,
+    skillInventories,
+    skillUsedTurns: {},
+    shotsRemainingInTurn: shotsFor(
+      boards,
+      firstPlayerId,
+      room.rules.mode,
+      balance,
+    ),
     currentPlayerId: firstPlayerId,
     turnNumber: 1,
     startedAt: now,
@@ -534,7 +606,7 @@ export function fire(
   ) {
     throw new DomainError("TURN_EXPIRED");
   }
-  validateCoordinate(coordinate);
+  validateCoordinate(coordinate, gameBalance(game));
   const target = room.players.find((candidate) => candidate.id !== player.id);
   if (!target) throw new DomainError("INVALID_STATE");
   const board = game.boards[target.id];
@@ -578,7 +650,7 @@ export function fire(
     ? 0
     : continuesSalvo
       ? game.shotsRemainingInTurn - 1
-      : shotsFor(game.boards, target.id, game.mode);
+      : shotsFor(game.boards, target.id, game.mode, gameBalance(game));
   const record: AttackRecord = {
     requestId,
     attackerId: player.id,
@@ -1264,11 +1336,16 @@ function projectOwnBoard(board: InternalBoard) {
   };
 }
 
-function boardFromPlacements(placements: ShipPlacement[]): InternalBoard {
+function boardFromPlacements(
+  placements: ShipPlacement[],
+  balance: BalancePin = BALANCE,
+): InternalBoard {
   if (!Array.isArray(placements) || placements.length !== FLEET.length) {
     throw new DomainError("INCOMPLETE_FLEET");
   }
-  const expected = new Map(FLEET.map((ship) => [ship.kind, ship.cells]));
+  const expected = new Map(
+    balance.manifest.fleet.map((ship) => [ship.kind, ship.cells]),
+  );
   const seen = new Set<ShipKind>();
   const occupied = new Set<string>();
   const ships = placements.map((placement) => {
@@ -1279,7 +1356,7 @@ function boardFromPlacements(placements: ShipPlacement[]): InternalBoard {
     if (!["HORIZONTAL", "VERTICAL"].includes(placement.orientation)) {
       throw new DomainError("INVALID_REQUEST");
     }
-    validateCoordinate(placement.origin);
+    validateCoordinate(placement.origin, balance);
     const cells: Coordinate[] = [];
     for (
       let offset = 0;
@@ -1295,8 +1372,8 @@ function boardFromPlacements(placements: ShipPlacement[]): InternalBoard {
           (placement.orientation === "HORIZONTAL" ? offset : 0),
       };
       if (
-        cell.row >= BALANCE.manifest.boardSize ||
-        cell.col >= BALANCE.manifest.boardSize
+        cell.row >= balance.manifest.boardSize ||
+        cell.col >= balance.manifest.boardSize
       ) {
         throw new DomainError("PLACEMENT_OUT_OF_BOUNDS");
       }
@@ -1312,15 +1389,18 @@ function boardFromPlacements(placements: ShipPlacement[]): InternalBoard {
   return { ships, attacksReceived: [] };
 }
 
-function validateCoordinate(coordinate: Coordinate): void {
+function validateCoordinate(
+  coordinate: Coordinate,
+  balance: BalancePin = BALANCE,
+): void {
   if (
     !coordinate ||
     !Number.isInteger(coordinate.row) ||
     !Number.isInteger(coordinate.col) ||
     coordinate.row < 0 ||
     coordinate.col < 0 ||
-    coordinate.row >= BALANCE.manifest.boardSize ||
-    coordinate.col >= BALANCE.manifest.boardSize
+    coordinate.row >= balance.manifest.boardSize ||
+    coordinate.col >= balance.manifest.boardSize
   ) {
     throw new DomainError("INVALID_COORDINATE");
   }
@@ -1334,8 +1414,9 @@ function shotsFor(
   boards: Record<string, InternalBoard>,
   playerId: string,
   mode: MatchRules["mode"],
+  balance: BalancePin = BALANCE,
 ): number {
-  if (mode !== "SALVO") return BALANCE.manifest.classicShotsPerTurn;
+  if (mode !== "SALVO") return balance.manifest.classicShotsPerTurn;
   return Math.max(
     1,
     boards[playerId]?.ships.filter(
@@ -1347,12 +1428,16 @@ function shotsFor(
   );
 }
 
-function resolvedTurnDuration(rules: MatchRules, fallback: number): number {
+function resolvedTurnDuration(
+  rules: MatchRules,
+  fallback: number,
+  balance: BalancePin = BALANCE,
+): number {
   return rules.mode === "RAPID"
-    ? BALANCE.manifest.rapidTurnDurationSeconds
+    ? balance.manifest.rapidTurnDurationSeconds
     : Math.min(
         rules.turnDurationSeconds ?? fallback,
-        BALANCE.manifest.maximumTurnDurationSeconds,
+        balance.manifest.maximumTurnDurationSeconds,
       );
 }
 
@@ -1361,6 +1446,7 @@ function startTurn(game: InternalGame, now: string): void {
     game.boards,
     game.currentPlayerId,
     game.mode,
+    gameBalance(game),
   );
   game.turnStartedAt = now;
   game.turnDeadlineAt = deadline(now, game.turnDurationSeconds);
